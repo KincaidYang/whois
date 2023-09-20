@@ -31,6 +31,12 @@ type DomainInfo struct {
 	LastUpdateOfRDAPDB string   `json:"Last Update of RDAP Database"`
 }
 
+// 将 whois 报文转换为DomainInfo结构体
+var whoisParsers = map[string]func(string, string) (DomainInfo, error){
+	"cn": parseWhoisResponseCN,
+	// ...为其他 TLD 添加解析函数...
+}
+
 var (
 	// 用于限制并发请求数的缓冲通道
 	concurrencyLimiter = make(chan struct{}, 50) // 限制最多同时处理 50 个请求
@@ -208,9 +214,30 @@ func handler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			result = string(resultBytes)
+			w.Header().Set("Content-Type", "application/json")
 		}
 	} else if _, ok := tldToWhoisServer[tld]; ok {
 		result, err = whois(domain)
+		if err == nil {
+			// 使用 TLD 对应的解析函数解析 WHOIS 数据
+			if parseFunc, ok := whoisParsers[tld]; ok {
+				domainInfo, err := parseFunc(result, domain)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				resultBytes, err := json.Marshal(domainInfo)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+				result = string(resultBytes)
+				w.Header().Set("Content-Type", "application/json")
+			} else {
+				http.Error(w, "No WHOIS parser available for TLD: "+tld, http.StatusInternalServerError)
+				return
+			}
+		}
 	} else {
 		http.Error(w, "No WHOIS or RDAP server known for TLD: "+tld, http.StatusInternalServerError)
 		return
