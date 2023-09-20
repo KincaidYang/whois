@@ -3,6 +3,8 @@ package main
 
 var tldToWhoisServer = map[string]string{
 	"cn":                       "whois.cnnic.cn",
+	"com.cn":                   "whois.cnnic.cn",
+	"org.cn":                   "whois.cnnic.cn",
 	"aarp":                     "whois.nic.aarp",
 	"abarth":                   "whois.afilias-srs.net",
 	"abbott":                   "whois.afilias-srs.net",

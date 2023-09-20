@@ -15,6 +15,7 @@ import (
 
 	"github.com/patrickmn/go-cache"
 	"golang.org/x/net/idna"
+	"golang.org/x/net/publicsuffix"
 )
 
 type DomainInfo struct {
@@ -53,12 +54,14 @@ var (
 	}
 )
 
-func whois(domain string) (string, error) {
-	tld := strings.Split(domain, ".")[1]
+func whois(domain, tld string) (string, error) {
 	whoisServer, ok := tldToWhoisServer[tld]
 	if !ok {
 		return "", fmt.Errorf("no Whois server known for TLD: %s", tld)
 	}
+
+	// 记录 WHOIS 查询时的请求日志
+	log.Printf("Querying WHOIS for domain: %s with TLD: %s on server: %s\n", domain, tld, whoisServer)
 
 	conn, err := net.Dial("tcp", whoisServer+":43")
 	if err != nil {
@@ -76,8 +79,7 @@ func whois(domain string) (string, error) {
 	return buf.String(), nil
 }
 
-func rdapQuery(domain string) (string, error) {
-	tld := strings.Split(domain, ".")[1]
+func rdapQuery(domain, tld string) (string, error) {
 	rdapServer, ok := tldToRdapServer[tld]
 	if !ok {
 		return "", fmt.Errorf("no RDAP server known for TLD: %s", tld)
@@ -187,8 +189,14 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 	domain = punycodeDomain
 
-	// 重新获取顶级域
-	tld := strings.Split(domain, ".")[1]
+	// 使用 publicsuffix 库获取顶级域
+	tld, _ := publicsuffix.PublicSuffix(domain)
+
+	// 如果结果不符合预期（例如 "com.cn"），则从右向左读取域名，将第一个点右边的部分作为 TLD
+	if strings.Contains(tld, ".") {
+		parts := strings.Split(domain, ".")
+		tld = parts[len(parts)-1]
+	}
 
 	// 从缓存中获取查询结果
 	if result, found := domainCache.Get(domain); found {
@@ -204,7 +212,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	var result string
 
 	if _, ok := tldToRdapServer[tld]; ok {
-		result, err = rdapQuery(domain)
+		result, err = rdapQuery(domain, tld)
 		if err == nil {
 			domainInfo, err := parseRDAPResponse(result)
 			if err != nil {
@@ -220,7 +228,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 		}
 	} else if _, ok := tldToWhoisServer[tld]; ok {
-		result, err = whois(domain)
+		result, err = whois(domain, tld)
 		if err == nil {
 			// 使用 TLD 对应的解析函数解析 WHOIS 数据
 			if parseFunc, ok := whoisParsers[tld]; ok {
