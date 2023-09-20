@@ -28,12 +28,15 @@ type DomainInfo struct {
 	NameServer         []string `json:"Name Server"`
 	DNSSec             string   `json:"DNSSEC"`
 	DNSSecDSData       string   `json:"DNSSEC DS Data"`
-	LastUpdateOfRDAPDB string   `json:"Last Update of RDAP Database"`
+	LastUpdateOfRDAPDB string   `json:"Last Update of Database"`
 }
 
 // 将 whois 报文转换为DomainInfo结构体
 var whoisParsers = map[string]func(string, string) (DomainInfo, error){
-	"cn": parseWhoisResponseCN,
+	"cn":          parseWhoisResponseCN,
+	"hk":          parseWhoisResponseHK,
+	"xn--j6w193g": parseWhoisResponseHK,
+	"co":          parseWhoisResponseCO,
 	// ...为其他 TLD 添加解析函数...
 }
 
@@ -234,8 +237,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 				result = string(resultBytes)
 				w.Header().Set("Content-Type", "application/json")
 			} else {
-				http.Error(w, "No WHOIS parser available for TLD: "+tld, http.StatusInternalServerError)
-				return
+				// 如果没有可用的解析规则，返回原始 WHOIS 数据
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			}
 		}
 	} else {
@@ -256,7 +259,6 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	// 将查询结果存入缓存
 	domainCache.Set(domain, result, 5*time.Minute)
 
-	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprint(w, result)
 }
 
