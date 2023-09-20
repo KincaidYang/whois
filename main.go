@@ -167,6 +167,9 @@ func parseRDAPResponse(response string) (DomainInfo, error) {
 func handler(w http.ResponseWriter, r *http.Request) {
 	domain := strings.TrimPrefix(r.URL.Path, "/")
 
+	// 将域名转换为小写
+	domain = strings.ToLower(domain)
+
 	// 将域名转换为 Punycode 编码（支持 IDN 域名）
 	punycodeDomain, err := idna.ToASCII(domain)
 	if err != nil {
