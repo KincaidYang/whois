@@ -120,55 +120,73 @@ func parseRDAPResponse(response string) (DomainInfo, error) {
 	}
 
 	domainInfo := DomainInfo{}
-	domainInfo.DomainName = result["ldhName"].(string)
-	domainInfo.DomainStatus = make([]string, len(result["status"].([]interface{})))
-	for i, status := range result["status"].([]interface{}) {
-		domainInfo.DomainStatus[i] = status.(string)
+
+	if ldhName, ok := result["ldhName"]; ok {
+		domainInfo.DomainName = ldhName.(string)
 	}
 
-	for _, entity := range result["entities"].([]interface{}) {
-		if roles, ok := entity.(map[string]interface{})["roles"]; ok {
-			for _, role := range roles.([]interface{}) {
-				if role.(string) == "registrar" {
-					registrarEntity := entity.(map[string]interface{})
-					domainInfo.Registrar = registrarEntity["vcardArray"].([]interface{})[1].([]interface{})[1].([]interface{})[3].(string)
-					domainInfo.RegistrarIANAID = registrarEntity["publicIds"].([]interface{})[0].(map[string]interface{})["identifier"].(string)
-					break
+	if status, ok := result["status"]; ok {
+		domainInfo.DomainStatus = make([]string, len(status.([]interface{})))
+		for i, s := range status.([]interface{}) {
+			domainInfo.DomainStatus[i] = s.(string)
+		}
+	}
+
+	if entities, ok := result["entities"]; ok {
+		for _, entity := range entities.([]interface{}) {
+			if roles, ok := entity.(map[string]interface{})["roles"]; ok {
+				for _, role := range roles.([]interface{}) {
+					if role.(string) == "registrar" {
+						registrarEntity := entity.(map[string]interface{})
+						if vcardArray, ok := registrarEntity["vcardArray"]; ok {
+							domainInfo.Registrar = vcardArray.([]interface{})[1].([]interface{})[1].([]interface{})[3].(string)
+						}
+						if publicIds, ok := registrarEntity["publicIds"]; ok {
+							domainInfo.RegistrarIANAID = publicIds.([]interface{})[0].(map[string]interface{})["identifier"].(string)
+						}
+						break
+					}
 				}
 			}
 		}
 	}
 
-	for _, event := range result["events"].([]interface{}) {
-		eventInfo := event.(map[string]interface{})
-		switch eventInfo["eventAction"].(string) {
-		case "registration":
-			domainInfo.CreationDate = eventInfo["eventDate"].(string)
-		case "expiration":
-			domainInfo.RegistryExpiryDate = eventInfo["eventDate"].(string)
-		case "last changed":
-			domainInfo.UpdatedDate = eventInfo["eventDate"].(string)
-		case "last update of RDAP database":
-			domainInfo.LastUpdateOfRDAPDB = eventInfo["eventDate"].(string)
+	if events, ok := result["events"]; ok {
+		for _, event := range events.([]interface{}) {
+			eventInfo := event.(map[string]interface{})
+			switch eventInfo["eventAction"].(string) {
+			case "registration":
+				domainInfo.CreationDate = eventInfo["eventDate"].(string)
+			case "expiration":
+				domainInfo.RegistryExpiryDate = eventInfo["eventDate"].(string)
+			case "last changed":
+				domainInfo.UpdatedDate = eventInfo["eventDate"].(string)
+			case "last update of RDAP database":
+				domainInfo.LastUpdateOfRDAPDB = eventInfo["eventDate"].(string)
+			}
 		}
 	}
 
-	domainInfo.NameServer = make([]string, len(result["nameservers"].([]interface{})))
-	for i, ns := range result["nameservers"].([]interface{}) {
-		domainInfo.NameServer[i] = ns.(map[string]interface{})["ldhName"].(string)
+	if nameservers, ok := result["nameservers"]; ok {
+		domainInfo.NameServer = make([]string, len(nameservers.([]interface{})))
+		for i, ns := range nameservers.([]interface{}) {
+			domainInfo.NameServer[i] = ns.(map[string]interface{})["ldhName"].(string)
+		}
 	}
 
 	domainInfo.DNSSec = "unsigned"
-	if result["secureDNS"].(map[string]interface{})["delegationSigned"].(bool) {
-		domainInfo.DNSSec = "signedDelegation"
-		if dsData, ok := result["secureDNS"].(map[string]interface{})["dsData"].([]interface{}); ok && len(dsData) > 0 {
-			dsDataInfo := dsData[0].(map[string]interface{})
-			domainInfo.DNSSecDSData = fmt.Sprintf("%d %d %d %s",
-				int(dsDataInfo["keyTag"].(float64)),
-				int(dsDataInfo["algorithm"].(float64)),
-				int(dsDataInfo["digestType"].(float64)),
-				dsDataInfo["digest"].(string),
-			)
+	if secureDNS, ok := result["secureDNS"]; ok {
+		if delegationSigned, ok := secureDNS.(map[string]interface{})["delegationSigned"]; ok && delegationSigned.(bool) {
+			domainInfo.DNSSec = "signedDelegation"
+			if dsData, ok := secureDNS.(map[string]interface{})["dsData"].([]interface{}); ok && len(dsData) > 0 {
+				dsDataInfo := dsData[0].(map[string]interface{})
+				domainInfo.DNSSecDSData = fmt.Sprintf("%d %d %d %s",
+					int(dsDataInfo["keyTag"].(float64)),
+					int(dsDataInfo["algorithm"].(float64)),
+					int(dsDataInfo["digestType"].(float64)),
+					dsDataInfo["digest"].(string),
+				)
+			}
 		}
 	}
 
@@ -213,20 +231,30 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	if _, ok := tldToRdapServer[tld]; ok {
 		result, err = rdapQuery(domain, tld)
-		if err == nil {
-			domainInfo, err := parseRDAPResponse(result)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			resultBytes, err := json.Marshal(domainInfo)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			result = string(resultBytes)
+		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
+			if errors.Is(err, errors.New("domain not found")) {
+				w.WriteHeader(http.StatusOK) // 设置状态码为 200
+				fmt.Fprint(w, `{"error": "Domain not found"}`)
+			} else {
+				w.WriteHeader(http.StatusOK) // 设置状态码为 200
+				fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
+			}
+			return
 		}
+		domainInfo, err := parseRDAPResponse(result)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		resultBytes, err := json.Marshal(domainInfo)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		result = string(resultBytes)
+		w.Header().Set("Content-Type", "application/json")
+
 	} else if _, ok := tldToWhoisServer[tld]; ok {
 		result, err = whois(domain, tld)
 		if err == nil {
@@ -251,16 +279,6 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		http.Error(w, "No WHOIS or RDAP server known for TLD: "+tld, http.StatusInternalServerError)
-		return
-	}
-
-	if err != nil {
-		if errors.Is(err, errors.New("domain not found")) {
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"error": "Domain not found"}`)
-			return
-		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
