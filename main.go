@@ -303,8 +303,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	http.HandleFunc("/", handler)
-	fmt.Println("Server is listening on port 8080...")
-	err := http.ListenAndServe(":8080", nil)
+	fmt.Println("Server is listening on port 8043...")
+	err := http.ListenAndServe(":8043", nil)
 	if err != nil {
 		fmt.Println("Server failed to start:", err)
 		os.Exit(1)
