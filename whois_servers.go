@@ -2,7 +2,6 @@
 package main
 
 var tldToWhoisServer = map[string]string{
-	"cn":                       "whois.cnnic.cn",
 	"aarp":                     "whois.nic.aarp",
 	"abarth":                   "whois.afilias-srs.net",
 	"abbott":                   "whois.afilias-srs.net",
@@ -224,6 +223,7 @@ var tldToWhoisServer = map[string]string{
 	"club":                     "whois.nic.club",
 	"clubmed":                  "whois.nic.clubmed",
 	"cm":                       "whois.netcom.cm",
+	"cn":                       "whois.cnnic.cn",
 	"co":                       "whois.nic.co",
 	"coach":                    "whois.nic.coach",
 	"codes":                    "whois.nic.codes",
@@ -806,7 +806,7 @@ var tldToWhoisServer = map[string]string{
 	"origins":                  "whois.nic.origins",
 	"osaka":                    "whois.nic.osaka",
 	"ott":                      "whois.nic.ott",
-	"ovh":                      "whois-ovh.nic.fr",
+	"ovh":                      "whois.ovh.com",
 	"page":                     "whois.nic.google",
 	"panasonic":                "whois.nic.gmo",
 	"paris":                    "whois-paris.nic.fr",
@@ -1095,7 +1095,7 @@ var tldToWhoisServer = map[string]string{
 	"tui":                      "whois.nic.tui",
 	"tunes":                    "whois.nic.tunes",
 	"tushu":                    "whois.nic.tushu",
-	"tv":                       "tvwhois.verisign-grs.com",
+	"tv":                       "whois.nic.tv",
 	"tvs":                      "whois.nic.tvs",
 	"tw":                       "whois.twnic.net.tw",
 	"tz":                       "whois.tznic.or.tz",
