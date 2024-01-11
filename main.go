@@ -176,17 +176,24 @@ func parseRDAPResponse(response string) (DomainInfo, error) {
 
 	domainInfo.DNSSec = "unsigned"
 	if secureDNS, ok := result["secureDNS"]; ok {
-		if delegationSigned, ok := secureDNS.(map[string]interface{})["delegationSigned"]; ok && delegationSigned.(bool) {
+		if dsData, ok := secureDNS.(map[string]interface{})["dsData"].([]interface{}); ok && len(dsData) > 0 {
+			dsDataInfo := dsData[0].(map[string]interface{})
 			domainInfo.DNSSec = "signedDelegation"
-			if dsData, ok := secureDNS.(map[string]interface{})["dsData"].([]interface{}); ok && len(dsData) > 0 {
-				dsDataInfo := dsData[0].(map[string]interface{})
-				domainInfo.DNSSecDSData = fmt.Sprintf("%d %d %d %s",
-					int(dsDataInfo["keyTag"].(float64)),
-					int(dsDataInfo["algorithm"].(float64)),
-					int(dsDataInfo["digestType"].(float64)),
-					dsDataInfo["digest"].(string),
-				)
-			}
+			domainInfo.DNSSecDSData = fmt.Sprintf("%d %d %d %s",
+				int(dsDataInfo["keyTag"].(float64)),
+				int(dsDataInfo["algorithm"].(float64)),
+				int(dsDataInfo["digestType"].(float64)),
+				dsDataInfo["digest"].(string),
+			)
+		} else if keyData, ok := secureDNS.(map[string]interface{})["keyData"].([]interface{}); ok && len(keyData) > 0 {
+			keyDataInfo := keyData[0].(map[string]interface{})
+			domainInfo.DNSSec = "signedDelegation"
+			domainInfo.DNSSecDSData = fmt.Sprintf("%d %d %d %s",
+				int(keyDataInfo["algorithm"].(float64)),
+				int(keyDataInfo["flags"].(float64)),
+				int(keyDataInfo["protocol"].(float64)),
+				keyDataInfo["publicKey"].(string),
+			)
 		}
 	}
 
