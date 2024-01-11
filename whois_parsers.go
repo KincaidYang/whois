@@ -59,8 +59,6 @@ func parseWhoisResponseCN(response string, domain string) (DomainInfo, error) {
 		}
 	}
 
-	// ...您可以根据需要解析其他信息...
-
 	return domainInfo, nil
 }
 func parseWhoisResponseHK(response string, domain string) (DomainInfo, error) {
@@ -115,21 +113,18 @@ func parseWhoisResponseHK(response string, domain string) (DomainInfo, error) {
 		domainInfo.DomainStatus = []string{matchDomainStatus[1]}
 	}
 
-	// ...您可以根据需要解析其他信息...
-
 	return domainInfo, nil
 }
-func parseWhoisResponseCO(response string, domain string) (DomainInfo, error) {
+
+func parseWhoisResponseTW(response string, domain string) (DomainInfo, error) {
 	var domainInfo DomainInfo
 	domainInfo.DomainName = domain
 
 	// 使用正则表达式匹配 WHOIS 数据中的相关信息
-	reCreationDate := regexp.MustCompile(`Creation Date: (.*)`)
-	reExpiryDate := regexp.MustCompile(`Registry Expiry Date: (.*)`)
-	reUpdatedDate := regexp.MustCompile(`Updated Date: (.*)`)
-	reNameServer := regexp.MustCompile(`Name Server: (.*)`)
-	reDNSSEC := regexp.MustCompile(`DNSSEC: (.*)`)
-	reRegistrar := regexp.MustCompile(`Registrar: (.*)`)
+	reCreationDate := regexp.MustCompile(`Record created on ([0-9]{4}-[0-9]{2}-[0-9]{2})`)
+	reExpiryDate := regexp.MustCompile(`Record expires on ([0-9]{4}-[0-9]{2}-[0-9]{2})`)
+	reNameServer := regexp.MustCompile(`(?s)Domain servers in listed order:\n\s+(.*?)\n\n`)
+	reRegistrar := regexp.MustCompile(`Registration Service Provider: (.*)`)
 	reDomainStatus := regexp.MustCompile(`Domain Status: (.*)`)
 
 	// 解析创建日期
@@ -144,25 +139,14 @@ func parseWhoisResponseCO(response string, domain string) (DomainInfo, error) {
 		domainInfo.RegistryExpiryDate = strings.TrimSpace(matchExpiryDate[1])
 	}
 
-	// 解析更新日期
-	matchUpdatedDate := reUpdatedDate.FindStringSubmatch(response)
-	if len(matchUpdatedDate) > 1 {
-		domainInfo.UpdatedDate = strings.TrimSpace(matchUpdatedDate[1])
-	}
-
 	// 解析名称服务器
-	matchNameServers := reNameServer.FindAllStringSubmatch(response, -1)
-	if len(matchNameServers) > 0 {
-		domainInfo.NameServer = make([]string, len(matchNameServers))
-		for i, match := range matchNameServers {
-			domainInfo.NameServer[i] = strings.TrimSpace(match[1])
+	matchNameServers := reNameServer.FindStringSubmatch(response)
+	if len(matchNameServers) > 1 {
+		servers := strings.Split(strings.TrimSpace(matchNameServers[1]), "\n")
+		domainInfo.NameServer = make([]string, len(servers))
+		for i, server := range servers {
+			domainInfo.NameServer[i] = strings.TrimSpace(server)
 		}
-	}
-
-	// 解析 DNSSEC
-	matchDNSSEC := reDNSSEC.FindStringSubmatch(response)
-	if len(matchDNSSEC) > 1 {
-		domainInfo.DNSSec = strings.TrimSpace(matchDNSSEC[1])
 	}
 
 	// 解析注册商
@@ -179,8 +163,6 @@ func parseWhoisResponseCO(response string, domain string) (DomainInfo, error) {
 			domainInfo.DomainStatus[i] = strings.TrimSpace(match[1])
 		}
 	}
-
-	// ...您可以根据需要解析其他信息...
 
 	return domainInfo, nil
 }
