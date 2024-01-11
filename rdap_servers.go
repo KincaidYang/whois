@@ -1174,5 +1174,8 @@ var tldToRdapServer = map[string]string{
 	"me": "https://rdap.identitydigital.services/rdap/",
 	"co": "https://rdap.nic.co/",
 	"de": "https://rdap.denic.de/",
+	"io": "https://rdap.donuts.co/rdap/",
+	"my": "https://rdap.mynic.my/rdap/",
+
 	// 添加更多TLD到RDAP server的映射
 }

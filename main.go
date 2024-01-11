@@ -38,6 +38,12 @@ var whoisParsers = map[string]func(string, string) (DomainInfo, error){
 	"hk":          parseWhoisResponseHK,
 	"xn--j6w193g": parseWhoisResponseHK,
 	"tw":          parseWhoisResponseTW,
+	"so":          parseWhoisResponseSO,
+	"sb":          parseWhoisResponseSB,
+	"sg":          parseWhoisResponseSG,
+	"mo":          parseWhoisResponseMO,
+	"ru":          parseWhoisResponseRU,
+	"su":          parseWhoisResponseRU,
 	// ...为其他 TLD 添加解析函数...
 }
 
