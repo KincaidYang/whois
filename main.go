@@ -43,6 +43,8 @@ type Config struct {
 		DB       int    `json:"db"`
 	} `json:"redis"`
 	CacheExpiration int `json:"cacheExpiration"`
+	Port            int `json:"port"`
+	RateLimit       int `json:"rateLimit"`
 }
 
 // 将 whois 报文转换为DomainInfo结构体
@@ -61,22 +63,21 @@ var whoisParsers = map[string]func(string, string) (DomainInfo, error){
 }
 
 var (
-	// 用于限制并发请求数的缓冲通道
-	concurrencyLimiter = make(chan struct{}, 50) // 限制最多同时处理 50 个请求
-
 	// Redis 客户端
 	redisClient *redis.Client
-
 	// 缓存时间
 	cacheExpiration time.Duration
-
 	// http.Client 用于设置 rdapQuery 的超时时间
 	httpClient = &http.Client{
 		Timeout: 10 * time.Second,
 	}
-
 	// WaitGroup 用于等待所有 goroutine 结束
 	wg sync.WaitGroup
+	// Port 用于设置服务器监听的端口
+	port int
+	// RateLimit 用于设置并发请求数
+	rateLimit          int
+	concurrencyLimiter chan struct{}
 )
 
 func init() {
@@ -105,6 +106,13 @@ func init() {
 
 	// 设置缓存过期时间
 	cacheExpiration = time.Duration(config.CacheExpiration) * time.Second
+
+	// 设置服务器监听的端口
+	port = config.Port
+
+	// 设置并发请求数
+	rateLimit = config.RateLimit
+	concurrencyLimiter = make(chan struct{}, rateLimit)
 }
 
 func whois(domain, tld string) (string, error) {
@@ -294,6 +302,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if len(concurrencyLimiter) == rateLimit {
+		log.Printf("Rate limit reached, waiting for a slot to become available...\n")
+	}
 	concurrencyLimiter <- struct{}{} // 请求并发限制
 	wg.Add(1)
 	defer func() {
@@ -379,8 +390,8 @@ func main() {
 
 	http.HandleFunc("/", handler)
 	go func() {
-		fmt.Println("Server is listening on port 8043...")
-		err := http.ListenAndServe(":8043", nil)
+		fmt.Printf("Server is listening on port %d...\n", port)
+		err := http.ListenAndServe(fmt.Sprintf(":%d", port), nil)
 		if err != nil {
 			fmt.Println("Server failed to start:", err)
 			os.Exit(1)
