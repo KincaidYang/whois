@@ -4,5 +4,7 @@
         "password": "",
         "db": 0
     },
-    "cacheExpiration": 3600
+    "cacheExpiration": 3600,
+    "port": 8043,
+    "rateLimit": 50
 }
