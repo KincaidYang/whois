@@ -11,7 +11,10 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -71,6 +74,9 @@ var (
 	httpClient = &http.Client{
 		Timeout: 10 * time.Second,
 	}
+
+	// WaitGroup 用于等待所有 goroutine 结束
+	wg sync.WaitGroup
 )
 
 func init() {
@@ -79,7 +85,7 @@ func init() {
 	// 读取配置文件
 	configFile, err := os.Open("config.json")
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to open configuration file: %v", err)
 	}
 	defer configFile.Close()
 
@@ -87,7 +93,7 @@ func init() {
 	decoder := json.NewDecoder(configFile)
 	err = decoder.Decode(&config)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Failed to decode JSON from configuration file: %v", err)
 	}
 
 	// 初始化 Redis 客户端
@@ -289,7 +295,11 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	concurrencyLimiter <- struct{}{} // 请求并发限制
-	defer func() { <-concurrencyLimiter }()
+	wg.Add(1)
+	defer func() {
+		wg.Done()
+		<-concurrencyLimiter
+	}()
 
 	var queryResult string
 
@@ -368,10 +378,24 @@ func main() {
 	checkRedisConnection()
 
 	http.HandleFunc("/", handler)
-	fmt.Println("Server is listening on port 8043...")
-	err := http.ListenAndServe(":8043", nil)
-	if err != nil {
-		fmt.Println("Server failed to start:", err)
-		os.Exit(1)
-	}
+	go func() {
+		fmt.Println("Server is listening on port 8043...")
+		err := http.ListenAndServe(":8043", nil)
+		if err != nil {
+			fmt.Println("Server failed to start:", err)
+			os.Exit(1)
+		}
+	}()
+
+	// 增加一个信号监听，当接收到关闭信号时，先等待所有查询完成，再关闭服务器
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	<-sigCh
+
+	log.Println("Received shutdown signal, waiting for all queries to complete...")
+	wg.Wait()
+
+	log.Println("All queries completed. Shutting down server...")
+	redisClient.Close()
+	os.Exit(0)
 }
