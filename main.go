@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/patrickmn/go-cache"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/idna"
 	"golang.org/x/net/publicsuffix"
 )
@@ -30,6 +31,15 @@ type DomainInfo struct {
 	DNSSec             string   `json:"DNSSEC"`
 	DNSSecDSData       string   `json:"DNSSEC DS Data"`
 	LastUpdateOfRDAPDB string   `json:"Last Update of Database"`
+}
+
+type Config struct {
+	Redis struct {
+		Addr     string `json:"addr"`
+		Password string `json:"password"`
+		DB       int    `json:"db"`
+	} `json:"redis"`
+	CacheExpiration int `json:"cacheExpiration"`
 }
 
 // 将 whois 报文转换为DomainInfo结构体
@@ -51,14 +61,45 @@ var (
 	// 用于限制并发请求数的缓冲通道
 	concurrencyLimiter = make(chan struct{}, 50) // 限制最多同时处理 50 个请求
 
-	// 用于缓存查询结果的
-	domainCache = cache.New(5*time.Minute, 10*time.Minute)
+	// Redis 客户端
+	redisClient *redis.Client
+
+	// 缓存时间
+	cacheExpiration time.Duration
 
 	// http.Client 用于设置 rdapQuery 的超时时间
 	httpClient = &http.Client{
 		Timeout: 10 * time.Second,
 	}
 )
+
+func init() {
+	var config Config
+
+	// 读取配置文件
+	configFile, err := os.Open("config.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer configFile.Close()
+
+	// 解析配置文件
+	decoder := json.NewDecoder(configFile)
+	err = decoder.Decode(&config)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// 初始化 Redis 客户端
+	redisClient = redis.NewClient(&redis.Options{
+		Addr:     config.Redis.Addr,
+		Password: config.Redis.Password,
+		DB:       config.Redis.DB,
+	})
+
+	// 设置缓存过期时间
+	cacheExpiration = time.Duration(config.CacheExpiration) * time.Second
+}
 
 func whois(domain, tld string) (string, error) {
 	whoisServer, ok := tldToWhoisServer[tld]
@@ -207,6 +248,8 @@ func parseRDAPResponse(response string) (DomainInfo, error) {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+
 	domain := strings.TrimPrefix(r.URL.Path, "/")
 
 	// 将域名转换为小写
@@ -234,20 +277,24 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 从缓存中获取查询结果
-	if result, found := domainCache.Get(domain); found {
+	cacheResult, err := redisClient.Get(ctx, domain).Result()
+	if err == nil {
 		log.Printf("Serving cached result for domain: %s\n", domain)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, result)
+		fmt.Fprint(w, cacheResult)
+		return
+	} else if err != redis.Nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
 	concurrencyLimiter <- struct{}{} // 请求并发限制
 	defer func() { <-concurrencyLimiter }()
 
-	var result string
+	var queryResult string
 
 	if _, ok := tldToRdapServer[tld]; ok {
-		result, err = rdapQuery(domain, tld)
+		queryResult, err = rdapQuery(domain, tld)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			if errors.Is(err, errors.New("domain not found")) {
@@ -259,7 +306,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		domainInfo, err := parseRDAPResponse(result)
+		domainInfo, err := parseRDAPResponse(queryResult)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -269,15 +316,15 @@ func handler(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		result = string(resultBytes)
+		queryResult = string(resultBytes)
 		w.Header().Set("Content-Type", "application/json")
 
 	} else if _, ok := tldToWhoisServer[tld]; ok {
-		result, err = whois(domain, tld)
+		queryResult, err = whois(domain, tld)
 		if err == nil {
 			// 使用 TLD 对应的解析函数解析 WHOIS 数据
 			if parseFunc, ok := whoisParsers[tld]; ok {
-				domainInfo, err := parseFunc(result, domain)
+				domainInfo, err := parseFunc(queryResult, domain)
 				if err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
@@ -287,7 +334,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
-				result = string(resultBytes)
+				queryResult = string(resultBytes)
 				w.Header().Set("Content-Type", "application/json")
 			} else {
 				// 如果没有可用的解析规则，返回原始 WHOIS 数据
@@ -300,12 +347,26 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 将查询结果存入缓存
-	domainCache.Set(domain, result, 5*time.Minute)
+	err = redisClient.Set(ctx, domain, queryResult, cacheExpiration).Err()
+	if err != nil {
+		log.Printf("Failed to cache result for domain: %s\n", domain)
+	}
 
-	fmt.Fprint(w, result)
+	fmt.Fprint(w, queryResult)
+}
+
+func checkRedisConnection() {
+	ctx := context.Background()
+	_, err := redisClient.Ping(ctx).Result()
+	if err != nil {
+		log.Fatal("Failed to connect to Redis:", err)
+	}
 }
 
 func main() {
+	// Check Redis Connection
+	checkRedisConnection()
+
 	http.HandleFunc("/", handler)
 	fmt.Println("Server is listening on port 8043...")
 	err := http.ListenAndServe(":8043", nil)
