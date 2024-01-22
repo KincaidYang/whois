@@ -285,13 +285,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	domain = mainDomain
 
 	// 如果结果不符合预期（例如 "com.cn"），则从右向左读取域名，将第一个点右边的部分作为 TLD
-	if strings.Contains(tld, ".") {
-		parts := strings.Split(mainDomain, ".")
-		tld = parts[len(parts)-1]
-	}
-
-	// 从缓存中获取查询结果
-	cacheResult, err := redisClient.Get(ctx, domain).Result()
+	cacheKeyPrefix := "whois:"
+	key := fmt.Sprintf("%s%s", cacheKeyPrefix, domain)
+	cacheResult, err := redisClient.Get(ctx, key).Result()
 	if err == nil {
 		log.Printf("Serving cached result for domain: %s\n", domain)
 		w.Header().Set("Content-Type", "application/json")
@@ -368,7 +364,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 将查询结果存入缓存
-	err = redisClient.Set(ctx, domain, queryResult, cacheExpiration).Err()
+	key = fmt.Sprintf("%s%s", cacheKeyPrefix, domain)
+	err = redisClient.Set(ctx, key, queryResult, cacheExpiration).Err()
 	if err != nil {
 		log.Printf("Failed to cache result for domain: %s\n", domain)
 	}
