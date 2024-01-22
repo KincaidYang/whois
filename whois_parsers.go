@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 )
@@ -59,6 +60,10 @@ func parseWhoisResponseCN(response string, domain string) (DomainInfo, error) {
 		}
 	}
 
+	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+		return DomainInfo{}, errors.New("domain not found")
+	}
+
 	return domainInfo, nil
 }
 func parseWhoisResponseHK(response string, domain string) (DomainInfo, error) {
@@ -113,6 +118,10 @@ func parseWhoisResponseHK(response string, domain string) (DomainInfo, error) {
 		domainInfo.DomainStatus = []string{matchDomainStatus[1]}
 	}
 
+	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+		return DomainInfo{}, errors.New("domain not found")
+	}
+
 	return domainInfo, nil
 }
 
@@ -162,6 +171,10 @@ func parseWhoisResponseTW(response string, domain string) (DomainInfo, error) {
 		for i, match := range matchDomainStatuses {
 			domainInfo.DomainStatus[i] = strings.TrimSpace(match[1])
 		}
+	}
+
+	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+		return DomainInfo{}, errors.New("domain not found")
 	}
 
 	return domainInfo, nil
@@ -241,6 +254,10 @@ func parseWhoisResponseSO(response string, domain string) (DomainInfo, error) {
 		domainInfo.DNSSecDSData = matchDNSSecDSData[1]
 	}
 
+	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+		return DomainInfo{}, errors.New("domain not found")
+	}
+
 	return domainInfo, nil
 }
 func parseWhoisResponseSG(response string, domain string) (DomainInfo, error) {
@@ -303,6 +320,10 @@ func parseWhoisResponseSG(response string, domain string) (DomainInfo, error) {
 		for i, match := range matchDomainStatuses {
 			domainInfo.DomainStatus[i] = strings.TrimRight(match[1], "\r")
 		}
+	}
+
+	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+		return DomainInfo{}, errors.New("domain not found")
 	}
 
 	return domainInfo, nil
@@ -382,6 +403,10 @@ func parseWhoisResponseSB(response string, domain string) (DomainInfo, error) {
 		domainInfo.DNSSecDSData = matchDNSSecDSData[1]
 	}
 
+	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+		return DomainInfo{}, errors.New("domain not found")
+	}
+
 	return domainInfo, nil
 }
 func parseWhoisResponseMO(response string, domain string) (DomainInfo, error) {
@@ -413,6 +438,10 @@ func parseWhoisResponseMO(response string, domain string) (DomainInfo, error) {
 		for i, ns := range nameServers {
 			domainInfo.NameServer[i] = strings.TrimSpace(ns)
 		}
+	}
+
+	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+		return DomainInfo{}, errors.New("domain not found")
 	}
 
 	return domainInfo, nil
@@ -455,6 +484,10 @@ func parseWhoisResponseRU(response string, domain string) (DomainInfo, error) {
 		for i, match := range matchDomainStatuses {
 			domainInfo.DomainStatus[i] = match[1]
 		}
+	}
+
+	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+		return DomainInfo{}, errors.New("domain not found")
 	}
 
 	return domainInfo, nil

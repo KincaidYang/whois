@@ -146,6 +146,9 @@ func rdapQuery(domain, tld string) (string, error) {
 		return "", fmt.Errorf("no RDAP server known for TLD: %s", tld)
 	}
 
+	// 记录 RDAP 查询时的请求日志
+	log.Printf("Querying RDAP for domain: %s with TLD: %s on server: %s\n", domain, tld, rdapServer)
+
 	req, err := http.NewRequest("GET", rdapServer+"domain/"+domain, nil)
 	if err != nil {
 		return "", err
@@ -338,26 +341,41 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	} else if _, ok := tldToWhoisServer[tld]; ok {
 		queryResult, err = whois(domain, tld)
-		if err == nil {
-			// 使用 TLD 对应的解析函数解析 WHOIS 数据
-			if parseFunc, ok := whoisParsers[tld]; ok {
-				domainInfo, err := parseFunc(queryResult, domain)
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				resultBytes, err := json.Marshal(domainInfo)
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				queryResult = string(resultBytes)
-				w.Header().Set("Content-Type", "application/json")
-			} else {
-				// 如果没有可用的解析规则，返回原始 WHOIS 数据
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			}
+		if err != nil {
+			// 当 WHOIS 查询过程中的网络或其他错误
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
+			return
 		}
+
+		// 使用 TLD 对应的解析函数解析 WHOIS 数据
+		var domainInfo DomainInfo
+		if parseFunc, ok := whoisParsers[tld]; ok {
+			domainInfo, err = parseFunc(queryResult, domain)
+			if err != nil {
+				// 当 WHOIS 解析过程中发现“域名未找到”或其他解析错误
+				if err.Error() == "domain not found" {
+					w.Header().Set("Content-Type", "application/json")
+					fmt.Fprint(w, `{"error": "domain not found"}`)
+				} else {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+				}
+				return
+			}
+
+			resultBytes, err := json.Marshal(domainInfo)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			queryResult = string(resultBytes)
+			w.Header().Set("Content-Type", "application/json")
+		} else {
+			// 如果没有可用的解析规则，直接返回原始 WHOIS 数据，并设置响应类型为 text/plain
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		}
+
+		fmt.Fprint(w, queryResult)
 	} else {
 		http.Error(w, "No WHOIS or RDAP server known for TLD: "+tld, http.StatusInternalServerError)
 		return
