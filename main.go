@@ -344,6 +344,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		}
 		queryResult = string(resultBytes)
 		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, queryResult)
 
 	} else if _, ok := tldToWhoisServer[tld]; ok {
 		queryResult, err = whois(domain, tld)
