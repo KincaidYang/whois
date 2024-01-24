@@ -288,6 +288,12 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	domain = mainDomain
 
 	// 如果结果不符合预期（例如 "com.cn"），则从右向左读取域名，将第一个点右边的部分作为 TLD
+	if strings.Contains(tld, ".") {
+		parts := strings.Split(mainDomain, ".")
+		tld = parts[len(parts)-1]
+	}
+
+	// Cache
 	cacheKeyPrefix := "whois:"
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, domain)
 	cacheResult, err := redisClient.Get(ctx, key).Result()
