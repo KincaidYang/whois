@@ -394,7 +394,6 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Failed to cache result for domain: %s\n", domain)
 	}
 
-	fmt.Fprint(w, queryResult)
 }
 
 func checkRedisConnection() {
