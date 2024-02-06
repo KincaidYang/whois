@@ -50,6 +50,8 @@ type Config struct {
 // 将 whois 报文转换为DomainInfo结构体
 var whoisParsers = map[string]func(string, string) (DomainInfo, error){
 	"cn":          parseWhoisResponseCN,
+	"xn--fiqs8s":  parseWhoisResponseCN,
+	"xn--fiqz9s":  parseWhoisResponseCN,
 	"hk":          parseWhoisResponseHK,
 	"xn--j6w193g": parseWhoisResponseHK,
 	"tw":          parseWhoisResponseTW,
@@ -59,7 +61,8 @@ var whoisParsers = map[string]func(string, string) (DomainInfo, error){
 	"mo":          parseWhoisResponseMO,
 	"ru":          parseWhoisResponseRU,
 	"su":          parseWhoisResponseRU,
-	// ...为其他 TLD 添加解析函数...
+	"au":          parseWhoisResponseAU,
+	// 为其他 TLD 添加解析函数
 }
 
 var (
