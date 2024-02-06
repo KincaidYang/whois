@@ -1,6 +1,7 @@
-# whois
+[![CodeQL](https://github.com/KincaidYang/whois/actions/workflows/codeql.yml/badge.svg)](https://github.com/KincaidYang/whois/actions/workflows/codeql.yml) [![Go](https://github.com/KincaidYang/whois/actions/workflows/go.yml/badge.svg)](https://github.com/KincaidYang/whois/actions/workflows/go.yml) 
+
 ## 介绍
-基于 Golang 实现的域名 Whois 查询工具，支持所有 TLD 后缀的域名信息查询
+基于 Golang 实现的域名 Whois 查询工具，支持所有允许公开查询的 TLD 后缀的域名信息查询。据 ICANN 《通用顶级域名注册数据临时政策细则（Temporary Specification for gTLD Registration Data）》和欧盟《通用数据保护条例》合规要求，程序只返回了部分必要的信息（详见下方返回结果示例），不会返回所有者的`联系方式`、`地址`、`电话`、`邮箱`等字段。
 
 ## 使用方法
 ### 下载
@@ -90,3 +91,8 @@ curl http://localhost:8043/example.com
     "Last Update of Database": "2024-01-16T10:26:40Z"
 }
 ```
+
+## 已知问题
+程序向注册局查询 Whois 信息主要依靠 RDAP 协议查询，但由于大部分 ccTLD 不支持 RDAP 协议，程序会对其原始的 Whois 信息格式化后返回 JSON 数据，但由于本人精力有限，未对所有的 ccTLD 后缀进行适配，程序可能会直接返回 `text` 数据，如您常用的后缀没用被覆盖，可以提交 Issue 或者贡献匹配规则至 `whois_parsers.go` 文件中，在此表示感谢！
+
+您可根据`content-type`来判断返回数据格式。
