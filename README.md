@@ -1,7 +1,8 @@
 [![CodeQL](https://github.com/KincaidYang/whois/actions/workflows/codeql.yml/badge.svg)](https://github.com/KincaidYang/whois/actions/workflows/codeql.yml) [![Go](https://github.com/KincaidYang/whois/actions/workflows/go.yml/badge.svg)](https://github.com/KincaidYang/whois/actions/workflows/go.yml) 
 
 ## 介绍
-基于 Golang 实现的域名 Whois 查询工具，支持所有允许公开查询的 TLD 后缀的域名信息查询。据 ICANN 《通用顶级域名注册数据临时政策细则（Temporary Specification for gTLD Registration Data）》和欧盟《通用数据保护条例》合规要求，程序只返回了部分必要的信息（详见下方返回结果示例），不会返回所有者的`联系方式`、`地址`、`电话`、`邮箱`等字段。
+基于 Golang 实现的域名 Whois 查询工具，支持所有允许公开查询的 TLD 后缀的域名、IPv4/v6、ASN 的 Whois 信息查询。
+根据 ICANN 《通用顶级域名注册数据临时政策细则（Temporary Specification for gTLD Registration Data）》和欧盟《通用数据保护条例》合规要求，在查询域名信息时，程序只返回了部分必要的信息（详见下方返回结果示例），不会返回所有者的`联系方式`、`地址`、`电话`、`邮箱`等字段。
 
 ## 使用方法
 ### 下载
@@ -65,6 +66,8 @@ WantedBy=multi-user.target
 ```
 ### 使用
 GET 请求
+
+#### 查询域名 Whois 信息
 ```bash
 curl http://localhost:8043/example.com
 ```
@@ -89,6 +92,64 @@ curl http://localhost:8043/example.com
     "DNSSEC": "signedDelegation",
     "DNSSEC DS Data": "370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A86764247C",
     "Last Update of Database": "2024-01-16T10:26:40Z"
+}
+```
+
+#### 查询 IPv4 Whois 信息
+```bash
+curl http://localhost:8043/1.1.1.1
+```
+返回结果
+```json
+{
+    "IP Network": "1.1.1.0 - 1.1.1.255",
+    "Address Range": "1.1.1.0 - 1.1.1.255",
+    "Network Name": "APNIC-LABS",
+    "CIDR": "1.1.1.0/24",
+    "Network Type": "ASSIGNED PORTABLE",
+    "Country": "AU",
+    "Status": [
+        "active"
+    ],
+    "Creation Date": "2011-08-10T23:12:35Z",
+    "Updated Date": "2023-04-26T22:57:58Z"
+}
+```
+
+#### 查询 IPv6 Whois 信息
+```bash
+curl http://localhost:8043/2a0f:9400:7700::2
+```
+返回结果
+```json
+{
+    "IP Network": "2a0f:9400:7700::/48",
+    "Address Range": "2a0f:9400:7700:: - 2a0f:9400:7700:ffff:ffff:ffff:ffff:ffff",
+    "Network Name": "RTTW",
+    "CIDR": "2a0f:9400:7700::/48",
+    "Network Type": "ALLOCATED-BY-LIR",
+    "Country": "CN",
+    "Status": [
+        "active"
+    ],
+    "Creation Date": "2022-04-08T12:07:49Z",
+    "Updated Date": "2022-12-20T02:19:43Z"
+}
+```bash
+curl http://localhost:8043/ASN205794
+curl http://localhost:8043/AS205794
+curl http://localhost:8043/205794
+```
+返回结果
+```json
+{
+    "AS Number": "AS205794",
+    "Network Name": "RTTW-AS",
+    "Status": [
+        "active"
+    ],
+    "Creation Date": "2022-04-14T12:24:55Z",
+    "Updated Date": "2024-02-15T07:18:46Z"
 }
 ```
 
