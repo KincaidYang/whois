@@ -135,11 +135,16 @@ curl http://localhost:8043/2a0f:9400:7700::2
     "Creation Date": "2022-04-08T12:07:49Z",
     "Updated Date": "2022-12-20T02:19:43Z"
 }
+```
+
+#### 查询 ASN Whois 信息
 ```bash
 curl http://localhost:8043/ASN205794
 curl http://localhost:8043/AS205794
 curl http://localhost:8043/205794
 ```
+⚠ 不区分大小写
+
 返回结果
 ```json
 {
