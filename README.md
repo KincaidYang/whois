@@ -162,3 +162,38 @@ curl http://localhost:8043/205794
 程序向注册局查询 Whois 信息主要依靠 RDAP 协议查询，但由于大部分 ccTLD 不支持 RDAP 协议，程序会对其原始的 Whois 信息格式化后返回 JSON 数据，但由于本人精力有限，未对所有的 ccTLD 后缀进行适配，程序可能会直接返回 `text` 数据，如您常用的后缀没用被覆盖，可以提交 Issue 或者贡献匹配规则至 `whois_parsers.go` 文件中，在此表示感谢！
 
 您可根据`content-type`来判断返回数据格式。
+
+## 项目依赖
+
+本项目使用了以下Go标准库：
+
+- [`bytes`](https://golang.org/pkg/bytes/)：操作字节切片的函数。
+- [`context`](https://golang.org/pkg/context/)：定义了Context类型，用于在API边界和进程之间传递截止日期、取消信号和其他请求范围的值。
+- [`encoding/json`](https://golang.org/pkg/encoding/json/)：编码和解码JSON对象的函数。
+- [`errors`](https://golang.org/pkg/errors/)：创建错误和操作错误的函数。
+- [`fmt`](https://golang.org/pkg/fmt/)：格式化I/O函数。
+- [`io`](https://golang.org/pkg/io/)：I/O原语函数。
+- [`log`](https://golang.org/pkg/log/)：简单的日志服务。
+- [`net`](https://golang.org/pkg/net/)：网络I/O原语的函数。
+- [`net/http`](https://golang.org/pkg/net/http/)：HTTP客户端和服务器实现。
+- [`os`](https://golang.org/pkg/os/)：操作系统功能的函数。
+- [`os/signal`](https://golang.org/pkg/os/signal/)：接收操作系统信号的函数。
+- [`regexp`](https://golang.org/pkg/regexp/)：正则表达式搜索。
+- [`strconv`](https://golang.org/pkg/strconv/)：将字符串转换为基本类型的函数。
+- [`strings`](https://golang.org/pkg/strings/)：操作字符串的函数。
+- [`sync`](https://golang.org/pkg/sync/)：基本的同步原语。
+- [`syscall`](https://golang.org/pkg/syscall/)：访问操作系统底层调用的函数。
+- [`time`](https://golang.org/pkg/time/)：测量和显示时间的函数。
+
+本项目还使用了以下第三方库：
+
+- [`github.com/redis/go-redis/v9`](https://github.com/go-redis/redis)：Go语言Redis客户端。
+- [`golang.org/x/net/idna`](https://pkg.go.dev/golang.org/x/net/idna)：实现了IDNA（国际化域名在应用程序）规范。
+- [`golang.org/x/net/publicsuffix`](https://pkg.go.dev/golang.org/x/net/publicsuffix)：实现了公共后缀列表规范。
+
+WHOIS/RDAP 服务器列表来自于：
+- [IANA](https://www.iana.org/domains/root/db)
+- [IANA RDAP Bootstrap](https://data.iana.org/rdap/)
+- [IANA RDAP Bootstrap (IPv4)](https://data.iana.org/rdap/ipv4.json)
+- [IANA RDAP Bootstrap (IPv6)](https://data.iana.org/rdap/ipv6.json)
+- [IANA RDAP Bootstrap (AS)](https://data.iana.org/rdap/asn.json)
