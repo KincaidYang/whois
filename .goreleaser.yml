@@ -4,6 +4,6 @@ archives:
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - LICENSE
-      - README_{{.Os}}.md
+      - README.md
       - config.json
     
