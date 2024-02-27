@@ -1,7 +1,9 @@
 # .goreleaser.yml
 archives:
-  files:
-    - LICENSE
-    - README_{{.Os}}.md
-    - config.json
+  - format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README_{{.Os}}.md
+      - config.json
     
