@@ -1,6 +1,7 @@
 # .goreleaser.yml
 archives:
-  - id: archive
-    format: tar.gz
-    extra_files:
-      - glob: 'config.json'  # 使用glob模式来匹配需要添加的文件
+  files:
+    - LICENSE
+    - README_{{.Os}}.md
+    - config.json
+    
