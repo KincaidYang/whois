@@ -1,4 +1,4 @@
-module whois
+module github.com/KincaidYang/whois
 
 go 1.22
 

@@ -1,4 +1,3 @@
-// whois_servers.go
 package main
 
 var tldToWhoisServer = map[string]string{
