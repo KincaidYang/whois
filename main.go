@@ -612,7 +612,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		}
 		resource = punycodeDomain
 
-		// 使用 publicsuffix 库获取顶级域
+		// 使用 publicsuffix 库获取顶级域，这部分代码其实可以省略，因为要获取顶级域，单单靠下面的代码从右向左读取域名，取第一个点右边的部分即可
 		tld, _ := publicsuffix.PublicSuffix(resource)
 
 		// 如果结果不符合预期（例如 "com.cn"），则从右向左读取域名，将第一个点右边的部分作为 TLD
