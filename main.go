@@ -615,8 +615,17 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		// 使用 publicsuffix 库获取顶级域
 		tld, _ := publicsuffix.PublicSuffix(resource)
 
+		// 如果结果不符合预期（例如 "com.cn"），则从右向左读取域名，将第一个点右边的部分作为 TLD
+		if strings.Contains(tld, ".") {
+			parts := strings.Split(tld, ".")
+			tld = parts[len(parts)-1]
+		}
+
 		// 获取主域名
 		mainDomain, _ := publicsuffix.EffectiveTLDPlusOne(resource)
+		if mainDomain == "" {
+			mainDomain = resource
+		}
 		resource = mainDomain
 		domain := resource
 		key := fmt.Sprintf("%s%s", cacheKeyPrefix, domain)
@@ -630,12 +639,6 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		} else if err != redis.Nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
-		}
-
-		// 如果结果不符合预期（例如 "com.cn"），则从右向左读取域名，将第一个点右边的部分作为 TLD
-		if strings.Contains(tld, ".") {
-			parts := strings.Split(mainDomain, ".")
-			tld = parts[len(parts)-1]
 		}
 
 		var queryResult string
