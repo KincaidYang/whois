@@ -399,8 +399,10 @@ func parseRDAPResponseforIP(response string) (IPInfo, error) {
 		}
 	}
 
-	if type_, ok := result["type"]; ok {
+	if type_, ok := result["type"]; ok && type_ != nil {
 		ipinfo.Networktype = type_.(string)
+	} else {
+		ipinfo.Networktype = "Unknown"
 	}
 
 	if country, ok := result["country"]; ok {
