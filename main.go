@@ -300,7 +300,21 @@ func parseRDAPResponse(response string) (DomainInfo, error) {
 					if role.(string) == "registrar" {
 						registrarEntity := entity.(map[string]interface{})
 						if vcardArray, ok := registrarEntity["vcardArray"]; ok {
-							domainInfo.Registrar = vcardArray.([]interface{})[1].([]interface{})[1].([]interface{})[3].(string)
+							vcardArraySlice, ok := vcardArray.([]interface{})
+							if ok && len(vcardArraySlice) > 1 {
+								innerSlice, ok := vcardArraySlice[1].([]interface{})
+								if ok {
+									for _, item := range innerSlice {
+										itemSlice, ok := item.([]interface{})
+										if ok && len(itemSlice) > 0 {
+											if itemSlice[0] == "fn" && len(itemSlice) > 3 {
+												domainInfo.Registrar = itemSlice[3].(string)
+												break
+											}
+										}
+									}
+								}
+							}
 						}
 						if publicIds, ok := registrarEntity["publicIds"]; ok {
 							domainInfo.RegistrarIANAID = publicIds.([]interface{})[0].(map[string]interface{})["identifier"].(string)
