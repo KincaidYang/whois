@@ -1147,6 +1147,7 @@ var tldToRdapServer = map[string]string{
 	"gmx":                      "https://rdap.nic.gmx/",
 	"godaddy":                  "https://rdap.nic.godaddy/",
 	"grainger":                 "https://rdap.nic.grainger/",
+	"gs":                       "https://rdap.nic.gs/",
 	"hamburg":                  "https://rdap.nic.hamburg/v1/",
 	"hbo":                      "https://rdap.nic.hbo/",
 	"health":                   "https://rdap.nic.health/",
