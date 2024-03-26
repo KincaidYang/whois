@@ -19,57 +19,71 @@ import (
 	"syscall"
 	"time"
 
+	server_lists "github.com/KincaidYang/whois/server_lists"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/idna"
 	"golang.org/x/net/publicsuffix"
 )
 
+// DomainInfo represents the information about a domain.
 type DomainInfo struct {
-	DomainName         string   `json:"Domain Name"`
-	Registrar          string   `json:"Registrar"`
-	RegistrarIANAID    string   `json:"Registrar IANA ID"`
-	DomainStatus       []string `json:"Domain Status"`
-	CreationDate       string   `json:"Creation Date"`
-	RegistryExpiryDate string   `json:"Registry Expiry Date"`
-	UpdatedDate        string   `json:"Updated Date"`
-	NameServer         []string `json:"Name Server"`
-	DNSSec             string   `json:"DNSSEC"`
-	DNSSecDSData       string   `json:"DNSSEC DS Data"`
-	LastUpdateOfRDAPDB string   `json:"Last Update of Database"`
+	DomainName         string   `json:"Domain Name"`             // DomainName is the name of the domain.
+	Registrar          string   `json:"Registrar"`               // Registrar is the registrar of the domain.
+	RegistrarIANAID    string   `json:"Registrar IANA ID"`       // RegistrarIANAID is the IANA ID of the registrar.
+	DomainStatus       []string `json:"Domain Status"`           // DomainStatus is the status of the domain.
+	CreationDate       string   `json:"Creation Date"`           // CreationDate is the creation date of the domain.
+	RegistryExpiryDate string   `json:"Registry Expiry Date"`    // RegistryExpiryDate is the expiry date of the domain.
+	UpdatedDate        string   `json:"Updated Date"`            // UpdatedDate is the updated date of the domain.
+	NameServer         []string `json:"Name Server"`             // NameServer is the name server of the domain.
+	DNSSec             string   `json:"DNSSEC"`                  // DNSSec is the DNSSEC of the domain.
+	DNSSecDSData       string   `json:"DNSSEC DS Data"`          // DNSSecDSData is the DNSSEC DS Data of the domain.
+	LastUpdateOfRDAPDB string   `json:"Last Update of Database"` // LastUpdateOfRDAPDB is the last update of the database.
 }
 
+// ASNInfo represents the information about an Autonomous System Number (ASN).
 type ASNInfo struct {
-	ASN          string   `json:"AS Number"`
-	ASName       string   `json:"Network Name"`
-	ASStatus     []string `json:"Status"`
-	CreationDate string   `json:"Creation Date"`
-	UpdatedDate  string   `json:"Updated Date"`
+	ASN          string   `json:"AS Number"`     // ASN is the Autonomous System Number.
+	ASName       string   `json:"Network Name"`  // ASName is the name of the network.
+	ASStatus     []string `json:"Status"`        // ASStatus is the status of the ASN.
+	CreationDate string   `json:"Creation Date"` // CreationDate is the creation date of the ASN.
+	UpdatedDate  string   `json:"Updated Date"`  // UpdatedDate is the updated date of the ASN.
 }
 
+// IPInfo represents the information about an IP network.
 type IPInfo struct {
-	IP           string   `json:"IP Network"`
-	Range        string   `json:"Address Range"`
-	NetName      string   `json:"Network Name"`
-	CIDR         string   `json:"CIDR"`
-	Networktype  string   `json:"Network Type"`
-	Country      string   `json:"Country"`
-	IPStatus     []string `json:"Status"`
-	CreationDate string   `json:"Creation Date"`
-	UpdatedDate  string   `json:"Updated Date"`
+	IP           string   `json:"IP Network"`    // IP is the IP network.
+	Range        string   `json:"Address Range"` // Range is the address range of the IP network.
+	NetName      string   `json:"Network Name"`  // NetName is the name of the network.
+	CIDR         string   `json:"CIDR"`          // CIDR is the CIDR of the IP network.
+	Networktype  string   `json:"Network Type"`  // Networktype is the type of the network.
+	Country      string   `json:"Country"`       // Country is the country of the IP network.
+	IPStatus     []string `json:"Status"`        // IPStatus is the status of the IP network.
+	CreationDate string   `json:"Creation Date"` // CreationDate is the creation date of the IP network.
+	UpdatedDate  string   `json:"Updated Date"`  // UpdatedDate is the updated date of the IP network.
 }
 
+// Config represents the configuration for the application.
 type Config struct {
+	// Redis holds the configuration for the Redis database.
+	// It includes the address, password, and database number.
 	Redis struct {
-		Addr     string `json:"addr"`
-		Password string `json:"password"`
-		DB       int    `json:"db"`
+		Addr     string `json:"addr"`     // Addr is the address of the Redis server.
+		Password string `json:"password"` // Password is the password for the Redis server.
+		DB       int    `json:"db"`       // DB is the database number for the Redis server.
 	} `json:"redis"`
+	// CacheExpiration is the expiration time for the cache, in seconds.
 	CacheExpiration int `json:"cacheExpiration"`
-	Port            int `json:"port"`
-	RateLimit       int `json:"rateLimit"`
+	// Port is the port number for the server.
+	Port int `json:"port"`
+	// RateLimit is the maximum number of requests that a client can make in a specified period of time.
+	RateLimit int `json:"rateLimit"`
 }
 
-// 将 whois 报文转换为DomainInfo结构体
+// whoisParsers is a map from top-level domain (TLD) to a function that can parse
+// the WHOIS response for that TLD into a DomainInfo structure.
+// Currently, it includes parsers for the following TLDs: cn, xn--fiqs8s, xn--fiqz9s,
+// hk, xn--j6w193g, tw, so, sb, sg, mo, ru, su, au.
+// You can add parsers for other TLDs by adding them to this map.
 var whoisParsers = map[string]func(string, string) (DomainInfo, error){
 	"cn":          parseWhoisResponseCN,
 	"xn--fiqs8s":  parseWhoisResponseCN,
@@ -84,23 +98,22 @@ var whoisParsers = map[string]func(string, string) (DomainInfo, error){
 	"ru":          parseWhoisResponseRU,
 	"su":          parseWhoisResponseRU,
 	"au":          parseWhoisResponseAU,
-	// 为其他 TLD 添加解析函数
 }
 
 var (
-	// Redis 客户端
+	// redisClient is the Redis client
 	redisClient *redis.Client
-	// 缓存时间
+	// cacheExpiration is the cache duration
 	cacheExpiration time.Duration
-	// http.Client 用于设置 rdapQuery 的超时时间
+	// httpClient is used to set the timeout for rdapQuery
 	httpClient = &http.Client{
 		Timeout: 10 * time.Second,
 	}
-	// WaitGroup 用于等待所有 goroutine 结束
+	// wg is used to wait for all goroutines to finish
 	wg sync.WaitGroup
-	// Port 用于设置服务器监听的端口
+	// port is used to set the port the server listens on
 	port int
-	// RateLimit 用于设置并发请求数
+	// rateLimit is used to set the number of concurrent requests
 	rateLimit          int
 	concurrencyLimiter chan struct{}
 )
@@ -108,45 +121,46 @@ var (
 func init() {
 	var config Config
 
-	// 读取配置文件
+	// Open the configuration file
 	configFile, err := os.Open("config.json")
 	if err != nil {
 		log.Fatalf("Failed to open configuration file: %v", err)
 	}
 	defer configFile.Close()
 
-	// 解析配置文件
+	// Decode the configuration file
 	decoder := json.NewDecoder(configFile)
 	err = decoder.Decode(&config)
 	if err != nil {
 		log.Fatalf("Failed to decode JSON from configuration file: %v", err)
 	}
 
-	// 初始化 Redis 客户端
+	// Initialize the Redis client
 	redisClient = redis.NewClient(&redis.Options{
 		Addr:     config.Redis.Addr,
 		Password: config.Redis.Password,
 		DB:       config.Redis.DB,
 	})
 
-	// 设置缓存过期时间
+	// Set the cache expiration time
 	cacheExpiration = time.Duration(config.CacheExpiration) * time.Second
 
-	// 设置服务器监听的端口
+	// Set the port the server listens on
 	port = config.Port
 
-	// 设置并发请求数
+	// Set the number of concurrent requests
 	rateLimit = config.RateLimit
 	concurrencyLimiter = make(chan struct{}, rateLimit)
 }
 
+// whois function is used to query the WHOIS information for a given domain.
 func whois(domain, tld string) (string, error) {
-	whoisServer, ok := tldToWhoisServer[tld]
+	whoisServer, ok := server_lists.TLDToWhoisServer[tld]
 	if !ok {
 		return "", fmt.Errorf("no Whois server known for TLD: %s", tld)
 	}
 
-	// 记录 WHOIS 查询时的请求日志
+	// Log the request for the WHOIS query
 	log.Printf("Querying WHOIS for domain: %s with TLD: %s on server: %s\n", domain, tld, whoisServer)
 
 	conn, err := net.Dial("tcp", whoisServer+":43")
@@ -165,13 +179,14 @@ func whois(domain, tld string) (string, error) {
 	return buf.String(), nil
 }
 
+// rdapQuery function is used to query the RDAP (Registration Data Access Protocol) information for a given domain.
 func rdapQuery(domain, tld string) (string, error) {
-	rdapServer, ok := tldToRdapServer[tld]
+	rdapServer, ok := server_lists.TLDToRdapServer[tld]
 	if !ok {
 		return "", fmt.Errorf("no RDAP server known for TLD: %s", tld)
 	}
 
-	// 记录 RDAP 查询时的请求日志
+	// Log the request for the RDAP query
 	log.Printf("Querying RDAP for domain: %s with TLD: %s on server: %s\n", domain, tld, rdapServer)
 
 	req, err := http.NewRequest("GET", rdapServer+"domain/"+domain, nil)
@@ -202,13 +217,14 @@ func rdapQuery(domain, tld string) (string, error) {
 }
 
 // 本来是没打算写域名之外的查询的，所以变量名看着像域名很正常，不想改了QAQ
+// rdapQueryIP function is used to query the RDAP information for a given IP address.
 func rdapQueryIP(ip, tld string) (string, error) {
-	rdapServer, ok := tldToRdapServer[tld]
+	rdapServer, ok := server_lists.TLDToRdapServer[tld]
 	if !ok {
 		return "", fmt.Errorf("no RDAP server known for IP: %s", ip)
 	}
 
-	// 记录 RDAP 查询时的请求日志
+	// Log the request for the RDAP query
 	log.Printf("Querying RDAP for IP: %s with TLD: %s on server: %s\n", ip, tld, rdapServer)
 
 	req, err := http.NewRequest("GET", rdapServer+"ip/"+ip, nil)
@@ -237,13 +253,15 @@ func rdapQueryIP(ip, tld string) (string, error) {
 
 	return buf.String(), nil
 }
+
+// rdapQueryASN function is used to query the RDAP information for a given ASN.
 func rdapQueryASN(as, tld string) (string, error) {
-	rdapServer, ok := tldToRdapServer[tld]
+	rdapServer, ok := server_lists.TLDToRdapServer[tld]
 	if !ok {
 		return "", fmt.Errorf("no RDAP server known for ASN: %s", as)
 	}
 
-	// 记录 RDAP 查询时的请求日志
+	// Log the request for the RDAP query
 	log.Printf("Querying RDAP for AS: %s with TLD: %s on server: %s\n", as, tld, rdapServer)
 
 	req, err := http.NewRequest("GET", rdapServer+"autnum/"+as, nil)
@@ -273,6 +291,7 @@ func rdapQueryASN(as, tld string) (string, error) {
 	return buf.String(), nil
 }
 
+// parseRDAPResponse function is used to parse the RDAP response for a given domain.
 func parseRDAPResponse(response string) (DomainInfo, error) {
 	var result map[string]interface{}
 	err := json.Unmarshal([]byte(response), &result)
@@ -375,6 +394,7 @@ func parseRDAPResponse(response string) (DomainInfo, error) {
 	return domainInfo, nil
 }
 
+// parseWhoisResponseforIP function is used to parse the WHOIS response for an IP address.
 func parseRDAPResponseforIP(response string) (IPInfo, error) {
 	var result map[string]interface{}
 	err := json.Unmarshal([]byte(response), &result)
@@ -444,6 +464,7 @@ func parseRDAPResponseforIP(response string) (IPInfo, error) {
 	return ipinfo, nil
 }
 
+// parseRDAPResponseforASN function is used to parse the RDAP response for an ASN.
 func parseRDAPResponseforASN(response string) (ASNInfo, error) {
 	var result map[string]interface{}
 	err := json.Unmarshal([]byte(response), &result)
@@ -482,13 +503,17 @@ func parseRDAPResponseforASN(response string) (ASNInfo, error) {
 	return asninfo, nil
 }
 
+// handleIP function is used to handle the HTTP request for querying the RDAP information for a given IP.
 func handleIP(ctx context.Context, w http.ResponseWriter, resource string, cacheKeyPrefix string) {
+	// Parse the IP
 	ip := net.ParseIP(resource)
+
+	// Find the corresponding TLD from the TLDToRdapServer map
 	var tld string
-	for cidr := range tldToRdapServer {
+	for cidr := range server_lists.TLDToRdapServer {
 		_, ipNet, err := net.ParseCIDR(cidr)
 		if err != nil {
-			// 如果不能解析为 CIDR，跳过此键
+			// If the key cannot be parsed as a CIDR, skip this key
 			continue
 		}
 
@@ -497,34 +522,44 @@ func handleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 			break
 		}
 	}
+
+	// Check if the RDAP information for the IP is cached in Redis
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, resource)
 	cacheResult, err := redisClient.Get(ctx, key).Result()
 	if err == nil {
+		// If the RDAP information is cached, return the cached result
 		log.Printf("Serving cached result for resource: %s\n", resource)
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, cacheResult)
 		return
 	} else if err != redis.Nil {
+		// If there's an error during caching, return an HTTP error
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Query the RDAP information for the IP
 	queryresult, err := rdapQueryIP(resource, tld)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		if errors.Is(err, errors.New("resource not found")) {
-			w.WriteHeader(http.StatusOK) // 设置状态码为 200
+			w.WriteHeader(http.StatusOK) // Set the status code to 200
 			fmt.Fprint(w, `{"error": "Resource not found"}`)
 		} else {
-			w.WriteHeader(http.StatusOK) // 设置状态码为 200
+			w.WriteHeader(http.StatusOK) // Set the status code to 200
 			fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
 		}
 		return
 	}
+
+	// Parse the RDAP response
 	ipInfo, err := parseRDAPResponseforIP(queryresult)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Cache the RDAP information in Redis
 	resultBytes, err := json.Marshal(ipInfo)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -535,11 +570,15 @@ func handleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 	if err != nil {
 		log.Printf("Failed to cache result for resource: %s\n", resource)
 	}
+
+	// Return the RDAP information
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprint(w, queryResult)
 }
 
+// handleASN function is used to handle the HTTP request for querying the RDAP information for a given ASN (Autonomous System Number).
 func handleASN(ctx context.Context, w http.ResponseWriter, resource string, cacheKeyPrefix string) {
+	// Parse the ASN
 	asn := strings.TrimPrefix(resource, "asn")
 	if asn == resource {
 		asn = strings.TrimPrefix(resource, "as")
@@ -550,20 +589,26 @@ func handleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 		return
 	}
 
+	// Generate the cache key
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, asn)
+
+	// Check if the RDAP information for the ASN is cached in Redis
 	cacheResult, err := redisClient.Get(ctx, key).Result()
 	if err == nil {
+		// If the RDAP information is cached, return the cached result
 		log.Printf("Serving cached result for resource: %s\n", asn)
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, cacheResult)
 		return
 	} else if err != redis.Nil {
+		// If there's an error during caching, return an HTTP error
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	// Find the corresponding TLD from the TLDToRdapServer map
 	var tld string
-	for rangeStr := range tldToRdapServer {
+	for rangeStr := range server_lists.TLDToRdapServer {
 		if !strings.Contains(rangeStr, "-") {
 			continue
 		}
@@ -584,23 +629,29 @@ func handleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 			break
 		}
 	}
+
+	// Query the RDAP information for the ASN
 	queryresult, err := rdapQueryASN(asn, tld)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		if errors.Is(err, errors.New("resource not found")) {
-			w.WriteHeader(http.StatusOK) // 设置状态码为 200
+			w.WriteHeader(http.StatusOK) // Set the status code to 200
 			fmt.Fprint(w, `{"error": "Resource not found"}`)
 		} else {
-			w.WriteHeader(http.StatusOK) // 设置状态码为 200
+			w.WriteHeader(http.StatusOK) // Set the status code to 200
 			fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
 		}
 		return
 	}
+
+	// Parse the RDAP response
 	asnInfo, err := parseRDAPResponseforASN(queryresult)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	// Cache the RDAP information in Redis
 	resultBytes, err := json.Marshal(asnInfo)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -611,12 +662,15 @@ func handleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	if err != nil {
 		log.Printf("Failed to cache result for resource: %s\n", resource)
 	}
+
+	// Return the RDAP information
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprint(w, queryResult)
 }
 
+// handleDomain function is used to handle the HTTP request for querying the RDAP (Registration Data Access Protocol) or WHOIS information for a given domain.
 func handleDomain(ctx context.Context, w http.ResponseWriter, resource string, cacheKeyPrefix string) {
-	// 将域名转换为 Punycode 编码（支持 IDN 域名）
+	// Convert the domain to Punycode encoding (supports IDN domains)
 	punycodeDomain, err := idna.ToASCII(resource)
 	if err != nil {
 		http.Error(w, "Invalid domain name: "+resource, http.StatusBadRequest)
@@ -624,16 +678,16 @@ func handleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	}
 	resource = punycodeDomain
 
-	// 使用 publicsuffix 库获取顶级域，这部分代码其实可以省略，因为要获取顶级域，单单靠下面的代码从右向左读取域名，取第一个点右边的部分即可
+	// Get the TLD (Top-Level Domain) of the domain
 	tld, _ := publicsuffix.PublicSuffix(resource)
 
-	// 如果结果不符合预期（例如 "com.cn"），则从右向左读取域名，将第一个点右边的部分作为 TLD
+	// If the TLD is not as expected (e.g., "com.cn"), read the domain from right to left and take the part to the right of the first dot as the TLD
 	if strings.Contains(tld, ".") {
 		parts := strings.Split(tld, ".")
 		tld = parts[len(parts)-1]
 	}
 
-	// 获取主域名
+	// Get the main domain
 	mainDomain, _ := publicsuffix.EffectiveTLDPlusOne(resource)
 	if mainDomain == "" {
 		mainDomain = resource
@@ -643,6 +697,7 @@ func handleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, domain)
 	cacheResult, err := redisClient.Get(ctx, key).Result()
 
+	// Check if the RDAP or WHOIS information for the domain is cached in Redis
 	if err == nil {
 		log.Printf("Serving cached result for resource: %s\n", domain)
 		w.Header().Set("Content-Type", "application/json")
@@ -655,15 +710,16 @@ func handleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 
 	var queryResult string
 
-	if _, ok := tldToRdapServer[tld]; ok {
+	// If the RDAP server for the TLD is known, query the RDAP information for the domain
+	if _, ok := server_lists.TLDToRdapServer[tld]; ok {
 		queryResult, err = rdapQuery(domain, tld)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			if errors.Is(err, errors.New("domain not found")) {
-				w.WriteHeader(http.StatusOK) // 设置状态码为 200
+				w.WriteHeader(http.StatusOK) // Set the status code to 200
 				fmt.Fprint(w, `{"error": "Domain not found"}`)
 			} else {
-				w.WriteHeader(http.StatusOK) // 设置状态码为 200
+				w.WriteHeader(http.StatusOK) // Set the status code to 200
 				fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
 			}
 			return
@@ -686,21 +742,22 @@ func handleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, queryResult)
 
-	} else if _, ok := tldToWhoisServer[tld]; ok {
+		// If the WHOIS server for the TLD is known, query the WHOIS information for the domain
+	} else if _, ok := server_lists.TLDToWhoisServer[tld]; ok {
 		queryResult, err = whois(domain, tld)
 		if err != nil {
-			// 当 WHOIS 查询过程中的网络或其他错误
+			// If there's a network or other error during the WHOIS query
 			w.Header().Set("Content-Type", "application/json")
 			fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
 			return
 		}
 
-		// 使用 TLD 对应的解析函数解析 WHOIS 数据
+		// Use the parsing function corresponding to the TLD to parse the WHOIS data
 		var domainInfo DomainInfo
 		if parseFunc, ok := whoisParsers[tld]; ok {
 			domainInfo, err = parseFunc(queryResult, domain)
 			if err != nil {
-				// 当 WHOIS 解析过程中发现“域名未找到”或其他解析错误
+				// If there's a "domain not found" or other parsing error during the WHOIS parsing
 				if err.Error() == "domain not found" {
 					w.Header().Set("Content-Type", "application/json")
 					fmt.Fprint(w, `{"error": "domain not found"}`)
@@ -722,7 +779,7 @@ func handleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 			}
 			w.Header().Set("Content-Type", "application/json")
 		} else {
-			// 如果没有可用的解析规则，直接返回原始 WHOIS 数据，并设置响应类型为 text/plain
+			// If there's no available parsing rule, return the original WHOIS data and set the response type to text/plain
 			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 			err = redisClient.Set(ctx, key, queryResult, cacheExpiration).Err()
 			if err != nil {
@@ -737,6 +794,7 @@ func handleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	}
 }
 
+// isASN function is used to check if the given resource is an Autonomous System Number (ASN).
 func isASN(resource string) bool {
 	return regexp.MustCompile(`^(as|asn)\d+$`).MatchString(resource) || regexp.MustCompile(`^\d+$`).MatchString(resource)
 }
@@ -745,7 +803,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	if len(concurrencyLimiter) == rateLimit {
 		log.Printf("Rate limit reached, waiting for a slot to become available...\n")
 	}
-	concurrencyLimiter <- struct{}{} // 请求并发限制
+	concurrencyLimiter <- struct{}{}
 	wg.Add(1)
 	defer func() {
 		wg.Done()
@@ -790,7 +848,7 @@ func main() {
 		}
 	}()
 
-	// 增加一个信号监听，当接收到关闭信号时，先等待所有查询完成，再关闭服务器
+	// Add a signal listener. When a shutdown signal is received, wait for all queries to complete before shutting down the server.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	<-sigCh

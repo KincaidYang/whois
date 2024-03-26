@@ -1,6 +1,9 @@
-package main
+package server_lists
 
-var tldToWhoisServer = map[string]string{
+// tldToWhoisServer
+// This map is used to determine the whois server for a given TLD.
+// Source: https://www.iana.org/domains/root/db
+var TLDToWhoisServer = map[string]string{
 	"aarp":                     "whois.nic.aarp",
 	"abb":                      "whois.nic.abb",
 	"abbott":                   "whois.nic.abbott",

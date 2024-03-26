@@ -1,6 +1,9 @@
-package main
+package server_lists
 
-var tldToRdapServer = map[string]string{
+// tldToRdapServer
+// This map is used to determine the RDAP server for a given IP address or ASN.
+// Source: https://data.iana.org/rdap/
+var TLDToRdapServer = map[string]string{
 	// IPv4 RDAP servers
 	"41.0.0.0/8":  "https://rdap.afrinic.net/rdap/",
 	"102.0.0.0/8": "https://rdap.afrinic.net/rdap/",
