@@ -482,201 +482,234 @@ func parseRDAPResponseforASN(response string) (ASNInfo, error) {
 	return asninfo, nil
 }
 
-func handler(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
-
-	resource := strings.TrimPrefix(r.URL.Path, "/")
-	resource = strings.ToLower(resource)
-
-	cacheKeyPrefix := "whois:"
-
-	if net.ParseIP(resource) != nil {
-		ip := net.ParseIP(resource)
-		var tld string
-		for cidr := range tldToRdapServer {
-			_, ipNet, err := net.ParseCIDR(cidr)
-			if err != nil {
-				// 如果不能解析为 CIDR，跳过此键
-				continue
-			}
-
-			if ipNet.Contains(ip) {
-				tld = cidr
-				break
-			}
+func handleIP(ctx context.Context, w http.ResponseWriter, resource string, cacheKeyPrefix string) {
+	ip := net.ParseIP(resource)
+	var tld string
+	for cidr := range tldToRdapServer {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			// 如果不能解析为 CIDR，跳过此键
+			continue
 		}
-		key := fmt.Sprintf("%s%s", cacheKeyPrefix, resource)
-		cacheResult, err := redisClient.Get(ctx, key).Result()
-		if err == nil {
-			log.Printf("Serving cached result for resource: %s\n", resource)
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, cacheResult)
-			return
-		} else if err != redis.Nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+
+		if ipNet.Contains(ip) {
+			tld = cidr
+			break
 		}
-		queryresult, err := rdapQueryIP(resource, tld)
+	}
+	key := fmt.Sprintf("%s%s", cacheKeyPrefix, resource)
+	cacheResult, err := redisClient.Get(ctx, key).Result()
+	if err == nil {
+		log.Printf("Serving cached result for resource: %s\n", resource)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, cacheResult)
+		return
+	} else if err != redis.Nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	queryresult, err := rdapQueryIP(resource, tld)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		if errors.Is(err, errors.New("resource not found")) {
+			w.WriteHeader(http.StatusOK) // 设置状态码为 200
+			fmt.Fprint(w, `{"error": "Resource not found"}`)
+		} else {
+			w.WriteHeader(http.StatusOK) // 设置状态码为 200
+			fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
+		}
+		return
+	}
+	ipInfo, err := parseRDAPResponseforIP(queryresult)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	resultBytes, err := json.Marshal(ipInfo)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	queryResult := string(resultBytes)
+	err = redisClient.Set(ctx, key, queryResult, cacheExpiration).Err()
+	if err != nil {
+		log.Printf("Failed to cache result for resource: %s\n", resource)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprint(w, queryResult)
+}
+
+func handleASN(ctx context.Context, w http.ResponseWriter, resource string, cacheKeyPrefix string) {
+	asn := strings.TrimPrefix(resource, "asn")
+	if asn == resource {
+		asn = strings.TrimPrefix(resource, "as")
+	}
+	asnInt, err := strconv.Atoi(asn)
+	if err != nil {
+		// handle error
+		return
+	}
+
+	key := fmt.Sprintf("%s%s", cacheKeyPrefix, asn)
+	cacheResult, err := redisClient.Get(ctx, key).Result()
+	if err == nil {
+		log.Printf("Serving cached result for resource: %s\n", asn)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, cacheResult)
+		return
+	} else if err != redis.Nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var tld string
+	for rangeStr := range tldToRdapServer {
+		if !strings.Contains(rangeStr, "-") {
+			continue
+		}
+		rangeParts := strings.Split(rangeStr, "-")
+		if len(rangeParts) != 2 {
+			continue
+		}
+		lower, err := strconv.Atoi(rangeParts[0])
+		if err != nil {
+			continue
+		}
+		upper, err := strconv.Atoi(rangeParts[1])
+		if err != nil {
+			continue
+		}
+		if asnInt >= lower && asnInt <= upper {
+			tld = rangeStr
+			break
+		}
+	}
+	queryresult, err := rdapQueryASN(asn, tld)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		if errors.Is(err, errors.New("resource not found")) {
+			w.WriteHeader(http.StatusOK) // 设置状态码为 200
+			fmt.Fprint(w, `{"error": "Resource not found"}`)
+		} else {
+			w.WriteHeader(http.StatusOK) // 设置状态码为 200
+			fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
+		}
+		return
+	}
+	asnInfo, err := parseRDAPResponseforASN(queryresult)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	resultBytes, err := json.Marshal(asnInfo)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	queryResult := string(resultBytes)
+	err = redisClient.Set(ctx, key, queryResult, cacheExpiration).Err()
+	if err != nil {
+		log.Printf("Failed to cache result for resource: %s\n", resource)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	fmt.Fprint(w, queryResult)
+}
+
+func handleDomain(ctx context.Context, w http.ResponseWriter, resource string, cacheKeyPrefix string) {
+	// 将域名转换为 Punycode 编码（支持 IDN 域名）
+	punycodeDomain, err := idna.ToASCII(resource)
+	if err != nil {
+		http.Error(w, "Invalid domain name: "+resource, http.StatusBadRequest)
+		return
+	}
+	resource = punycodeDomain
+
+	// 使用 publicsuffix 库获取顶级域，这部分代码其实可以省略，因为要获取顶级域，单单靠下面的代码从右向左读取域名，取第一个点右边的部分即可
+	tld, _ := publicsuffix.PublicSuffix(resource)
+
+	// 如果结果不符合预期（例如 "com.cn"），则从右向左读取域名，将第一个点右边的部分作为 TLD
+	if strings.Contains(tld, ".") {
+		parts := strings.Split(tld, ".")
+		tld = parts[len(parts)-1]
+	}
+
+	// 获取主域名
+	mainDomain, _ := publicsuffix.EffectiveTLDPlusOne(resource)
+	if mainDomain == "" {
+		mainDomain = resource
+	}
+	resource = mainDomain
+	domain := resource
+	key := fmt.Sprintf("%s%s", cacheKeyPrefix, domain)
+	cacheResult, err := redisClient.Get(ctx, key).Result()
+
+	if err == nil {
+		log.Printf("Serving cached result for resource: %s\n", domain)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, cacheResult)
+		return
+	} else if err != redis.Nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var queryResult string
+
+	if _, ok := tldToRdapServer[tld]; ok {
+		queryResult, err = rdapQuery(domain, tld)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
-			if errors.Is(err, errors.New("resource not found")) {
+			if errors.Is(err, errors.New("domain not found")) {
 				w.WriteHeader(http.StatusOK) // 设置状态码为 200
-				fmt.Fprint(w, `{"error": "Resource not found"}`)
+				fmt.Fprint(w, `{"error": "Domain not found"}`)
 			} else {
 				w.WriteHeader(http.StatusOK) // 设置状态码为 200
 				fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
 			}
 			return
 		}
-		ipInfo, err := parseRDAPResponseforIP(queryresult)
+		domainInfo, err := parseRDAPResponse(queryResult)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		resultBytes, err := json.Marshal(ipInfo)
+		resultBytes, err := json.Marshal(domainInfo)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		queryResult := string(resultBytes)
+		queryResult = string(resultBytes)
 		err = redisClient.Set(ctx, key, queryResult, cacheExpiration).Err()
 		if err != nil {
 			log.Printf("Failed to cache result for resource: %s\n", resource)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, queryResult)
-	} else if regexp.MustCompile(`^(as|asn)\d+$`).MatchString(resource) || regexp.MustCompile(`^\d+$`).MatchString(resource) {
-		asn := strings.TrimPrefix(resource, "asn")
-		if asn == resource {
-			asn = strings.TrimPrefix(resource, "as")
-		}
-		asnInt, err := strconv.Atoi(asn)
-		if err != nil {
-			// handle error
-			return
-		}
 
-		key := fmt.Sprintf("%s%s", cacheKeyPrefix, asn)
-		cacheResult, err := redisClient.Get(ctx, key).Result()
-		if err == nil {
-			log.Printf("Serving cached result for resource: %s\n", asn)
+	} else if _, ok := tldToWhoisServer[tld]; ok {
+		queryResult, err = whois(domain, tld)
+		if err != nil {
+			// 当 WHOIS 查询过程中的网络或其他错误
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, cacheResult)
-			return
-		} else if err != redis.Nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
 			return
 		}
 
-		var tld string
-		for rangeStr := range tldToRdapServer {
-			if !strings.Contains(rangeStr, "-") {
-				continue
-			}
-			rangeParts := strings.Split(rangeStr, "-")
-			if len(rangeParts) != 2 {
-				continue
-			}
-			lower, err := strconv.Atoi(rangeParts[0])
+		// 使用 TLD 对应的解析函数解析 WHOIS 数据
+		var domainInfo DomainInfo
+		if parseFunc, ok := whoisParsers[tld]; ok {
+			domainInfo, err = parseFunc(queryResult, domain)
 			if err != nil {
-				continue
-			}
-			upper, err := strconv.Atoi(rangeParts[1])
-			if err != nil {
-				continue
-			}
-			if asnInt >= lower && asnInt <= upper {
-				tld = rangeStr
-				break
-			}
-		}
-		queryresult, err := rdapQueryASN(asn, tld)
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			if errors.Is(err, errors.New("resource not found")) {
-				w.WriteHeader(http.StatusOK) // 设置状态码为 200
-				fmt.Fprint(w, `{"error": "Resource not found"}`)
-			} else {
-				w.WriteHeader(http.StatusOK) // 设置状态码为 200
-				fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
-			}
-			return
-		}
-		asnInfo, err := parseRDAPResponseforASN(queryresult)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		resultBytes, err := json.Marshal(asnInfo)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		queryResult := string(resultBytes)
-		err = redisClient.Set(ctx, key, queryResult, cacheExpiration).Err()
-		if err != nil {
-			log.Printf("Failed to cache result for resource: %s\n", resource)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, queryResult)
-	} else {
-		// 将域名转换为 Punycode 编码（支持 IDN 域名）
-		punycodeDomain, err := idna.ToASCII(resource)
-		if err != nil {
-			http.Error(w, "Invalid domain name: "+resource, http.StatusBadRequest)
-			return
-		}
-		resource = punycodeDomain
-
-		// 使用 publicsuffix 库获取顶级域，这部分代码其实可以省略，因为要获取顶级域，单单靠下面的代码从右向左读取域名，取第一个点右边的部分即可
-		tld, _ := publicsuffix.PublicSuffix(resource)
-
-		// 如果结果不符合预期（例如 "com.cn"），则从右向左读取域名，将第一个点右边的部分作为 TLD
-		if strings.Contains(tld, ".") {
-			parts := strings.Split(tld, ".")
-			tld = parts[len(parts)-1]
-		}
-
-		// 获取主域名
-		mainDomain, _ := publicsuffix.EffectiveTLDPlusOne(resource)
-		if mainDomain == "" {
-			mainDomain = resource
-		}
-		resource = mainDomain
-		domain := resource
-		key := fmt.Sprintf("%s%s", cacheKeyPrefix, domain)
-		cacheResult, err := redisClient.Get(ctx, key).Result()
-
-		if err == nil {
-			log.Printf("Serving cached result for resource: %s\n", domain)
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, cacheResult)
-			return
-		} else if err != redis.Nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		var queryResult string
-
-		if _, ok := tldToRdapServer[tld]; ok {
-			queryResult, err = rdapQuery(domain, tld)
-			if err != nil {
-				w.Header().Set("Content-Type", "application/json")
-				if errors.Is(err, errors.New("domain not found")) {
-					w.WriteHeader(http.StatusOK) // 设置状态码为 200
-					fmt.Fprint(w, `{"error": "Domain not found"}`)
+				// 当 WHOIS 解析过程中发现“域名未找到”或其他解析错误
+				if err.Error() == "domain not found" {
+					w.Header().Set("Content-Type", "application/json")
+					fmt.Fprint(w, `{"error": "domain not found"}`)
 				} else {
-					w.WriteHeader(http.StatusOK) // 设置状态码为 200
-					fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
+					http.Error(w, err.Error(), http.StatusInternalServerError)
 				}
 				return
 			}
-			domainInfo, err := parseRDAPResponse(queryResult)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
+
 			resultBytes, err := json.Marshal(domainInfo)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -688,59 +721,27 @@ func handler(w http.ResponseWriter, r *http.Request) {
 				log.Printf("Failed to cache result for resource: %s\n", resource)
 			}
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, queryResult)
-
-		} else if _, ok := tldToWhoisServer[tld]; ok {
-			queryResult, err = whois(domain, tld)
-			if err != nil {
-				// 当 WHOIS 查询过程中的网络或其他错误
-				w.Header().Set("Content-Type", "application/json")
-				fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
-				return
-			}
-
-			// 使用 TLD 对应的解析函数解析 WHOIS 数据
-			var domainInfo DomainInfo
-			if parseFunc, ok := whoisParsers[tld]; ok {
-				domainInfo, err = parseFunc(queryResult, domain)
-				if err != nil {
-					// 当 WHOIS 解析过程中发现“域名未找到”或其他解析错误
-					if err.Error() == "domain not found" {
-						w.Header().Set("Content-Type", "application/json")
-						fmt.Fprint(w, `{"error": "domain not found"}`)
-					} else {
-						http.Error(w, err.Error(), http.StatusInternalServerError)
-					}
-					return
-				}
-
-				resultBytes, err := json.Marshal(domainInfo)
-				if err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-				queryResult = string(resultBytes)
-				err = redisClient.Set(ctx, key, queryResult, cacheExpiration).Err()
-				if err != nil {
-					log.Printf("Failed to cache result for resource: %s\n", resource)
-				}
-				w.Header().Set("Content-Type", "application/json")
-			} else {
-				// 如果没有可用的解析规则，直接返回原始 WHOIS 数据，并设置响应类型为 text/plain
-				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-				err = redisClient.Set(ctx, key, queryResult, cacheExpiration).Err()
-				if err != nil {
-					log.Printf("Failed to cache result for resource: %s\n", resource)
-				}
-			}
-
-			fmt.Fprint(w, queryResult)
 		} else {
-			http.Error(w, "No WHOIS or RDAP server known for TLD: "+tld, http.StatusInternalServerError)
-			return
+			// 如果没有可用的解析规则，直接返回原始 WHOIS 数据，并设置响应类型为 text/plain
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			err = redisClient.Set(ctx, key, queryResult, cacheExpiration).Err()
+			if err != nil {
+				log.Printf("Failed to cache result for resource: %s\n", resource)
+			}
 		}
-	}
 
+		fmt.Fprint(w, queryResult)
+	} else {
+		http.Error(w, "No WHOIS or RDAP server known for TLD: "+tld, http.StatusInternalServerError)
+		return
+	}
+}
+
+func isASN(resource string) bool {
+	return regexp.MustCompile(`^(as|asn)\d+$`).MatchString(resource) || regexp.MustCompile(`^\d+$`).MatchString(resource)
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {
 	if len(concurrencyLimiter) == rateLimit {
 		log.Printf("Rate limit reached, waiting for a slot to become available...\n")
 	}
@@ -750,6 +751,21 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		wg.Done()
 		<-concurrencyLimiter
 	}()
+
+	ctx := context.Background()
+	resource := strings.TrimPrefix(r.URL.Path, "/")
+	resource = strings.ToLower(resource)
+
+	cacheKeyPrefix := "whois:"
+
+	if net.ParseIP(resource) != nil {
+		handleIP(ctx, w, resource, cacheKeyPrefix)
+	} else if isASN(resource) {
+		handleASN(ctx, w, resource, cacheKeyPrefix)
+	} else {
+		handleDomain(ctx, w, resource, cacheKeyPrefix)
+	}
+
 }
 
 func checkRedisConnection() {
