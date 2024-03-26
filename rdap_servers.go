@@ -406,6 +406,7 @@ var tldToRdapServer = map[string]string{
 	"270749-271772": "https://rdap.lacnic.net/rdap/",
 	"271773-272796": "https://rdap.lacnic.net/rdap/",
 	"272797-273820": "https://rdap.lacnic.net/rdap/",
+	"273821-274844": "https://rdap.lacnic.net/rdap/",
 	// TLD RDAP servers
 	"kg":                       "http://rdap.cctld.kg/",
 	"music":                    "http://rdap.centralnic.com/music/",
