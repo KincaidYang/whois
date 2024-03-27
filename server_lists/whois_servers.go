@@ -1,6 +1,6 @@
 package server_lists
 
-// tldToWhoisServer
+// TLDToWhoisServer
 // This map is used to determine the whois server for a given TLD.
 // Source: https://www.iana.org/domains/root/db
 var TLDToWhoisServer = map[string]string{
