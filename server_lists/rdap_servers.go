@@ -1,6 +1,6 @@
 package server_lists
 
-// tldToRdapServer
+// TLDToRdapServer
 // This map is used to determine the RDAP server for a given IP address or ASN.
 // Source: https://data.iana.org/rdap/
 var TLDToRdapServer = map[string]string{
