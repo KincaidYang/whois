@@ -372,22 +372,26 @@ func parseRDAPResponse(response string) (DomainInfo, error) {
 	if secureDNS, ok := result["secureDNS"]; ok {
 		if dsData, ok := secureDNS.(map[string]interface{})["dsData"].([]interface{}); ok && len(dsData) > 0 {
 			dsDataInfo := dsData[0].(map[string]interface{})
-			domainInfo.DNSSec = "signedDelegation"
-			domainInfo.DNSSecDSData = fmt.Sprintf("%d %d %d %s",
-				int(dsDataInfo["keyTag"].(float64)),
-				int(dsDataInfo["algorithm"].(float64)),
-				int(dsDataInfo["digestType"].(float64)),
-				dsDataInfo["digest"].(string),
-			)
+			if dsDataInfo["keytag"] != nil && dsDataInfo["algorithm"] != nil && dsDataInfo["digestType"] != nil && dsDataInfo["digest"] != nil {
+				domainInfo.DNSSec = "signedDelegation"
+				domainInfo.DNSSecDSData = fmt.Sprintf("%d %d %d %s",
+					int(dsDataInfo["keytag"].(float64)),
+					int(dsDataInfo["algorithm"].(float64)),
+					int(dsDataInfo["digestType"].(float64)),
+					dsDataInfo["digest"].(string),
+				)
+			}
 		} else if keyData, ok := secureDNS.(map[string]interface{})["keyData"].([]interface{}); ok && len(keyData) > 0 {
 			keyDataInfo := keyData[0].(map[string]interface{})
-			domainInfo.DNSSec = "signedDelegation"
-			domainInfo.DNSSecDSData = fmt.Sprintf("%d %d %d %s",
-				int(keyDataInfo["algorithm"].(float64)),
-				int(keyDataInfo["flags"].(float64)),
-				int(keyDataInfo["protocol"].(float64)),
-				keyDataInfo["publicKey"].(string),
-			)
+			if keyDataInfo["algorithm"] != nil && keyDataInfo["flags"] != nil && keyDataInfo["protocol"] != nil && keyDataInfo["publicKey"] != nil {
+				domainInfo.DNSSec = "signedDelegation"
+				domainInfo.DNSSecDSData = fmt.Sprintf("%d %d %d %s",
+					int(keyDataInfo["algorithm"].(float64)),
+					int(keyDataInfo["flags"].(float64)),
+					int(keyDataInfo["protocol"].(float64)),
+					keyDataInfo["publicKey"].(string),
+				)
+			}
 		}
 	}
 
