@@ -73,6 +73,10 @@ func parseWhoisResponseCN(response string, domain string) (DomainInfo, error) {
 		}
 	}
 
+	// 设置数据库更新时间为数据处理时间
+	now := time.Now().UTC().Format(time.RFC3339)
+	domainInfo.LastUpdateOfRDAPDB = now
+
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
 		return DomainInfo{}, errors.New("domain not found")
 	}
@@ -138,6 +142,10 @@ func parseWhoisResponseHK(response string, domain string) (DomainInfo, error) {
 	if len(matchDomainStatus) > 1 {
 		domainInfo.DomainStatus = []string{strings.TrimSpace(matchDomainStatus[1])}
 	}
+
+	// 设置数据库更新时间为数据处理时间
+	now := time.Now().UTC().Format(time.RFC3339)
+	domainInfo.LastUpdateOfRDAPDB = now
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
 		return DomainInfo{}, errors.New("domain not found")
@@ -210,6 +218,10 @@ func parseWhoisResponseTW(response string, domain string) (DomainInfo, error) {
 	if len(matchDNSSEC) > 1 {
 		domainInfo.DNSSec = matchDNSSEC[1]
 	}
+
+	// 设置数据库更新时间为数据处理时间
+	now := time.Now().UTC().Format(time.RFC3339)
+	domainInfo.LastUpdateOfRDAPDB = now
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
 		return DomainInfo{}, errors.New("domain not found")
@@ -484,6 +496,10 @@ func parseWhoisResponseMO(response string, domain string) (DomainInfo, error) {
 			domainInfo.NameServer[i] = strings.TrimSpace(ns)
 		}
 	}
+
+	// 设置数据库更新时间为数据处理时间
+	now := time.Now().UTC().Format(time.RFC3339)
+	domainInfo.LastUpdateOfRDAPDB = now
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
 		return DomainInfo{}, errors.New("domain not found")
