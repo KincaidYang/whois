@@ -202,7 +202,9 @@ func rdapQuery(domain, tld string) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return "", errors.New("domain not found")
+		return "", errors.New("resource not found")
+	} else if resp.StatusCode == http.StatusForbidden {
+		return "", errors.New("the registry denied the query")
 	} else if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
@@ -241,6 +243,8 @@ func rdapQueryIP(ip, tld string) (string, error) {
 
 	if resp.StatusCode == http.StatusNotFound {
 		return "", errors.New("resource not found")
+	} else if resp.StatusCode == http.StatusForbidden {
+		return "", errors.New("the registry denied the query")
 	} else if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
@@ -278,6 +282,8 @@ func rdapQueryASN(as, tld string) (string, error) {
 
 	if resp.StatusCode == http.StatusNotFound {
 		return "", errors.New("resource not found")
+	} else if resp.StatusCode == http.StatusForbidden {
+		return "", errors.New("the registry denied the query")
 	} else if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
@@ -546,11 +552,14 @@ func handleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 	queryresult, err := rdapQueryIP(resource, tld)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		if errors.Is(err, errors.New("resource not found")) {
-			w.WriteHeader(http.StatusOK) // Set the status code to 200
+		if err.Error() == "resource not found" {
+			w.WriteHeader(http.StatusNotFound) // Set the status code to 404
 			fmt.Fprint(w, `{"error": "Resource not found"}`)
+		} else if err.Error() == "the registry denied the query" {
+			w.WriteHeader(http.StatusForbidden) // Set the status code to 403
+			fmt.Fprint(w, `{"error": "The registry denied the query"}`)
 		} else {
-			w.WriteHeader(http.StatusOK) // Set the status code to 200
+			w.WriteHeader(http.StatusInternalServerError) // Set the status code to 500
 			fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
 		}
 		return
@@ -638,11 +647,14 @@ func handleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	queryresult, err := rdapQueryASN(asn, tld)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		if errors.Is(err, errors.New("resource not found")) {
-			w.WriteHeader(http.StatusOK) // Set the status code to 200
+		if err.Error() == "resource not found" {
+			w.WriteHeader(http.StatusNotFound) // Set the status code to 404
 			fmt.Fprint(w, `{"error": "Resource not found"}`)
+		} else if err.Error() == "the registry denied the query" {
+			w.WriteHeader(http.StatusForbidden) // Set the status code to 403
+			fmt.Fprint(w, `{"error": "The registry denied the query"}`)
 		} else {
-			w.WriteHeader(http.StatusOK) // Set the status code to 200
+			w.WriteHeader(http.StatusInternalServerError) // Set the status code to 500
 			fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
 		}
 		return
@@ -719,11 +731,14 @@ func handleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 		queryResult, err = rdapQuery(domain, tld)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
-			if errors.Is(err, errors.New("domain not found")) {
-				w.WriteHeader(http.StatusOK) // Set the status code to 200
-				fmt.Fprint(w, `{"error": "Domain not found"}`)
+			if err.Error() == "resource not found" {
+				w.WriteHeader(http.StatusNotFound) // Set the status code to 404
+				fmt.Fprint(w, `{"error": "Resource not found"}`)
+			} else if err.Error() == "the registry denied the query" {
+				w.WriteHeader(http.StatusForbidden) // Set the status code to 403
+				fmt.Fprint(w, `{"error": "The registry denied the query"}`)
 			} else {
-				w.WriteHeader(http.StatusOK) // Set the status code to 200
+				w.WriteHeader(http.StatusInternalServerError) // Set the status code to 500
 				fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
 			}
 			return
@@ -761,10 +776,11 @@ func handleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 		if parseFunc, ok := whoisParsers[tld]; ok {
 			domainInfo, err = parseFunc(queryResult, domain)
 			if err != nil {
-				// If there's a "domain not found" or other parsing error during the WHOIS parsing
+				// If there's a "resource not found" or other parsing error during the WHOIS parsing
 				if err.Error() == "domain not found" {
 					w.Header().Set("Content-Type", "application/json")
-					fmt.Fprint(w, `{"error": "domain not found"}`)
+					w.WriteHeader(http.StatusNotFound) // Set the status code to 404
+					fmt.Fprint(w, `{"error": "resource not found"}`)
 				} else {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 				}
