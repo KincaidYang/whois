@@ -1,0 +1,65 @@
+package config
+
+import (
+	"encoding/json"
+	"log"
+	"net/http"
+	"os"
+	"sync"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+var (
+	// redisClient is the Redis client
+	RedisClient *redis.Client
+	// CacheExpiration is the cache duration
+	CacheExpiration time.Duration
+	// HttpClient is used to set the timeout for rdapQuery
+	HttpClient = &http.Client{
+		Timeout: 10 * time.Second,
+	}
+	// Wg is used to wait for all goroutines to finish
+	Wg sync.WaitGroup
+	// Port is used to set the port the server listens on
+	Port int
+	// RateLimit is used to set the number of concurrent requests
+	RateLimit          int
+	ConcurrencyLimiter chan struct{}
+)
+
+func init() {
+	var config Config
+
+	// Open the configuration file
+	configFile, err := os.Open("config.json")
+	if err != nil {
+		log.Fatalf("Failed to open configuration file: %v", err)
+	}
+	defer configFile.Close()
+
+	// Decode the configuration file
+	decoder := json.NewDecoder(configFile)
+	err = decoder.Decode(&config)
+	if err != nil {
+		log.Fatalf("Failed to decode JSON from configuration file: %v", err)
+	}
+
+	// Initialize the Redis client
+	RedisClient = redis.NewClient(&redis.Options{
+		Addr:     config.Redis.Addr,
+		Password: config.Redis.Password,
+		DB:       config.Redis.DB,
+	})
+
+	// Set the cache expiration time
+	CacheExpiration = time.Duration(config.CacheExpiration) * time.Second
+
+	// Set the port the server listens on
+	Port = config.Port
+
+	// Set the number of concurrent requests
+	RateLimit = config.RateLimit
+	ConcurrencyLimiter = make(chan struct{}, RateLimit)
+}

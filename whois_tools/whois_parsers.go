@@ -1,14 +1,16 @@
-package main
+package whois_tools
 
 import (
 	"errors"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/KincaidYang/whois/rdap_tools/structs"
 )
 
-func parseWhoisResponseCN(response string, domain string) (DomainInfo, error) {
-	var domainInfo DomainInfo
+func ParseWhoisResponseCN(response string, domain string) (structs.DomainInfo, error) {
+	var domainInfo structs.DomainInfo
 	domainInfo.DomainName = domain
 
 	// 使用正则表达式匹配 WHOIS 数据中的相关信息
@@ -25,7 +27,7 @@ func parseWhoisResponseCN(response string, domain string) (DomainInfo, error) {
 		// 解析原始时间字符串
 		t, err := time.Parse("2006-01-02 15:04:05", matchCreationDate[1])
 		if err != nil {
-			return DomainInfo{}, err
+			return structs.DomainInfo{}, err
 		}
 		// 将时间转换为 UTC，并格式化为新的字符串
 		domainInfo.CreationDate = t.Add(-8 * time.Hour).Format(time.RFC3339Nano)
@@ -37,7 +39,7 @@ func parseWhoisResponseCN(response string, domain string) (DomainInfo, error) {
 		// 解析原始时间字符串
 		t, err := time.Parse("2006-01-02 15:04:05", matchExpiryDate[1])
 		if err != nil {
-			return DomainInfo{}, err
+			return structs.DomainInfo{}, err
 		}
 		// 将时间转换为 UTC，并格式化为新的字符串
 		domainInfo.RegistryExpiryDate = t.Add(-8 * time.Hour).Format(time.RFC3339Nano)
@@ -78,13 +80,13 @@ func parseWhoisResponseCN(response string, domain string) (DomainInfo, error) {
 	domainInfo.LastUpdateOfRDAPDB = now
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, errors.New("domain not found")
 	}
 
 	return domainInfo, nil
 }
-func parseWhoisResponseHK(response string, domain string) (DomainInfo, error) {
-	var domainInfo DomainInfo
+func ParseWhoisResponseHK(response string, domain string) (structs.DomainInfo, error) {
+	var domainInfo structs.DomainInfo
 	domainInfo.DomainName = domain
 
 	// 使用正则表达式匹配 WHOIS 数据中的相关信息
@@ -148,14 +150,14 @@ func parseWhoisResponseHK(response string, domain string) (DomainInfo, error) {
 	domainInfo.LastUpdateOfRDAPDB = now
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, errors.New("domain not found")
 	}
 
 	return domainInfo, nil
 }
 
-func parseWhoisResponseTW(response string, domain string) (DomainInfo, error) {
-	var domainInfo DomainInfo
+func ParseWhoisResponseTW(response string, domain string) (structs.DomainInfo, error) {
+	var domainInfo structs.DomainInfo
 	domainInfo.DomainName = domain
 
 	// 使用正则表达式匹配 WHOIS 数据中的相关信息
@@ -186,7 +188,7 @@ func parseWhoisResponseTW(response string, domain string) (DomainInfo, error) {
 	if len(matchCreationDate) > 1 {
 		t, err := time.Parse("2006-01-02 15:04:05", matchCreationDate[1])
 		if err != nil {
-			return DomainInfo{}, err
+			return structs.DomainInfo{}, err
 		}
 		// 将时间转换为 UTC，并格式化为新的字符串
 		domainInfo.CreationDate = t.Add(-8 * time.Hour).Format(time.RFC3339Nano)
@@ -197,7 +199,7 @@ func parseWhoisResponseTW(response string, domain string) (DomainInfo, error) {
 	if len(matchExpiryDate) > 1 {
 		t, err := time.Parse("2006-01-02 15:04:05", matchExpiryDate[1])
 		if err != nil {
-			return DomainInfo{}, err
+			return structs.DomainInfo{}, err
 		}
 		// 将时间转换为 UTC，并格式化为新的字符串
 		domainInfo.RegistryExpiryDate = t.Add(-8 * time.Hour).Format(time.RFC3339Nano)
@@ -224,13 +226,13 @@ func parseWhoisResponseTW(response string, domain string) (DomainInfo, error) {
 	domainInfo.LastUpdateOfRDAPDB = now
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, errors.New("domain not found")
 	}
 
 	return domainInfo, nil
 }
-func parseWhoisResponseSO(response string, domain string) (DomainInfo, error) {
-	var domainInfo DomainInfo
+func ParseWhoisResponseSO(response string, domain string) (structs.DomainInfo, error) {
+	var domainInfo structs.DomainInfo
 	domainInfo.DomainName = domain
 
 	// 使用正则表达式匹配 WHOIS 数据中的相关信息
@@ -312,13 +314,13 @@ func parseWhoisResponseSO(response string, domain string) (DomainInfo, error) {
 	}
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, errors.New("domain not found")
 	}
 
 	return domainInfo, nil
 }
-func parseWhoisResponseRU(response string, domain string) (DomainInfo, error) {
-	var domainInfo DomainInfo
+func ParseWhoisResponseRU(response string, domain string) (structs.DomainInfo, error) {
+	var domainInfo structs.DomainInfo
 	domainInfo.DomainName = domain
 
 	// 使用正则表达式匹配 WHOIS 数据中的相关信息
@@ -372,14 +374,14 @@ func parseWhoisResponseRU(response string, domain string) (DomainInfo, error) {
 	}
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, errors.New("domain not found")
 	}
 
 	return domainInfo, nil
 }
 
-func parseWhoisResponseSB(response string, domain string) (DomainInfo, error) {
-	var domainInfo DomainInfo
+func ParseWhoisResponseSB(response string, domain string) (structs.DomainInfo, error) {
+	var domainInfo structs.DomainInfo
 	domainInfo.DomainName = domain
 
 	// 使用正则表达式匹配 WHOIS 数据中的相关信息
@@ -461,13 +463,13 @@ func parseWhoisResponseSB(response string, domain string) (DomainInfo, error) {
 	}
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, errors.New("domain not found")
 	}
 
 	return domainInfo, nil
 }
-func parseWhoisResponseMO(response string, domain string) (DomainInfo, error) {
-	var domainInfo DomainInfo
+func ParseWhoisResponseMO(response string, domain string) (structs.DomainInfo, error) {
+	var domainInfo structs.DomainInfo
 	domainInfo.DomainName = domain
 
 	// Use regular expressions to match relevant information in the WHOIS data
@@ -502,14 +504,14 @@ func parseWhoisResponseMO(response string, domain string) (DomainInfo, error) {
 	domainInfo.LastUpdateOfRDAPDB = now
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, errors.New("domain not found")
 	}
 
 	return domainInfo, nil
 }
 
-func parseWhoisResponseAU(response string, domain string) (DomainInfo, error) {
-	var domainInfo DomainInfo
+func ParseWhoisResponseAU(response string, domain string) (structs.DomainInfo, error) {
+	var domainInfo structs.DomainInfo
 	domainInfo.DomainName = domain
 
 	// 清理响应数据
@@ -594,15 +596,15 @@ func parseWhoisResponseAU(response string, domain string) (DomainInfo, error) {
 	}
 
 	if domainInfo.Registrar == "" {
-		return DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, errors.New("domain not found")
 	}
 
 	return domainInfo, nil
 }
 
-func parseWhoisResponseSG(response string, domain string) (DomainInfo, error) {
+func ParseWhoisResponseSG(response string, domain string) (structs.DomainInfo, error) {
 	// SG匹配有问题，有时间再修改了
-	var domainInfo DomainInfo
+	var domainInfo structs.DomainInfo
 	domainInfo.DomainName = domain
 
 	// 使用正则表达式匹配 WHOIS 数据中的相关信息
@@ -663,7 +665,7 @@ func parseWhoisResponseSG(response string, domain string) (DomainInfo, error) {
 	}
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, errors.New("domain not found")
 	}
 
 	return domainInfo, nil
