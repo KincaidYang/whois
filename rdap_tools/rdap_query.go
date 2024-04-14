@@ -7,10 +7,21 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 
 	"github.com/KincaidYang/whois/config"
 	"github.com/KincaidYang/whois/server_lists"
 )
+
+// contains function is used to check if a string is in a slice of strings.
+func contains(slice []string, str string) bool {
+	for _, item := range slice {
+		if item == str {
+			return true
+		}
+	}
+	return false
+}
 
 // RDAPQuery function is used to query the RDAP (Registration Data Access Protocol) information for a given domain.
 func RDAPQuery(domain, tld string) (string, error) {
@@ -27,6 +38,15 @@ func RDAPQuery(domain, tld string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Accept", "application/rdap+json")
+
+	if contains(config.ProxySuffixes, tld) || contains(config.ProxySuffixes, "all") {
+		proxyURL, _ := url.Parse(config.ProxyServer)
+		config.HttpClient.Transport = &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+		}
+	} else {
+		config.HttpClient.Transport = &http.Transport{}
+	}
 
 	resp, err := config.HttpClient.Do(req)
 	if err != nil {
@@ -67,6 +87,15 @@ func RDAPQueryIP(ip, tld string) (string, error) {
 	}
 	req.Header.Set("Accept", "application/rdap+json")
 
+	if contains(config.ProxySuffixes, tld) || contains(config.ProxySuffixes, "all") {
+		proxyURL, _ := url.Parse(config.ProxyServer)
+		config.HttpClient.Transport = &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+		}
+	} else {
+		config.HttpClient.Transport = &http.Transport{}
+	}
+
 	resp, err := config.HttpClient.Do(req)
 	if err != nil {
 		return "", err
@@ -105,6 +134,15 @@ func RDAPQueryASN(as, tld string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Accept", "application/rdap+json")
+
+	if contains(config.ProxySuffixes, tld) || contains(config.ProxySuffixes, "all") {
+		proxyURL, _ := url.Parse(config.ProxyServer)
+		config.HttpClient.Transport = &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+		}
+	} else {
+		config.HttpClient.Transport = &http.Transport{}
+	}
 
 	resp, err := config.HttpClient.Do(req)
 	if err != nil {
