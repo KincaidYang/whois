@@ -27,6 +27,10 @@ var (
 	// RateLimit is used to set the number of concurrent requests
 	RateLimit          int
 	ConcurrencyLimiter chan struct{}
+	// ProxyServer is the proxy server
+	ProxyServer string
+	// ProxySuffixes is the list of TLDs that use a proxy server
+	ProxySuffixes []string
 )
 
 func init() {
@@ -62,4 +66,8 @@ func init() {
 	// Set the number of concurrent requests
 	RateLimit = config.RateLimit
 	ConcurrencyLimiter = make(chan struct{}, RateLimit)
+
+	// Set the proxy server
+	ProxyServer = config.ProxyServer
+	ProxySuffixes = config.ProxySuffixes
 }

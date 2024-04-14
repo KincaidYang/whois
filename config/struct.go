@@ -15,4 +15,8 @@ type Config struct {
 	Port int `json:"port"`
 	// RateLimit is the maximum number of requests that a client can make in a specified period of time.
 	RateLimit int `json:"rateLimit"`
+	// ProxyServer is the proxy server to use for certain TLDs.
+	ProxyServer string `json:"proxyServer"`
+	// ProxySuffixes is the list of TLDs that use a proxy server.
+	ProxySuffixes []string `json:"proxySuffixes"`
 }
