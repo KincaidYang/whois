@@ -78,16 +78,10 @@ func ParseRDAPResponseforDomain(response string) (structs.DomainInfo, error) {
 	}
 
 	if nameservers, ok := result["nameservers"]; ok {
-		if nameservers != nil {
-			domainInfo.NameServer = make([]string, len(nameservers.([]interface{})))
-			for i, ns := range nameservers.([]interface{}) {
-				domainInfo.NameServer[i] = ns.(map[string]interface{})["ldhName"].(string)
-			}
-		} else {
-			domainInfo.NameServer = []string{}
+		domainInfo.NameServer = make([]string, len(nameservers.([]interface{})))
+		for i, ns := range nameservers.([]interface{}) {
+			domainInfo.NameServer[i] = ns.(map[string]interface{})["ldhName"].(string)
 		}
-	} else {
-		domainInfo.NameServer = []string{}
 	}
 
 	domainInfo.DNSSec = "unsigned"
