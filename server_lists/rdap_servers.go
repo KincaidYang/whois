@@ -1428,6 +1428,7 @@ var TLDToRdapServer = map[string]string{
 	"xn--i1b6b1a6a2e":          "https://rdap.publicinterestregistry.org/rdap/",
 	"xn--nqv7f":                "https://rdap.publicinterestregistry.org/rdap/",
 	"xn--nqv7fs00ema":          "https://rdap.publicinterestregistry.org/rdap/",
+	"si":                       "https://rdap.register.si/",
 	"br":                       "https://rdap.registro.br/",
 	"bar":                      "https://rdap.registry.bar/rdap/",
 	"rest":                     "https://rdap.registry.bar/rdap/",
