@@ -275,6 +275,7 @@ var TLDToWhoisServer = map[string]string{
 	"dealer":                   "whois.nic.dealer",
 	"deals":                    "whois.nic.deals",
 	"degree":                   "whois.nic.degree",
+	"delivery":                 "whois.nic.delivery",
 	"deloitte":                 "whois.nic.deloitte",
 	"delta":                    "whois.nic.delta",
 	"democrat":                 "whois.nic.democrat",
