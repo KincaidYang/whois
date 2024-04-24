@@ -162,7 +162,6 @@ var TLDToWhoisServer = map[string]string{
 	"bzh":                      "whois.nic.bzh",
 	"ca":                       "whois.cira.ca",
 	"cab":                      "whois.nic.cab",
-	"cafe":                     "whois.nic.cafe",
 	"cal":                      "whois.nic.google",
 	"call":                     "whois.nic.call",
 	"cam":                      "whois.nic.cam",
