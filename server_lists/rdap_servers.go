@@ -603,6 +603,7 @@ var TLDToRdapServer = map[string]string{
 	"rio":                      "https://rdap.gtlds.nic.br/",
 	"uol":                      "https://rdap.gtlds.nic.br/",
 	"ua":                       "https://rdap.hostmaster.ua/",
+	"int":                      "https://rdap.iana.org/",
 	"abb":                      "https://rdap.identitydigital.services/rdap/",
 	"abbott":                   "https://rdap.identitydigital.services/rdap/",
 	"academy":                  "https://rdap.identitydigital.services/rdap/",
