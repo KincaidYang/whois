@@ -1,9 +1,9 @@
 name: Build and Push Docker Image
 
 on:
-    push:
-      tags:
-        - '*'
+  push:
+    tags:
+      - '*'
 
 jobs:
   build:
@@ -29,12 +29,6 @@ jobs:
             linux/386
             linux/arm/v7
             linux/arm64
-            linux/ppc64le
-            windows/amd64
-            windows/386
-            windows/arm64
-            darwin/amd64
-            darwin/arm64
           push: true
           tags: |
             jinzeyang/whois:${{ env.VERSION }}
