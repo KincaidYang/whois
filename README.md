@@ -5,6 +5,16 @@
 根据 ICANN 《通用顶级域名注册数据临时政策细则（Temporary Specification for gTLD Registration Data）》和欧盟《通用数据保护条例》合规要求，在查询域名信息时，程序只返回了部分必要的信息（详见下方返回结果示例），不会返回所有者的`联系方式`、`地址`、`电话`、`邮箱`等字段。
 
 ## 使用方法
+### Docker部署
+```bash
+# 安装 Redis
+docker run -d --name redis -p 6379:6379 redis:latest
+# 运行 whois
+docker run -d --name whois -p 8043:8043 --link redis:redis jinzeyang/whois
+# 运行 whois（大陆推荐）
+docker run -d --name whois -p 8043:8043 --link redis:redis docker.cnb.cool/kincaidyang/whois
+```
+
 ### 下载
 #### 使用二进制文件
 您可从 [Release](https://github.com/KincaidYang/whois/releases) 页面下载对应平台的二进制文件。
@@ -24,7 +34,7 @@ vim config.json
 ```json
 {
     "redis": {
-        "addr": "localhost:6379",
+        "addr": "redis:6379",
         "password": "",
         "db": 0
     },
