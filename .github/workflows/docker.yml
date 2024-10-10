@@ -30,6 +30,7 @@ jobs:
             linux/arm/v7
             linux/arm64
           push: true
+          no-cache: true
           tags: |
             jinzeyang/whois:${{ env.VERSION }}
             jinzeyang/whois:latest
