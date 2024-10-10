@@ -1,4 +1,4 @@
-FROM golang:1.23.1 AS builder
+FROM golang:alpine3.20 AS builder
 
 # 设置工作目录
 WORKDIR /data/workspace
@@ -11,10 +11,6 @@ RUN go mod download
 COPY . .
 RUN go build -o whois
 
-# 调试：列出构建目录中的文件
-RUN echo "构建阶段：列出/data/workspace目录中的文件"
-RUN ls -la /data/workspace
-
 FROM alpine
 
 # 设置工作目录
@@ -23,10 +19,6 @@ WORKDIR /usr/local/app
 # 复制构建的可执行文件和配置文件
 COPY --from=builder /data/workspace/whois .
 COPY --from=builder /data/workspace/config.json .
-
-# 调试：列出应用目录中的文件
-RUN echo "运行阶段：列出/usr/local/app目录中的文件"
-RUN ls -la /usr/local/app
 
 # 暴露Web端口
 EXPOSE 8043
