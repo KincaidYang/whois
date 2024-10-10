@@ -10,7 +10,7 @@ RUN go mod download
 COPY . .
 RUN go build -o whois
 
-FROM alpine
+FROM debian:bookworm
 
 # 设置工作目录
 WORKDIR /usr/local/app
