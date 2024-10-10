@@ -77,6 +77,8 @@ WantedBy=multi-user.target
 ### 使用
 GET 请求
 
+部署后直接通过浏览器访问`http://ip:端口/你想查的域名或ip或asn`，默认端口`8043`，示例`http://1.2.3.4:8043/examlpe.com`,详细示例请参考下方
+
 #### 查询域名 Whois 信息
 ```bash
 curl http://localhost:8043/example.com
