@@ -1,4 +1,4 @@
-FROM golang:alpine3.20 AS builder
+FROM golang:alpine AS builder
 
 # 设置工作目录
 WORKDIR /data/workspace
