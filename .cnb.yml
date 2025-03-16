@@ -1,0 +1,121 @@
+$:
+  vscode:
+    - services:
+        - docker
+      docker:
+        build: 
+          dockerfile: .ide/Dockerfile
+
+    - docker:
+        build: .ide/Dockerfile
+      stages:
+        - name: goreleaser
+          script: goreleaser
+        - name: changelog
+          image: cnbcool/changelog
+          exports:
+            latestChangeLog: LATEST_CHANGE_LOG
+        - name: create release
+          type: git:release
+          options:
+            title: ${CNB_BRANCH}
+            description: ${LATEST_CHANGE_LOG}
+        - name: release 上传附件
+          image: cnbcool/attachments:latest
+          settings:
+            attachments:
+              - dist/*
+              - "!dist/config.yaml"
+              - "!dist/artifacts.json"
+              - "!dist/metadata.json"
+    - runner:
+        tags: cnb:arch:amd64
+      services:
+        - docker
+      env:
+        IMAGE_TAG: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest-linux-amd64
+      stages:
+        - name: docker login
+          script: docker login -u ${CNB_TOKEN_USER_NAME} -p "${CNB_TOKEN}" ${CNB_DOCKER_REGISTRY}
+        - name: docker build
+          script: docker build -t ${IMAGE_TAG} .
+        - name: docker push
+          script: docker push ${IMAGE_TAG}
+        - name: resolve
+          type: cnb:resolve
+          options:
+            key: build-amd64 
+          
+    - runner:
+        tags: cnb:arch:arm64:v8
+      services:
+        - docker
+      env:
+        IMAGE_TAG: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest-linux-arm64
+      stages:
+        - name: docker login
+          script: docker login -u ${CNB_TOKEN_USER_NAME} -p "${CNB_TOKEN}" ${CNB_DOCKER_REGISTRY}
+        - name: docker build
+          script: docker build -t ${IMAGE_TAG} .
+        - name: docker push
+          script: docker push ${IMAGE_TAG}
+        - name: resolve
+          type: cnb:resolve
+          options:
+            key: build-arm64
+
+    - services:
+        - docker
+      env:
+        IMAGE_TAG: ${CNB_DOCKER_REGISTRY}/${CNB_REPO_SLUG_LOWERCASE}:latest
+      stages:
+        - name: await the amd64
+          type: cnb:await
+          options:
+            key: build-amd64
+        - name: await the arm64
+          type: cnb:await
+          options:
+            key: build-arm64
+        - name: manifest
+          image: cnbcool/manifest
+          settings:
+            username: $CNB_TOKEN_USER_NAME
+            password: $CNB_TOKEN
+            target: ${IMAGE_TAG}
+            template: ${IMAGE_TAG}-OS-ARCH
+            platforms:
+              - linux/amd64
+              - linux/arm64
+main:
+  pull_request:
+    - stages:
+      - name: 代码评审
+        image: cnbcool/ai-review:latest
+        settings:
+          type: code-review
+      - name: 标题和描述的可读性检测
+        image: cnbcool/ai-review:latest
+        settings:
+          type: pr-info-readability-check
+        exports:
+          status: STATUS
+      - name: 标题和描述的可读性检测结果
+        script: echo $STATUS
+      - name: 提交注释的可读性检测
+        image: cnbcool/ai-review:latest
+        settings:
+          type: commit-message-readability-check
+        exports:
+          status: STATUS
+      - name: 提交注释的可读性检测结果
+        script: echo $STATUS
+      - name: 变更总结
+        image: cnbcool/ai-review:latest
+        settings:
+          type: diff-summary
+        exports:
+          summary: SUMMARY
+      - name: 变更总结
+        script: echo $SUMMARY
+        
