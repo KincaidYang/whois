@@ -304,7 +304,7 @@ func ParseWhoisResponseSO(response string, domain string) (structs.DomainInfo, e
 	// 解析 DNSSEC DS Data
 	matchDNSSecDSData := reDNSSecDSData.FindStringSubmatch(response)
 	if len(matchDNSSecDSData) > 1 {
-		domainInfo.DNSSecDSData = matchDNSSecDSData[1]
+		domainInfo.DNSSecDSData = []string{matchDNSSecDSData[1]}
 	}
 
 	// 解析数据库更新时间
@@ -453,7 +453,7 @@ func ParseWhoisResponseSB(response string, domain string) (structs.DomainInfo, e
 	// 解析 DNSSEC DS Data
 	matchDNSSecDSData := reDNSSecDSData.FindStringSubmatch(response)
 	if len(matchDNSSecDSData) > 1 {
-		domainInfo.DNSSecDSData = matchDNSSecDSData[1]
+		domainInfo.DNSSecDSData = []string{matchDNSSecDSData[1]}
 	}
 
 	// 解析数据库更新时间
@@ -586,7 +586,7 @@ func ParseWhoisResponseAU(response string, domain string) (structs.DomainInfo, e
 	// 解析 DNSSEC DS Data
 	matchDNSSecDSData := reDNSSecDSData.FindStringSubmatch(cleanedResponse)
 	if len(matchDNSSecDSData) > 1 {
-		domainInfo.DNSSecDSData = matchDNSSecDSData[1]
+		domainInfo.DNSSecDSData = []string{matchDNSSecDSData[1]}
 	}
 
 	// 解析 Last update of WHOIS database

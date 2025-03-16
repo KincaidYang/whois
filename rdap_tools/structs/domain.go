@@ -11,6 +11,6 @@ type DomainInfo struct {
 	UpdatedDate        string   `json:"Updated Date"`            // UpdatedDate is the updated date of the domain.
 	NameServer         []string `json:"Name Server"`             // NameServer is the name server of the domain.
 	DNSSec             string   `json:"DNSSEC"`                  // DNSSec is the DNSSEC of the domain.
-	DNSSecDSData       string   `json:"DNSSEC DS Data"`          // DNSSecDSData is the DNSSEC DS Data of the domain.
+	DNSSecDSData       []string `json:"DNSSEC DS Data"`          // DNSSecDSData is the DNSSEC DS Data of the domain.
 	LastUpdateOfRDAPDB string   `json:"Last Update of Database"` // LastUpdateOfRDAPDB is the last update of the database.
 }

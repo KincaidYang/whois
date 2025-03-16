@@ -7,7 +7,7 @@ import (
 	"github.com/KincaidYang/whois/rdap_tools/structs"
 )
 
-// parseRDAPResponse function is used to parse the RDAP response for a given domain.
+// ParseRDAPResponseforDomain parses the RDAP response for a domain and returns a DomainInfo structure.
 func ParseRDAPResponseforDomain(response string) (structs.DomainInfo, error) {
 	var result map[string]interface{}
 	err := json.Unmarshal([]byte(response), &result)
@@ -86,27 +86,19 @@ func ParseRDAPResponseforDomain(response string) (structs.DomainInfo, error) {
 
 	domainInfo.DNSSec = "unsigned"
 	if secureDNS, ok := result["secureDNS"]; ok {
-		if dsData, ok := secureDNS.(map[string]interface{})["dsData"].([]interface{}); ok && len(dsData) > 0 {
-			dsDataInfo := dsData[0].(map[string]interface{})
-			if dsDataInfo["keytag"] != nil && dsDataInfo["algorithm"] != nil && dsDataInfo["digestType"] != nil && dsDataInfo["digest"] != nil {
-				domainInfo.DNSSec = "signedDelegation"
-				domainInfo.DNSSecDSData = fmt.Sprintf("%d %d %d %s",
-					int(dsDataInfo["keytag"].(float64)),
-					int(dsDataInfo["algorithm"].(float64)),
-					int(dsDataInfo["digestType"].(float64)),
-					dsDataInfo["digest"].(string),
-				)
-			}
-		} else if keyData, ok := secureDNS.(map[string]interface{})["keyData"].([]interface{}); ok && len(keyData) > 0 {
-			keyDataInfo := keyData[0].(map[string]interface{})
-			if keyDataInfo["algorithm"] != nil && keyDataInfo["flags"] != nil && keyDataInfo["protocol"] != nil && keyDataInfo["publicKey"] != nil {
-				domainInfo.DNSSec = "signedDelegation"
-				domainInfo.DNSSecDSData = fmt.Sprintf("%d %d %d %s",
-					int(keyDataInfo["algorithm"].(float64)),
-					int(keyDataInfo["flags"].(float64)),
-					int(keyDataInfo["protocol"].(float64)),
-					keyDataInfo["publicKey"].(string),
-				)
+		if delegationSigned, ok := secureDNS.(map[string]interface{})["delegationSigned"].(bool); ok && delegationSigned {
+			domainInfo.DNSSec = "signedDelegation"
+			if dsData, ok := secureDNS.(map[string]interface{})["dsData"].([]interface{}); ok && len(dsData) > 0 {
+				for _, ds := range dsData {
+					dsRecord := ds.(map[string]interface{})
+					dsDataStr := fmt.Sprintf("%d %d %d %s",
+						int(dsRecord["keyTag"].(float64)),
+						int(dsRecord["algorithm"].(float64)),
+						int(dsRecord["digestType"].(float64)),
+						dsRecord["digest"].(string),
+					)
+					domainInfo.DNSSecDSData = append(domainInfo.DNSSecDSData, dsDataStr)
+				}
 			}
 		}
 	}
