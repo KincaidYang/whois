@@ -5,7 +5,7 @@ archives:
     files:
       - LICENSE
       - README.md
-      - config.json
+      - config.yaml
 builds:
   - env:
       - CGO_ENABLED=0
