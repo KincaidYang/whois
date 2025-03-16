@@ -29,22 +29,23 @@ go build
 
 ### 编辑配置文件
 ```bash
-vim config.json
+vim config.yaml
 ```
-```json
-{
-    "redis": {
-        "addr": "redis:6379",
-        "password": "",
-        "db": 0
-    },
-    "cacheExpiration": 3600,
-    "port": 8043,
-    "rateLimit": 50
-}
+```yaml
+redis:
+  addr: "redis:6379"
+  password: ""
+  db: 0
+cacheExpiration: 3600
+port: 8043
+rateLimit: 50
+ProxyServer: "http://127.0.0.1:8080"
+ProxySuffixes: 
+ProxyUsername: ""
+ProxyPassword: ""
 ```
-根据需要修改 Redis 地址、端口、密码、数据库、缓存时间、监听端口、限频等参数。
-> ⚠️ **Warning:** 限频针对的是程序向 whois 服务器发起的请求，而非用户向本程序发起的请求。例如，您将限频设置为 50，那么程序向 whois 服务器发起的请求将不会超过 50 次/秒，但是用户向本程序发起的请求不受限制。请您通过 Nginx 等工具对本程序进行限流，以防止恶意请求。
+根据需要修改 Redis 地址、端口、密码、数据库、缓存时间、监听端口、限频、如果需要在向注册局查询时使用代理，请配置代理服务器、需要代理的后缀、代理服务器用户名&密码（可选）等参数。
+> ⚠️ **Warning:** 限频针对的是程序向 whois 服务器发起的请求，而非用户向本程序发起的请求。例如，您将限频设置为 50，那么程序向注册局 whois 服务器发起的请求将不会超过 50 次/秒，但是用户向本程序发起的请求不受限制。请您通过 Nginx 等工具对本程序进行限流，以防止恶意请求。
 
 ### 运行
 ```bash

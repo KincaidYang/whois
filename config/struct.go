@@ -17,6 +17,10 @@ type Config struct {
 	RateLimit int `json:"rateLimit"`
 	// ProxyServer is the proxy server to use for certain TLDs.
 	ProxyServer string `json:"proxyServer"`
+	// ProxyUsername is the username for the proxy server.
+	ProxyUsername string `json:"proxyUsername"`
+	// ProxyPassword is the password for the proxy server.
+	ProxyPassword string `json:"proxyPassword"`
 	// ProxySuffixes is the list of TLDs that use a proxy server.
 	ProxySuffixes []string `json:"proxySuffixes"`
 }

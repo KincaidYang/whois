@@ -41,6 +41,9 @@ func RDAPQuery(domain, tld string) (string, error) {
 
 	if contains(config.ProxySuffixes, tld) || contains(config.ProxySuffixes, "all") {
 		proxyURL, _ := url.Parse(config.ProxyServer)
+		if config.ProxyUsername != "" && config.ProxyPassword != "" {
+			proxyURL.User = url.UserPassword(config.ProxyUsername, config.ProxyPassword)
+		}
 		config.HttpClient.Transport = &http.Transport{
 			Proxy: http.ProxyURL(proxyURL),
 		}
@@ -89,6 +92,9 @@ func RDAPQueryIP(ip, tld string) (string, error) {
 
 	if contains(config.ProxySuffixes, tld) || contains(config.ProxySuffixes, "all") {
 		proxyURL, _ := url.Parse(config.ProxyServer)
+		if config.ProxyUsername != "" && config.ProxyPassword != "" {
+			proxyURL.User = url.UserPassword(config.ProxyUsername, config.ProxyPassword)
+		}
 		config.HttpClient.Transport = &http.Transport{
 			Proxy: http.ProxyURL(proxyURL),
 		}
@@ -137,6 +143,9 @@ func RDAPQueryASN(as, tld string) (string, error) {
 
 	if contains(config.ProxySuffixes, tld) || contains(config.ProxySuffixes, "all") {
 		proxyURL, _ := url.Parse(config.ProxyServer)
+		if config.ProxyUsername != "" && config.ProxyPassword != "" {
+			proxyURL.User = url.UserPassword(config.ProxyUsername, config.ProxyPassword)
+		}
 		config.HttpClient.Transport = &http.Transport{
 			Proxy: http.ProxyURL(proxyURL),
 		}
