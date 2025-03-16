@@ -18,7 +18,7 @@ WORKDIR /usr/local/app
 
 # 复制构建的可执行文件和配置文件
 COPY --from=builder /data/workspace/whois .
-COPY --from=builder /data/workspace/config.json .
+COPY --from=builder /data/workspace/config.yaml .
 
 # 暴露Web端口
 EXPOSE 8043
