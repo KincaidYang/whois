@@ -2,10 +2,10 @@ redis:
   addr: "redis:6379"
   password: ""
   db: 0
-cacheExpiration: 3600
+cacheexpiration: 3600
 port: 8043
-rateLimit: 50
-ProxyServer: "http://127.0.0.1:8080"
-ProxySuffixes: 
-ProxyUsername: ""
-ProxyPassword: ""
+ratelimit: 50
+proxyserver: "http://127.0.0.1:8080"
+proxysuffixes: []
+proxyusername: ""
+proxypassword: ""
