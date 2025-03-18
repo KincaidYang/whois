@@ -204,6 +204,7 @@ curl http://localhost:8043/205794
 - [`github.com/redis/go-redis/v9`](https://github.com/go-redis/redis)：Go语言Redis客户端。
 - [`golang.org/x/net/idna`](https://pkg.go.dev/golang.org/x/net/idna)：实现了IDNA（国际化域名在应用程序）规范。
 - [`golang.org/x/net/publicsuffix`](https://pkg.go.dev/golang.org/x/net/publicsuffix)：实现了公共后缀列表规范。
+- [`gopkg.in/yaml.v2`](https://gopkg.in/yaml.v2)：YAML 解析库。
 
 WHOIS/RDAP 服务器列表来自于：
 - [IANA](https://www.iana.org/domains/root/db)
