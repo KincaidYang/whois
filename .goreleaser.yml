@@ -8,7 +8,7 @@ archives:
     files:
       - LICENSE
       - README.md
-      - config.json
+      - config.yaml
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
 builds:
