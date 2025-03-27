@@ -10,7 +10,7 @@ $:
         build: .ide/Dockerfile
       stages:
         - name: goreleaser
-          script: goreleaser
+          script: goreleaser release -f .ide/.goreleaser.yml
         - name: changelog
           image: cnbcool/changelog
           exports:

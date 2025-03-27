@@ -1,7 +1,7 @@
 # .goreleaser.yml
 version: 2
 release:
-  disable: false
+  disable: true
 archives:
   - format: tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
