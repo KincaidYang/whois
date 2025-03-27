@@ -60,14 +60,13 @@ vim /etc/systemd/system/whois.service
 ```
 ```ini
 [Unit]
-[Unit]
 Description=whois
 After=network.target
 
 [Service]
 Type=simple
-User=www
-Group=www
+User=www-data
+Group=www-data
 ExecStart=/path/to/whois/whois
 WorkingDirectory=/path/to/whois
 Restart=on-failure
