@@ -4,8 +4,8 @@ go 1.24.1
 
 require (
 	github.com/redis/go-redis/v9 v9.7.3
-	golang.org/x/net v0.37.0
-	gopkg.in/yaml.v2 v2.4.0
+	golang.org/x/net v0.38.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
