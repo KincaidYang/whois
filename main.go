@@ -18,7 +18,16 @@ import (
 
 // isASN function is used to check if the given resource is an Autonomous System Number (ASN).
 func isASN(resource string) bool {
-	return regexp.MustCompile(`^(as|asn)\d+$`).MatchString(resource) || regexp.MustCompile(`^\d+$`).MatchString(resource)
+	// Updated regular expression to match ASN formats like AS12345, as12345, ASN67890, and 12345
+	asnRegex := `^(?i)(as|asn)?\d+$`
+	return regexp.MustCompile(asnRegex).MatchString(resource)
+}
+
+// isDomain function is used to check if the given resource is a valid domain name.
+func isDomain(resource string) bool {
+	// Updated regular expression to validate domain names, including subdomains
+	domainRegex := `^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`
+	return regexp.MustCompile(domainRegex).MatchString(resource)
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -38,14 +47,18 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	cacheKeyPrefix := "whois:"
 
+	// Validate user input
 	if net.ParseIP(resource) != nil {
 		handle_resources.HandleIP(ctx, w, resource, cacheKeyPrefix)
 	} else if isASN(resource) {
 		handle_resources.HandleASN(ctx, w, resource, cacheKeyPrefix)
-	} else {
+	} else if isDomain(resource) {
 		handle_resources.HandleDomain(ctx, w, resource, cacheKeyPrefix)
+	} else {
+		// If input is invalid, return HTTP 400 Bad Request
+		http.Error(w, "Invalid input. Please provide a valid domain, IP, or ASN.", http.StatusBadRequest)
+		return
 	}
-
 }
 
 func checkRedisConnection() {
