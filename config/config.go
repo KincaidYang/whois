@@ -6,12 +6,13 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -43,35 +44,11 @@ var (
 func init() {
 	var config Config
 
-	// Open the configuration file
-	configFile, err := os.Open("config.yaml")
-	if err != nil {
-		configFile, err = os.Open("config.json")
-		if err != nil {
-			log.Fatalf("Failed to open configuration file: %v", err)
-		}
-	}
-	defer configFile.Close()
+	// Load configuration from file
+	loadConfigFromFile(&config)
 
-	// Determine the file type (JSON or YAML)
-	fileExt := strings.ToLower(filepath.Ext(configFile.Name()))
-
-	// Decode the configuration file
-	if fileExt == ".yaml" || fileExt == ".yml" {
-		decoder := yaml.NewDecoder(configFile)
-		err = decoder.Decode(&config)
-		if err != nil {
-			log.Fatalf("Failed to decode YAML from configuration file: %v", err)
-		}
-	} else if fileExt == ".json" {
-		decoder := json.NewDecoder(configFile)
-		err = decoder.Decode(&config)
-		if err != nil {
-			log.Fatalf("Failed to decode JSON from configuration file: %v", err)
-		}
-	} else {
-		log.Fatalf("Unsupported configuration file format: %s", fileExt)
-	}
+	// Override configuration with environment variables if they exist
+	overrideConfigWithEnv(&config)
 
 	// Initialize the Redis client
 	RedisClient = redis.NewClient(&redis.Options{
@@ -95,4 +72,76 @@ func init() {
 	ProxyUsername = config.ProxyUsername
 	ProxyPassword = config.ProxyPassword
 	ProxySuffixes = config.ProxySuffixes
+}
+
+func loadConfigFromFile(config *Config) {
+	configFile, err := os.Open("config.yaml")
+	if err != nil {
+		configFile, err = os.Open("config.json")
+		if err != nil {
+			log.Fatalf("Failed to open configuration file: %v", err)
+		}
+	}
+	defer configFile.Close()
+
+	fileExt := strings.ToLower(filepath.Ext(configFile.Name()))
+	if fileExt == ".yaml" || fileExt == ".yml" {
+		decoder := yaml.NewDecoder(configFile)
+		err = decoder.Decode(config)
+		if err != nil {
+			log.Fatalf("Failed to decode YAML from configuration file: %v", err)
+		}
+	} else if fileExt == ".json" {
+		decoder := json.NewDecoder(configFile)
+		err = decoder.Decode(config)
+		if err != nil {
+			log.Fatalf("Failed to decode JSON from configuration file: %v", err)
+		}
+	} else {
+		log.Fatalf("Unsupported configuration file format: %s", fileExt)
+	}
+}
+
+func overrideConfigWithEnv(config *Config) {
+	// Override Redis configuration
+	if redisAddr := os.Getenv("WHOIS_REDIS_ADDR"); redisAddr != "" {
+		config.Redis.Addr = redisAddr
+	}
+	if redisPassword := os.Getenv("WHOIS_REDIS_PASSWORD"); redisPassword != "" {
+		config.Redis.Password = redisPassword
+	}
+	if redisDB := os.Getenv("WHOIS_REDIS_DB"); redisDB != "" {
+		if dbInt, err := strconv.Atoi(redisDB); err == nil {
+			config.Redis.DB = dbInt
+		}
+	}
+
+	// Override general configuration
+	if cacheExpiration := os.Getenv("WHOIS_CACHE_EXPIRATION"); cacheExpiration != "" {
+		if cacheInt, err := strconv.Atoi(cacheExpiration); err == nil {
+			config.CacheExpiration = cacheInt
+		}
+	}
+	if port := os.Getenv("WHOIS_PORT"); port != "" {
+		if portInt, err := strconv.Atoi(port); err == nil {
+			config.Port = portInt
+		}
+	}
+	if rateLimit := os.Getenv("WHOIS_RATE_LIMIT"); rateLimit != "" {
+		if rateInt, err := strconv.Atoi(rateLimit); err == nil {
+			config.RateLimit = rateInt
+		}
+	}
+	if proxyServer := os.Getenv("WHOIS_PROXY_SERVER"); proxyServer != "" {
+		config.ProxyServer = proxyServer
+	}
+	if proxyUsername := os.Getenv("WHOIS_PROXY_USERNAME"); proxyUsername != "" {
+		config.ProxyUsername = proxyUsername
+	}
+	if proxyPassword := os.Getenv("WHOIS_PROXY_PASSWORD"); proxyPassword != "" {
+		config.ProxyPassword = proxyPassword
+	}
+	if proxySuffixes := os.Getenv("WHOIS_PROXY_SUFFIXES"); proxySuffixes != "" {
+		config.ProxySuffixes = strings.Split(proxySuffixes, ",")
+	}
 }
