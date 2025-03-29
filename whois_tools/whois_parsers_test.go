@@ -33,14 +33,14 @@ Domain Status: active`
 		t.Fatalf("unexpected error: %v", err)
 	}
 
+	// Validate that LastUpdateOfRDAPDB is a valid RFC3339 timestamp
+	if _, err := time.Parse(time.RFC3339, domainInfo.LastUpdateOfRDAPDB); err != nil {
+		t.Errorf("LastUpdateOfRDAPDB is not a valid RFC3339 timestamp: %v", domainInfo.LastUpdateOfRDAPDB)
+	}
+
 	// Ignore LastUpdateOfRDAPDB field for comparison
 	domainInfo.LastUpdateOfRDAPDB = ""
 	if !reflect.DeepEqual(domainInfo, expected) {
 		t.Errorf("expected %+v, got %+v", expected, domainInfo)
-	}
-
-	// Validate that LastUpdateOfRDAPDB is a valid RFC3339 timestamp
-	if _, err := time.Parse(time.RFC3339, domainInfo.LastUpdateOfRDAPDB); err != nil {
-		t.Errorf("LastUpdateOfRDAPDB is not a valid RFC3339 timestamp: %v", domainInfo.LastUpdateOfRDAPDB)
 	}
 }
