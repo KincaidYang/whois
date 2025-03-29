@@ -20,10 +20,21 @@ func startMockWhoisServer(response string) (string, func()) {
 			return
 		}
 		defer conn.Close()
+
+		// Read data from the client to ensure the connection is properly handled
+		buf := make([]byte, 1024)
+		_, err = conn.Read(buf)
+		if err != nil {
+			return
+		}
+
+		// Write the mock response
 		conn.Write([]byte(response))
 	}()
 
-	return listener.Addr().String(), func() { listener.Close() }
+	// Ensure the address is in the correct format
+	addr := listener.Addr().String()
+	return addr, func() { listener.Close() }
 }
 
 func TestWhois(t *testing.T) {

@@ -20,7 +20,13 @@ func Whois(domain, tld string) (string, error) {
 	// Log the request for the WHOIS query
 	log.Printf("Querying WHOIS for domain: %s with TLD: %s on server: %s\n", domain, tld, whoisServer)
 
-	conn, err := net.Dial("tcp", whoisServer+":43")
+	// Check if the server address already includes a port
+	if _, _, err := net.SplitHostPort(whoisServer); err != nil {
+		// If no port is included, append :43
+		whoisServer = whoisServer + ":43"
+	}
+
+	conn, err := net.Dial("tcp", whoisServer)
 	if err != nil {
 		return "", err
 	}
