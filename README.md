@@ -4,6 +4,10 @@
 基于 Golang 实现的域名 Whois 查询工具，支持所有允许公开查询的 TLD 后缀的域名、IPv4/v6、ASN 的 Whois 信息查询。
 根据 ICANN 《通用顶级域名注册数据临时政策细则（Temporary Specification for gTLD Registration Data）》和欧盟《通用数据保护条例》合规要求，在查询域名信息时，程序只返回了部分必要的信息（详见下方返回结果示例），不会返回所有者的`联系方式`、`地址`、`电话`、`邮箱`等字段。
 
+演示站点：
+- [https://whois.ddnsip.cn](https://whois.ddnsip.cn)
+- [https://whois.mmoke.com](https://whois.mmoke.com/) By [immoke](https://github.com/immoke)
+
 ## 使用方法
 ### Docker部署
 ```bash
