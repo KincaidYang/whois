@@ -11,4 +11,11 @@ type IPInfo struct {
 	IPStatus     []string `json:"Status"`        // IPStatus is the status of the IP network.
 	CreationDate string   `json:"Creation Date"` // CreationDate is the creation date of the IP network.
 	UpdatedDate  string   `json:"Updated Date"`  // UpdatedDate is the updated date of the IP network.
+	Remarks      []Remark `json:"Remarks"`       // Remarks contains additional information about the IP network.
+}
+
+// Remark represents a single remark entry.
+type Remark struct {
+	Title       string   `json:"title"`       // Title is the title of the remark.
+	Description []string `json:"description"` // Description contains the details of the remark.
 }
