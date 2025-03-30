@@ -173,6 +173,27 @@ func ParseRDAPResponseforIP(response string) (structs.IPInfo, error) {
 			}
 		}
 	}
+
+	// Parse remarks
+	if remarks, ok := result["remarks"]; ok {
+		for _, remark := range remarks.([]interface{}) {
+			remarkMap := remark.(map[string]interface{})
+			newRemark := structs.Remark{}
+
+			if title, ok := remarkMap["title"]; ok {
+				newRemark.Title = title.(string)
+			}
+
+			if description, ok := remarkMap["description"]; ok {
+				for _, desc := range description.([]interface{}) {
+					newRemark.Description = append(newRemark.Description, desc.(string))
+				}
+			}
+
+			ipinfo.Remarks = append(ipinfo.Remarks, newRemark)
+		}
+	}
+
 	return ipinfo, nil
 }
 
