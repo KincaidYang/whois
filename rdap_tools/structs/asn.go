@@ -7,4 +7,5 @@ type ASNInfo struct {
 	ASStatus     []string `json:"Status"`        // ASStatus is the status of the ASN.
 	CreationDate string   `json:"Creation Date"` // CreationDate is the creation date of the ASN.
 	UpdatedDate  string   `json:"Updated Date"`  // UpdatedDate is the updated date of the ASN.
+	Remarks      []Remark `json:"remarks"`       // Remarks contains additional information about the ASN.
 }
