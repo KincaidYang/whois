@@ -110,43 +110,62 @@ curl http://localhost:8043/example.com
 
 #### 查询 IPv4 Whois 信息
 ```bash
-curl http://localhost:8043/1.1.1.1
+curl http://localhost:8043/1.12.34.56
 ```
 返回结果
 ```json
 {
-    "IP Network": "1.1.1.0 - 1.1.1.255",
-    "Address Range": "1.1.1.0 - 1.1.1.255",
-    "Network Name": "APNIC-LABS",
-    "CIDR": "1.1.1.0/24",
-    "Network Type": "ASSIGNED PORTABLE",
-    "Country": "AU",
-    "Status": [
-        "active"
-    ],
-    "Creation Date": "2011-08-10T23:12:35Z",
-    "Updated Date": "2023-04-26T22:57:58Z"
+  "IP Network": "1.12.0.0 - 1.15.255.255",
+  "Address Range": "1.12.0.0 - 1.15.255.255",
+  "Network Name": "TencentCloud",
+  "CIDR": "1.12.0.0/14",
+  "Network Type": "ALLOCATED PORTABLE",
+  "Country": "CN",
+  "Status": [
+    "active"
+  ],
+  "Creation Date": "2010-05-10T22:46:58Z",
+  "Updated Date": "2023-11-28T00:51:33Z",
+  "Remarks": [
+    {
+      "title": "description",
+      "description": [
+        "Tencent cloud computing (Beijing) Co., Ltd.",
+        "Floor 6, Yinke Building,38 Haidian St,",
+        "Haidian District Beijing"
+      ]
+    }
+  ]
 }
 ```
 
 #### 查询 IPv6 Whois 信息
 ```bash
-curl http://localhost:8043/2a0f:9400:7700::2
+curl http://localhost:8043/2402:4e00::
 ```
 返回结果
 ```json
 {
-    "IP Network": "2a0f:9400:7700::/48",
-    "Address Range": "2a0f:9400:7700:: - 2a0f:9400:7700:ffff:ffff:ffff:ffff:ffff",
-    "Network Name": "RTTW",
-    "CIDR": "2a0f:9400:7700::/48",
-    "Network Type": "ALLOCATED-BY-LIR",
-    "Country": "CN",
-    "Status": [
-        "active"
-    ],
-    "Creation Date": "2022-04-08T12:07:49Z",
-    "Updated Date": "2022-12-20T02:19:43Z"
+  "IP Network": "2402:4e00::/32",
+  "Address Range": "2402:4e00:: - 2402:4e00:ffff:ffff:ffff:ffff:ffff:ffff",
+  "Network Name": "TencentCloud",
+  "CIDR": "2402:4e00::/32",
+  "Network Type": "ALLOCATED PORTABLE",
+  "Country": "CN",
+  "Status": [
+    "active"
+  ],
+  "Creation Date": "2010-05-12T23:13:32Z",
+  "Updated Date": "2024-01-31T06:27:10Z",
+  "Remarks": [
+    {
+      "title": "description",
+      "description": [
+        "Tencent cloud computing (Beijing) Co., Ltd.",
+        "Floor 6, Yinke Building,38 Haidian St,Haidian District Beijing"
+      ]
+    }
+  ]
 }
 ```
 
@@ -161,13 +180,23 @@ curl http://localhost:8043/205794
 返回结果
 ```json
 {
-    "AS Number": "AS205794",
-    "Network Name": "RTTW-AS",
-    "Status": [
-        "active"
-    ],
-    "Creation Date": "2022-04-14T12:24:55Z",
-    "Updated Date": "2024-02-15T07:18:46Z"
+  "AS Number": "AS205794",
+  "Network Name": "RTTW-AS",
+  "Status": [
+    "active"
+  ],
+  "Creation Date": "2022-04-14T12:24:55Z",
+  "Updated Date": "2024-03-21T07:27:44Z",
+  "remarks": [
+    {
+      "title": "",
+      "description": [
+        "https://as205794.net/",
+        "Geofeed https://geo.as205794.net/geofeed.csv",
+        "Looking Glass https://lg.as205794.net/"
+      ]
+    }
+  ]
 }
 ```
 
