@@ -18,6 +18,8 @@ builds:
       - linux
       - darwin
       - windows
+      - freebsd
+      - openbsd
     goarch:
       - "386"
       - amd64
