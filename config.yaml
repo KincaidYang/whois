@@ -1,5 +1,5 @@
 redis:
-  addr: "redis:6379"
+  addr: "127.0.0.1:6379"
   password: ""
   db: 0
 cacheexpiration: 3600
