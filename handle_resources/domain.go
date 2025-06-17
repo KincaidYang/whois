@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 
@@ -12,8 +11,8 @@ import (
 	"github.com/KincaidYang/whois/rdap_tools"
 	"github.com/KincaidYang/whois/rdap_tools/structs"
 	"github.com/KincaidYang/whois/server_lists"
+	"github.com/KincaidYang/whois/utils"
 	"github.com/KincaidYang/whois/whois_tools"
-	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/idna"
 	"golang.org/x/net/publicsuffix"
 )
@@ -44,7 +43,7 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	// Convert the domain to Punycode encoding (supports IDN domains)
 	punycodeDomain, err := idna.ToASCII(resource)
 	if err != nil {
-		http.Error(w, "Invalid domain name: "+resource, http.StatusBadRequest)
+		utils.HandleHTTPError(w, utils.ErrorTypeBadRequest, "Invalid domain name: "+resource)
 		return
 	}
 	resource = punycodeDomain
@@ -66,16 +65,16 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	resource = mainDomain
 	domain := resource
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, domain)
-	cacheResult, err := config.RedisClient.Get(ctx, key).Result()
 
 	// Check if the RDAP or WHOIS information for the domain is cached in Redis
-	if err == nil {
-		log.Printf("Serving cached result for resource: %s\n", domain)
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, cacheResult)
+	cacheResult, err := utils.GetFromCache(ctx, config.RedisClient, key)
+	if err != nil {
+		utils.HandleInternalError(w, err)
 		return
-	} else if err != redis.Nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+
+	if cacheResult.Found {
+		utils.HandleCacheResponse(w, cacheResult.Data, "application/json")
 		return
 	}
 
@@ -83,88 +82,97 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 
 	// If the RDAP server for the TLD is known, query the RDAP information for the domain
 	if _, ok := server_lists.TLDToRdapServer[tld]; ok {
-		queryResult, err = rdap_tools.RDAPQuery(domain, tld)
+		queryResult, err = handleRDAPQuery(ctx, w, domain, tld, key)
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			if err.Error() == "resource not found" {
-				w.WriteHeader(http.StatusNotFound) // Set the status code to 404
-				fmt.Fprint(w, `{"error": "Resource not found"}`)
-			} else if err.Error() == "the registry denied the query" {
-				w.WriteHeader(http.StatusForbidden) // Set the status code to 403
-				fmt.Fprint(w, `{"error": "The registry denied the query"}`)
-			} else {
-				w.WriteHeader(http.StatusInternalServerError) // Set the status code to 500
-				fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
-			}
-			return
+			return // Error already handled in function
 		}
-		domainInfo, err := rdap_tools.ParseRDAPResponseforDomain(queryResult)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		resultBytes, err := json.Marshal(domainInfo)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		queryResult = string(resultBytes)
-		err = config.RedisClient.Set(ctx, key, queryResult, config.CacheExpiration).Err()
-		if err != nil {
-			log.Printf("Failed to cache result for resource: %s\n", resource)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, queryResult)
-
-		// If the WHOIS server for the TLD is known, query the WHOIS information for the domain
 	} else if _, ok := server_lists.TLDToWhoisServer[tld]; ok {
-		queryResult, err = whois_tools.Whois(domain, tld)
+		// If the WHOIS server for the TLD is known, query the WHOIS information for the domain
+		queryResult, err = handleWhoisQuery(ctx, w, domain, tld, key)
 		if err != nil {
-			// If there's a network or other error during the WHOIS query
-			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
-			return
+			return // Error already handled in function
 		}
-
-		// Use the parsing function corresponding to the TLD to parse the WHOIS data
-		var domainInfo structs.DomainInfo
-		if parseFunc, ok := whoisParsers[tld]; ok {
-			domainInfo, err = parseFunc(queryResult, domain)
-			if err != nil {
-				// If there's a "resource not found" or other parsing error during the WHOIS parsing
-				if err.Error() == "domain not found" {
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusNotFound) // Set the status code to 404
-					fmt.Fprint(w, `{"error": "resource not found"}`)
-				} else {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-				}
-				return
-			}
-
-			resultBytes, err := json.Marshal(domainInfo)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			queryResult = string(resultBytes)
-			err = config.RedisClient.Set(ctx, key, queryResult, config.CacheExpiration).Err()
-			if err != nil {
-				log.Printf("Failed to cache result for resource: %s\n", resource)
-			}
-			w.Header().Set("Content-Type", "application/json")
-		} else {
-			// If there's no available parsing rule, return the original WHOIS data and set the response type to text/plain
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			err = config.RedisClient.Set(ctx, key, queryResult, config.CacheExpiration).Err()
-			if err != nil {
-				log.Printf("Failed to cache result for resource: %s\n", resource)
-			}
-		}
-
-		fmt.Fprint(w, queryResult)
 	} else {
-		http.Error(w, "No WHOIS or RDAP server known for TLD: "+tld, http.StatusInternalServerError)
+		utils.HandleHTTPError(w, utils.ErrorTypeInternalServer, "No WHOIS or RDAP server known for TLD: "+tld)
 		return
 	}
+
+	fmt.Fprint(w, queryResult)
+}
+
+// handleRDAPQuery handles RDAP queries for domains
+func handleRDAPQuery(ctx context.Context, w http.ResponseWriter, domain, tld, key string) (string, error) {
+	queryResult, err := rdap_tools.RDAPQuery(domain, tld)
+	if err != nil {
+		utils.HandleQueryError(w, err)
+		return "", err
+	}
+
+	domainInfo, err := rdap_tools.ParseRDAPResponseforDomain(queryResult)
+	if err != nil {
+		utils.HandleInternalError(w, err)
+		return "", err
+	}
+
+	resultBytes, err := json.Marshal(domainInfo)
+	if err != nil {
+		utils.HandleInternalError(w, err)
+		return "", err
+	}
+
+	queryResult = string(resultBytes)
+
+	// Cache the result
+	err = utils.SetToCache(ctx, config.RedisClient, key, queryResult, config.CacheExpiration)
+	if err != nil {
+		// Log the error but don't fail the request
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	return queryResult, nil
+}
+
+// handleWhoisQuery handles WHOIS queries for domains
+func handleWhoisQuery(ctx context.Context, w http.ResponseWriter, domain, tld, key string) (string, error) {
+	queryResult, err := whois_tools.Whois(domain, tld)
+	if err != nil {
+		// If there's a network or other error during the WHOIS query
+		utils.HandleHTTPError(w, utils.ErrorTypeInternalServer, err.Error())
+		return "", err
+	}
+
+	// Use the parsing function corresponding to the TLD to parse the WHOIS data
+	var domainInfo structs.DomainInfo
+	if parseFunc, ok := whoisParsers[tld]; ok {
+		domainInfo, err = parseFunc(queryResult, domain)
+		if err != nil {
+			// If there's a "resource not found" or other parsing error during the WHOIS parsing
+			utils.HandleQueryError(w, err)
+			return "", err
+		}
+
+		resultBytes, err := json.Marshal(domainInfo)
+		if err != nil {
+			utils.HandleInternalError(w, err)
+			return "", err
+		}
+		queryResult = string(resultBytes)
+
+		// Cache the result
+		err = utils.SetToCache(ctx, config.RedisClient, key, queryResult, config.CacheExpiration)
+		if err != nil {
+			// Log the error but don't fail the request
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+	} else {
+		// If there's no available parsing rule, return the original WHOIS data and set the response type to text/plain
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		err = utils.SetToCache(ctx, config.RedisClient, key, queryResult, config.CacheExpiration)
+		if err != nil {
+			// Log the error but don't fail the request
+		}
+	}
+
+	return queryResult, nil
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -12,7 +11,7 @@ import (
 	"github.com/KincaidYang/whois/config"
 	"github.com/KincaidYang/whois/rdap_tools"
 	"github.com/KincaidYang/whois/server_lists"
-	"github.com/redis/go-redis/v9"
+	"github.com/KincaidYang/whois/utils"
 )
 
 // HandleASN function is used to handle the HTTP request for querying the RDAP information for a given ASN (Autonomous System Number).
@@ -24,7 +23,7 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	}
 	asnInt, err := strconv.Atoi(asn)
 	if err != nil {
-		// handle error
+		utils.HandleHTTPError(w, utils.ErrorTypeBadRequest, "Invalid ASN format")
 		return
 	}
 
@@ -32,16 +31,16 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, asn)
 
 	// Check if the RDAP information for the ASN is cached in Redis
-	cacheResult, err := config.RedisClient.Get(ctx, key).Result()
-	if err == nil {
-		// If the RDAP information is cached, return the cached result
-		log.Printf("Serving cached result for resource: %s\n", asn)
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, cacheResult)
-		return
-	} else if err != redis.Nil {
+	cacheResult, err := utils.GetFromCache(ctx, config.RedisClient, key)
+	if err != nil {
 		// If there's an error during caching, return an HTTP error
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.HandleInternalError(w, err)
+		return
+	}
+
+	if cacheResult.Found {
+		// If the RDAP information is cached, return the cached result
+		utils.HandleCacheResponse(w, cacheResult.Data, "application/json")
 		return
 	}
 
@@ -72,37 +71,30 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	// Query the RDAP information for the ASN
 	queryresult, err := rdap_tools.RDAPQueryASN(asn, tld)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		if err.Error() == "resource not found" {
-			w.WriteHeader(http.StatusNotFound) // Set the status code to 404
-			fmt.Fprint(w, `{"error": "Resource not found"}`)
-		} else if err.Error() == "the registry denied the query" {
-			w.WriteHeader(http.StatusForbidden) // Set the status code to 403
-			fmt.Fprint(w, `{"error": "The registry denied the query"}`)
-		} else {
-			w.WriteHeader(http.StatusInternalServerError) // Set the status code to 500
-			fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
-		}
+		utils.HandleQueryError(w, err)
 		return
 	}
 
 	// Parse the RDAP response
 	asnInfo, err := rdap_tools.ParseRDAPResponseforASN(queryresult)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.HandleInternalError(w, err)
 		return
 	}
 
-	// Cache the RDAP information in Redis
+	// Marshal the result to JSON
 	resultBytes, err := json.Marshal(asnInfo)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		utils.HandleInternalError(w, err)
 		return
 	}
 	queryResult := string(resultBytes)
-	err = config.RedisClient.Set(ctx, key, queryResult, config.CacheExpiration).Err()
+
+	// Cache the RDAP information in Redis
+	err = utils.SetToCache(ctx, config.RedisClient, key, queryResult, config.CacheExpiration)
 	if err != nil {
-		log.Printf("Failed to cache result for resource: %s\n", resource)
+		// Log the error but don't fail the request
+		// The response will still be returned to the user
 	}
 
 	// Return the RDAP information
