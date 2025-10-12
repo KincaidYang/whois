@@ -20,7 +20,7 @@ import (
 // whoisParsers is a map from top-level domain (TLD) to a function that can parse
 // the WHOIS response for that TLD into a DomainInfo structure.
 // Currently, it includes parsers for the following TLDs: cn, xn--fiqs8s, xn--fiqz9s,
-// hk, xn--j6w193g, tw, so, sb, sg, mo, ru, su, au.
+// hk, xn--j6w193g, tw, so, sb, sg, mo, ru, su, au, la.
 // You can add parsers for other TLDs by adding them to this map.
 var whoisParsers = map[string]func(string, string) (structs.DomainInfo, error){
 	"cn":          whois_tools.ParseWhoisResponseCN,
@@ -36,6 +36,7 @@ var whoisParsers = map[string]func(string, string) (structs.DomainInfo, error){
 	"ru":          whois_tools.ParseWhoisResponseRU,
 	"su":          whois_tools.ParseWhoisResponseRU,
 	"au":          whois_tools.ParseWhoisResponseAU,
+	"la":          whois_tools.ParseWhoisResponseLA,
 }
 
 // HandleDomain function is used to handle the HTTP request for querying the RDAP (Registration Data Access Protocol) or WHOIS information for a given domain.

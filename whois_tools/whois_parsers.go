@@ -670,3 +670,91 @@ func ParseWhoisResponseSG(response string, domain string) (structs.DomainInfo, e
 
 	return domainInfo, nil
 }
+
+func ParseWhoisResponseLA(response string, domain string) (structs.DomainInfo, error) {
+	var domainInfo structs.DomainInfo
+	domainInfo.DomainName = domain
+
+	// 使用正则表达式匹配 WHOIS 数据中的相关信息
+	reRegistrar := regexp.MustCompile(`Registrar:\s+(.*)`)
+	reRegistrarIANAID := regexp.MustCompile(`Registrar IANA ID:\s+(.*)`)
+	reDomainStatus := regexp.MustCompile(`Domain Status:\s+(.*)`)
+	reCreationDate := regexp.MustCompile(`Creation Date:\s+(.*)`)
+	reExpiryDate := regexp.MustCompile(`Registry Expiry Date:\s+(.*)`)
+	reUpdatedDate := regexp.MustCompile(`Updated Date:\s+(.*)`)
+	reNameServer := regexp.MustCompile(`Name Server:\s+(.*)`)
+	reDNSSEC := regexp.MustCompile(`DNSSEC:\s+(.*)`)
+	reLastUpdateOfRDAPDB := regexp.MustCompile(`>>> Last update of WHOIS database:\s+(.*)`)
+
+	// 解析注册商
+	matchRegistrar := reRegistrar.FindStringSubmatch(response)
+	if len(matchRegistrar) > 1 {
+		domainInfo.Registrar = strings.TrimSpace(matchRegistrar[1])
+	}
+
+	// 解析 Registrar IANA ID
+	matchRegistrarIANAID := reRegistrarIANAID.FindStringSubmatch(response)
+	if len(matchRegistrarIANAID) > 1 {
+		ianaID := strings.TrimSpace(matchRegistrarIANAID[1])
+		if ianaID != "" {
+			domainInfo.RegistrarIANAID = ianaID
+		}
+	}
+
+	// 解析域名状态
+	matchDomainStatuses := reDomainStatus.FindAllStringSubmatch(response, -1)
+	if len(matchDomainStatuses) > 0 {
+		domainInfo.DomainStatus = make([]string, len(matchDomainStatuses))
+		for i, match := range matchDomainStatuses {
+			domainInfo.DomainStatus[i] = strings.TrimSpace(match[1])
+		}
+	}
+
+	// 解析创建日期
+	matchCreationDate := reCreationDate.FindStringSubmatch(response)
+	if len(matchCreationDate) > 1 {
+		domainInfo.CreationDate = strings.TrimSpace(matchCreationDate[1])
+	}
+
+	// 解析过期日期
+	matchExpiryDate := reExpiryDate.FindStringSubmatch(response)
+	if len(matchExpiryDate) > 1 {
+		domainInfo.RegistryExpiryDate = strings.TrimSpace(matchExpiryDate[1])
+	}
+
+	// 解析更新日期
+	matchUpdatedDate := reUpdatedDate.FindStringSubmatch(response)
+	if len(matchUpdatedDate) > 1 {
+		domainInfo.UpdatedDate = strings.TrimSpace(matchUpdatedDate[1])
+	}
+
+	// 解析名称服务器
+	matchNameServers := reNameServer.FindAllStringSubmatch(response, -1)
+	if len(matchNameServers) > 0 {
+		domainInfo.NameServer = make([]string, len(matchNameServers))
+		for i, match := range matchNameServers {
+			domainInfo.NameServer[i] = strings.TrimSpace(match[1])
+		}
+	}
+
+	// 解析 DNSSEC
+	matchDNSSEC := reDNSSEC.FindStringSubmatch(response)
+	if len(matchDNSSEC) > 1 {
+		domainInfo.DNSSec = strings.TrimSpace(matchDNSSEC[1])
+	}
+
+	// 解析数据库更新时间
+	matchLastUpdateOfRDAPDB := reLastUpdateOfRDAPDB.FindStringSubmatch(response)
+	if len(matchLastUpdateOfRDAPDB) > 1 {
+		// 去除末尾的 " <<<" 标记
+		dbUpdate := strings.TrimSpace(matchLastUpdateOfRDAPDB[1])
+		domainInfo.LastUpdateOfRDAPDB = strings.TrimSuffix(dbUpdate, " <<<")
+	}
+
+	// 验证必要字段
+	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+		return structs.DomainInfo{}, errors.New("domain not found")
+	}
+
+	return domainInfo, nil
+}
