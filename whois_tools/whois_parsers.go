@@ -676,15 +676,15 @@ func ParseWhoisResponseLA(response string, domain string) (structs.DomainInfo, e
 	domainInfo.DomainName = domain
 
 	// 使用正则表达式匹配 WHOIS 数据中的相关信息
-	reRegistrar := regexp.MustCompile(`Registrar:\s+(.*)`)
-	reRegistrarIANAID := regexp.MustCompile(`Registrar IANA ID:\s+(.*)`)
-	reDomainStatus := regexp.MustCompile(`Domain Status:\s+(.*)`)
-	reCreationDate := regexp.MustCompile(`Creation Date:\s+(.*)`)
-	reExpiryDate := regexp.MustCompile(`Registry Expiry Date:\s+(.*)`)
-	reUpdatedDate := regexp.MustCompile(`Updated Date:\s+(.*)`)
-	reNameServer := regexp.MustCompile(`Name Server:\s+(.*)`)
-	reDNSSEC := regexp.MustCompile(`DNSSEC:\s+(.*)`)
-	reLastUpdateOfRDAPDB := regexp.MustCompile(`>>> Last update of WHOIS database:\s+(.*)`)
+	reRegistrar := regexp.MustCompile(`Registrar:\s+(.+)`)
+	reRegistrarIANAID := regexp.MustCompile(`Registrar IANA ID:\s*(.*)$`)
+	reDomainStatus := regexp.MustCompile(`Domain Status:\s+(.+)`)
+	reCreationDate := regexp.MustCompile(`Creation Date:\s+(.+)`)
+	reExpiryDate := regexp.MustCompile(`Registry Expiry Date:\s+(.+)`)
+	reUpdatedDate := regexp.MustCompile(`Updated Date:\s+(.+)`)
+	reNameServer := regexp.MustCompile(`Name Server:\s+(.+)`)
+	reDNSSEC := regexp.MustCompile(`DNSSEC:\s+(.+)`)
+	reLastUpdateOfRDAPDB := regexp.MustCompile(`>>> Last update of WHOIS database:\s+(.+)`)
 
 	// 解析注册商
 	matchRegistrar := reRegistrar.FindStringSubmatch(response)

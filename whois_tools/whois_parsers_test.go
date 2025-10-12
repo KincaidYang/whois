@@ -47,44 +47,36 @@ Domain Status: active`
 
 func TestParseWhoisResponseLA(t *testing.T) {
 	// 测试用的原始 Whois 响应数据
-	response := `Domain Name: ZZ.LA
-Registry Domain ID: D468776-LANIC
-Registrar WHOIS Server:
+	response := `Domain Name: NIC.LA
+Registry Domain ID: D472370-LANIC
+Registrar WHOIS Server: whois.nic.la
 Registrar URL:
-Updated Date: 2024-11-08T09:03:35.0Z
-Creation Date: 2006-11-16T01:00:00.0Z
-Registry Expiry Date: 2025-11-16T23:59:59.0Z
-Registrar: 1API GmbH
+Updated Date: 2016-10-17T04:13:14.0Z
+Creation Date: 2000-11-20T01:00:00.0Z
+Registry Expiry Date: 2026-11-20T23:59:59.0Z
+Registrar: TLD Registrar Solutions Ltd
 Registrar IANA ID:
+Domain Status: serverTransferProhibited https://icann.org/epp#serverTransferProhibited
+Domain Status: serverUpdateProhibited https://icann.org/epp#serverUpdateProhibited
+Domain Status: serverDeleteProhibited https://icann.org/epp#serverDeleteProhibited
+Domain Status: serverRenewProhibited https://icann.org/epp#serverRenewProhibited
 Domain Status: clientTransferProhibited https://icann.org/epp#clientTransferProhibited
-Registrant Email: https://whois.nic.la/contact/zz.la/registrant
-Admin Email: https://whois.nic.la/contact/zz.la/admin
-Tech Email: https://whois.nic.la/contact/zz.la/tech
-Name Server: F1G1NS1.DNSPOD.NET
-Name Server: F1G1NS2.DNSPOD.NET
+Registrant Email: https://whois.nic.la/contact/nic.la/registrant
+Admin Email: https://whois.nic.la/contact/nic.la/admin
+Tech Email: https://whois.nic.la/contact/nic.la/tech
+Name Server: NS0.CENTRALNIC-DNS.COM
+Name Server: NS1.CENTRALNIC-DNS.COM
+Name Server: NS2.CENTRALNIC-DNS.COM
+Name Server: NS3.CENTRALNIC-DNS.COM
+Name Server: NS4.CENTRALNIC-DNS.COM
+Name Server: NS5.CENTRALNIC-DNS.COM
 DNSSEC: unsigned
-Billing Email: https://whois.nic.la/contact/zz.la/billing
 Registrar Abuse Contact Email: abuse@centralnic.com
-Registrar Abuse Contact Phone: +49.68416984
+Registrar Abuse Contact Phone: +44.2033880600
 URL of the ICANN Whois Inaccuracy Complaint Form: https://www.icann.org/wicf/
->>> Last update of WHOIS database: 2025-10-12T04:26:45.0Z <<<
+>>> Last update of WHOIS database: 2025-10-12T05:44:20.0Z <<<`
 
-For more information on Whois status codes, please visit https://icann.org/epp
-
-This whois service is provided by LANIC and only contains
-information pertaining to Internet domain names registered by our
-our customers. By using this service you are agreeing (1) not to use any
-information presented here for any purpose other than determining
-ownership of domain names, (2) not to store or reproduce this data in
-any way, (3) not to use any high-volume, automated, electronic processes
-to obtain data from this service. Abuse of this service is monitored and
-actions in contravention of these terms will result in being permanently
-blacklisted. All data is (c) LANIC http://www.lanic.gov.la/
-
-Access to the whois service is rate limited. For more information, please
-see https://registrar-console.lanic.la/pub/whois_guidance.`
-
-	domain := "zz.la"
+	domain := "nic.la"
 	domainInfo, err := ParseWhoisResponseLA(response, domain)
 
 	if err != nil {
@@ -97,40 +89,45 @@ see https://registrar-console.lanic.la/pub/whois_guidance.`
 	}
 
 	// 验证注册商
-	expectedRegistrar := "1API GmbH"
+	expectedRegistrar := "TLD Registrar Solutions Ltd"
 	if domainInfo.Registrar != expectedRegistrar {
 		t.Errorf("Expected registrar %s, got %s", expectedRegistrar, domainInfo.Registrar)
 	}
 
 	// 验证创建日期
-	expectedCreationDate := "2006-11-16T01:00:00.0Z"
+	expectedCreationDate := "2000-11-20T01:00:00.0Z"
 	if domainInfo.CreationDate != expectedCreationDate {
 		t.Errorf("Expected creation date %s, got %s", expectedCreationDate, domainInfo.CreationDate)
 	}
 
 	// 验证过期日期
-	expectedExpiryDate := "2025-11-16T23:59:59.0Z"
+	expectedExpiryDate := "2026-11-20T23:59:59.0Z"
 	if domainInfo.RegistryExpiryDate != expectedExpiryDate {
 		t.Errorf("Expected expiry date %s, got %s", expectedExpiryDate, domainInfo.RegistryExpiryDate)
 	}
 
 	// 验证更新日期
-	expectedUpdatedDate := "2024-11-08T09:03:35.0Z"
+	expectedUpdatedDate := "2016-10-17T04:13:14.0Z"
 	if domainInfo.UpdatedDate != expectedUpdatedDate {
 		t.Errorf("Expected updated date %s, got %s", expectedUpdatedDate, domainInfo.UpdatedDate)
 	}
 
 	// 验证名称服务器
-	if len(domainInfo.NameServer) != 2 {
-		t.Errorf("Expected 2 name servers, got %d", len(domainInfo.NameServer))
+	if len(domainInfo.NameServer) != 6 {
+		t.Errorf("Expected 6 name servers, got %d", len(domainInfo.NameServer))
 	}
-	expectedNS1 := "F1G1NS1.DNSPOD.NET"
-	expectedNS2 := "F1G1NS2.DNSPOD.NET"
-	if len(domainInfo.NameServer) >= 1 && domainInfo.NameServer[0] != expectedNS1 {
-		t.Errorf("Expected first name server %s, got %s", expectedNS1, domainInfo.NameServer[0])
+	expectedNameServers := []string{
+		"NS0.CENTRALNIC-DNS.COM",
+		"NS1.CENTRALNIC-DNS.COM",
+		"NS2.CENTRALNIC-DNS.COM",
+		"NS3.CENTRALNIC-DNS.COM",
+		"NS4.CENTRALNIC-DNS.COM",
+		"NS5.CENTRALNIC-DNS.COM",
 	}
-	if len(domainInfo.NameServer) >= 2 && domainInfo.NameServer[1] != expectedNS2 {
-		t.Errorf("Expected second name server %s, got %s", expectedNS2, domainInfo.NameServer[1])
+	for i, expectedNS := range expectedNameServers {
+		if i < len(domainInfo.NameServer) && domainInfo.NameServer[i] != expectedNS {
+			t.Errorf("Expected name server[%d] %s, got %s", i, expectedNS, domainInfo.NameServer[i])
+		}
 	}
 
 	// 验证 DNSSEC
@@ -140,18 +137,31 @@ see https://registrar-console.lanic.la/pub/whois_guidance.`
 	}
 
 	// 验证域名状态
-	if len(domainInfo.DomainStatus) != 1 {
-		t.Errorf("Expected 1 domain status, got %d", len(domainInfo.DomainStatus))
+	if len(domainInfo.DomainStatus) != 5 {
+		t.Errorf("Expected 5 domain statuses, got %d", len(domainInfo.DomainStatus))
 	}
-	expectedStatus := "clientTransferProhibited https://icann.org/epp#clientTransferProhibited"
-	if len(domainInfo.DomainStatus) >= 1 && domainInfo.DomainStatus[0] != expectedStatus {
-		t.Errorf("Expected domain status %s, got %s", expectedStatus, domainInfo.DomainStatus[0])
+	expectedStatuses := []string{
+		"serverTransferProhibited https://icann.org/epp#serverTransferProhibited",
+		"serverUpdateProhibited https://icann.org/epp#serverUpdateProhibited",
+		"serverDeleteProhibited https://icann.org/epp#serverDeleteProhibited",
+		"serverRenewProhibited https://icann.org/epp#serverRenewProhibited",
+		"clientTransferProhibited https://icann.org/epp#clientTransferProhibited",
+	}
+	for i, expectedStatus := range expectedStatuses {
+		if i < len(domainInfo.DomainStatus) && domainInfo.DomainStatus[i] != expectedStatus {
+			t.Errorf("Expected domain status[%d] %s, got %s", i, expectedStatus, domainInfo.DomainStatus[i])
+		}
 	}
 
 	// 验证数据库最后更新时间
-	expectedDBUpdate := "2025-10-12T04:26:45.0Z"
+	expectedDBUpdate := "2025-10-12T05:44:20.0Z"
 	if domainInfo.LastUpdateOfRDAPDB != expectedDBUpdate {
 		t.Errorf("Expected last update of DB %s, got %s", expectedDBUpdate, domainInfo.LastUpdateOfRDAPDB)
+	}
+
+	// 验证 Registrar IANA ID 为空（因为原始数据中是空的）
+	if domainInfo.RegistrarIANAID != "" {
+		t.Errorf("Expected empty Registrar IANA ID, got %s", domainInfo.RegistrarIANAID)
 	}
 }
 
