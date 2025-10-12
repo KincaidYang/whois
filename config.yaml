@@ -4,7 +4,7 @@ redis:
   db: 0
 cacheexpiration: 3600
 port: 8043
-ratelimit: 50
+ratelimit: 60
 proxyserver: "http://127.0.0.1:8080"
 proxysuffixes: []
 proxyusername: ""
