@@ -16,9 +16,11 @@ FROM alpine
 # 设置工作目录
 WORKDIR /usr/local/app
 
-# 复制构建的可执行文件和配置文件
+# 复制构建的可执行文件
 COPY --from=builder /data/workspace/whois .
-COPY --from=builder /data/workspace/config.yaml .
+
+# 方法A：直接使用 Docker 配置文件
+COPY config.docker.yaml ./config.yaml
 
 # 暴露Web端口
 EXPOSE 8043
