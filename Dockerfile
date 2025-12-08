@@ -19,7 +19,7 @@ WORKDIR /usr/local/app
 # 复制构建的可执行文件
 COPY --from=builder /data/workspace/whois .
 
-# 方法A：直接使用 Docker 配置文件
+# 直接使用 Docker 配置文件
 COPY config.docker.yaml ./config.yaml
 
 # 暴露Web端口
