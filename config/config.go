@@ -83,9 +83,9 @@ func init() {
 		WriteTimeout:    2 * time.Second,
 		PoolTimeout:     2 * time.Second,
 	}
-	
+
 	RedisClient = redis.NewClient(options)
-	
+
 	// Suppress Redis client's internal error logging by setting a discard logger
 	// The client will still work, but won't spam logs on connection failures
 	redis.SetLogger(&discardLogger{})

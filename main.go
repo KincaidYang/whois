@@ -16,18 +16,20 @@ import (
 	"github.com/KincaidYang/whois/handle_resources"
 )
 
+// Pre-compiled regular expressions for better performance
+var (
+	asnRegex    = regexp.MustCompile(`^(?i)(as|asn)?\d+$`)
+	domainRegex = regexp.MustCompile(`^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
+)
+
 // isASN function is used to check if the given resource is an Autonomous System Number (ASN).
 func isASN(resource string) bool {
-	// Updated regular expression to match ASN formats like AS12345, as12345, ASN67890, and 12345
-	asnRegex := `^(?i)(as|asn)?\d+$`
-	return regexp.MustCompile(asnRegex).MatchString(resource)
+	return asnRegex.MatchString(resource)
 }
 
 // isDomain function is used to check if the given resource is a valid domain name.
 func isDomain(resource string) bool {
-	// Updated regular expression to validate domain names, including subdomains
-	domainRegex := `^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`
-	return regexp.MustCompile(domainRegex).MatchString(resource)
+	return domainRegex.MatchString(resource)
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -84,6 +86,8 @@ func main() {
 	config.Wg.Wait()
 
 	log.Println("All queries completed. Shutting down server...")
-	config.RedisClient.Close()
+	if config.RedisClient != nil {
+		config.RedisClient.Close()
+	}
 	os.Exit(0)
 }
