@@ -1,7 +1,7 @@
 package utils
 
 import (
-	"fmt"
+	"encoding/json"
 	"net/http"
 )
 
@@ -20,62 +20,61 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+// writeJSONError writes a JSON error response safely
+func writeJSONError(w http.ResponseWriter, statusCode int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(ErrorResponse{Error: message})
+}
+
 // HandleQueryError handles common query errors with appropriate HTTP responses
 func HandleQueryError(w http.ResponseWriter, err error) {
-	w.Header().Set("Content-Type", "application/json")
-
 	switch err.Error() {
-	case "resource not found":
-		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprint(w, `{"error": "Resource not found"}`)
-	case "domain not found":
-		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprint(w, `{"error": "Resource not found"}`)
+	case "resource not found", "domain not found":
+		writeJSONError(w, http.StatusNotFound, "Resource not found")
 	case "the registry denied the query":
-		w.WriteHeader(http.StatusForbidden)
-		fmt.Fprint(w, `{"error": "The registry denied the query"}`)
+		writeJSONError(w, http.StatusForbidden, "The registry denied the query")
 	default:
-		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, `{"error": "`+err.Error()+`"}`)
+		writeJSONError(w, http.StatusInternalServerError, err.Error())
 	}
 }
 
 // HandleHTTPError handles different types of HTTP errors
 func HandleHTTPError(w http.ResponseWriter, errorType ErrorType, message string) {
-	w.Header().Set("Content-Type", "application/json")
+	var statusCode int
 
 	switch errorType {
 	case ErrorTypeNotFound:
-		w.WriteHeader(http.StatusNotFound)
+		statusCode = http.StatusNotFound
 		if message == "" {
 			message = "Resource not found"
 		}
 	case ErrorTypeForbidden:
-		w.WriteHeader(http.StatusForbidden)
+		statusCode = http.StatusForbidden
 		if message == "" {
 			message = "Access forbidden"
 		}
 	case ErrorTypeInternalServer:
-		w.WriteHeader(http.StatusInternalServerError)
+		statusCode = http.StatusInternalServerError
 		if message == "" {
 			message = "Internal server error"
 		}
 	case ErrorTypeBadRequest:
-		w.WriteHeader(http.StatusBadRequest)
+		statusCode = http.StatusBadRequest
 		if message == "" {
 			message = "Bad request"
 		}
 	default:
-		w.WriteHeader(http.StatusInternalServerError)
+		statusCode = http.StatusInternalServerError
 		if message == "" {
 			message = "Unknown error"
 		}
 	}
 
-	fmt.Fprint(w, `{"error": "`+message+`"}`)
+	writeJSONError(w, statusCode, message)
 }
 
 // HandleInternalError handles internal server errors
 func HandleInternalError(w http.ResponseWriter, err error) {
-	http.Error(w, err.Error(), http.StatusInternalServerError)
+	writeJSONError(w, http.StatusInternalServerError, err.Error())
 }
