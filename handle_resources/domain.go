@@ -67,8 +67,8 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	domain := resource
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, domain)
 
-	// Check if the RDAP or WHOIS information for the domain is cached in Redis
-	cacheResult, err := utils.GetFromCache(ctx, config.RedisClient, key)
+	// Check if the RDAP or WHOIS information for the domain is cached
+	cacheResult, err := utils.GetFromCache(ctx, config.CacheManager, key)
 	if err != nil {
 		utils.HandleInternalError(w, err)
 		return
@@ -124,7 +124,7 @@ func handleRDAPQuery(ctx context.Context, w http.ResponseWriter, domain, tld, ke
 	queryResult = string(resultBytes)
 
 	// Cache the result
-	err = utils.SetToCache(ctx, config.RedisClient, key, queryResult, config.CacheExpiration)
+	err = utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration)
 	if err != nil {
 		// Log the error but don't fail the request
 	}
@@ -160,7 +160,7 @@ func handleWhoisQuery(ctx context.Context, w http.ResponseWriter, domain, tld, k
 		queryResult = string(resultBytes)
 
 		// Cache the result
-		err = utils.SetToCache(ctx, config.RedisClient, key, queryResult, config.CacheExpiration)
+		err = utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration)
 		if err != nil {
 			// Log the error but don't fail the request
 		}
@@ -169,7 +169,7 @@ func handleWhoisQuery(ctx context.Context, w http.ResponseWriter, domain, tld, k
 	} else {
 		// If there's no available parsing rule, return the original WHOIS data and set the response type to text/plain
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		err = utils.SetToCache(ctx, config.RedisClient, key, queryResult, config.CacheExpiration)
+		err = utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration)
 		if err != nil {
 			// Log the error but don't fail the request
 		}

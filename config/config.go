@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -11,13 +12,23 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KincaidYang/whois/utils"
 	"github.com/redis/go-redis/v9"
 	"gopkg.in/yaml.v3"
 )
 
+// discardLogger is a logger that discards all log messages
+type discardLogger struct{}
+
+func (l *discardLogger) Printf(ctx context.Context, format string, v ...interface{}) {
+	// Discard all log messages
+}
+
 var (
 	// redisClient is the Redis client
 	RedisClient *redis.Client
+	// CacheManager is the unified cache interface with fallback support
+	CacheManager utils.Cache
 	// CacheExpiration is the cache duration
 	CacheExpiration time.Duration
 	// HttpClient is used to set the timeout for rdapQuery
@@ -39,6 +50,10 @@ var (
 	ProxyPassword string
 	// ProxySuffixes is the list of TLDs that use a proxy server
 	ProxySuffixes []string
+	// Cache configuration
+	RequireRedis        bool
+	MemoryMaxSize       int
+	MemoryCleanInterval time.Duration
 )
 
 func init() {
@@ -50,15 +65,41 @@ func init() {
 	// Override configuration with environment variables if they exist
 	overrideConfigWithEnv(&config)
 
-	// Initialize the Redis client
-	RedisClient = redis.NewClient(&redis.Options{
-		Addr:     config.Redis.Addr,
-		Password: config.Redis.Password,
-		DB:       config.Redis.DB,
-	})
+	// Apply default values for cache configuration (backward compatibility)
+	applyDefaultCacheConfig(&config)
+
+	// Initialize the Redis client with custom options
+	options := &redis.Options{
+		Addr:            config.Redis.Addr,
+		Password:        config.Redis.Password,
+		DB:              config.Redis.DB,
+		PoolSize:        10,
+		MinIdleConns:    0,
+		MaxRetries:      1,
+		MinRetryBackoff: 8 * time.Millisecond,
+		MaxRetryBackoff: 512 * time.Millisecond,
+		DialTimeout:     2 * time.Second,
+		ReadTimeout:     2 * time.Second,
+		WriteTimeout:    2 * time.Second,
+		PoolTimeout:     2 * time.Second,
+	}
+	
+	RedisClient = redis.NewClient(options)
+	
+	// Suppress Redis client's internal error logging by setting a discard logger
+	// The client will still work, but won't spam logs on connection failures
+	redis.SetLogger(&discardLogger{})
 
 	// Set the cache expiration time
 	CacheExpiration = time.Duration(config.CacheExpiration) * time.Second
+
+	// Set cache configuration
+	RequireRedis = config.Cache.RequireRedis
+	MemoryMaxSize = config.Cache.MemoryMaxSize
+	MemoryCleanInterval = time.Duration(config.Cache.MemoryCleanInterval) * time.Second
+
+	// Initialize cache manager with fallback
+	initializeCacheManager()
 
 	// Set the port the server listens on
 	Port = config.Port
@@ -74,6 +115,46 @@ func init() {
 	ProxySuffixes = config.ProxySuffixes
 }
 
+// applyDefaultCacheConfig sets default values for cache configuration if not specified
+func applyDefaultCacheConfig(config *Config) {
+	// RequireRedis defaults to false (allow fallback to memory) - no action needed as bool defaults to false
+
+	// Default: 10000 entries max in memory cache
+	if config.Cache.MemoryMaxSize == 0 {
+		config.Cache.MemoryMaxSize = 10000
+	}
+
+	// Default: clean every 5 minutes (300 seconds)
+	if config.Cache.MemoryCleanInterval == 0 {
+		config.Cache.MemoryCleanInterval = 300
+	}
+}
+
+// initializeCacheManager sets up the cache with Redis primary and memory fallback
+func initializeCacheManager() {
+	// Create Redis cache
+	redisCache := utils.NewRedisCache(RedisClient)
+
+	// Create memory cache as fallback
+	memoryCache := utils.NewMemoryCache(MemoryMaxSize, MemoryCleanInterval)
+
+	// Create fallback cache that tries Redis first, then memory
+	CacheManager = utils.NewFallbackCache(redisCache, memoryCache)
+
+	// Log cache configuration
+	if redisCache.IsHealthy() {
+		log.Println("✓ Redis cache initialized successfully")
+	} else {
+		log.Println("⚠ Redis unavailable, using memory cache as fallback")
+		if RequireRedis {
+			log.Fatal("Redis is required but unavailable. Set cache.requireRedis to false to allow fallback.")
+		}
+	}
+
+	log.Printf("Cache configuration: Max memory entries=%d, Clean interval=%v\n",
+		MemoryMaxSize, MemoryCleanInterval)
+}
+
 func loadConfigFromFile(config *Config) {
 	configFile, err := os.Open("config.yaml")
 	if err != nil {
@@ -85,19 +166,20 @@ func loadConfigFromFile(config *Config) {
 	defer configFile.Close()
 
 	fileExt := strings.ToLower(filepath.Ext(configFile.Name()))
-	if fileExt == ".yaml" || fileExt == ".yml" {
+	switch fileExt {
+	case ".yaml", ".yml":
 		decoder := yaml.NewDecoder(configFile)
 		err = decoder.Decode(config)
 		if err != nil {
 			log.Fatalf("Failed to decode YAML from configuration file: %v", err)
 		}
-	} else if fileExt == ".json" {
+	case ".json":
 		decoder := json.NewDecoder(configFile)
 		err = decoder.Decode(config)
 		if err != nil {
 			log.Fatalf("Failed to decode JSON from configuration file: %v", err)
 		}
-	} else {
+	default:
 		log.Fatalf("Unsupported configuration file format: %s", fileExt)
 	}
 }
@@ -122,6 +204,22 @@ func overrideConfigWithEnv(config *Config) {
 			config.CacheExpiration = cacheInt
 		}
 	}
+
+	// Override cache configuration
+	if requireRedis := os.Getenv("WHOIS_REQUIRE_REDIS"); requireRedis != "" {
+		config.Cache.RequireRedis = requireRedis == "true" || requireRedis == "1"
+	}
+	if memoryMaxSize := os.Getenv("WHOIS_MEMORY_MAX_SIZE"); memoryMaxSize != "" {
+		if maxSize, err := strconv.Atoi(memoryMaxSize); err == nil {
+			config.Cache.MemoryMaxSize = maxSize
+		}
+	}
+	if memoryCleanInterval := os.Getenv("WHOIS_MEMORY_CLEAN_INTERVAL"); memoryCleanInterval != "" {
+		if interval, err := strconv.Atoi(memoryCleanInterval); err == nil {
+			config.Cache.MemoryCleanInterval = interval
+		}
+	}
+
 	if port := os.Getenv("WHOIS_PORT"); port != "" {
 		if portInt, err := strconv.Atoi(port); err == nil {
 			config.Port = portInt

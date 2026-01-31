@@ -61,17 +61,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func checkRedisConnection() {
-	ctx := context.Background()
-	_, err := config.RedisClient.Ping(ctx).Result()
-	if err != nil {
-		log.Fatal("Failed to connect to Redis:", err)
-	}
-}
-
 func main() {
-	// Check Redis Connection
-	checkRedisConnection()
+	// Note: Redis connection is now checked during config initialization
+	// The service will continue with memory cache if Redis is unavailable
 
 	http.HandleFunc("/", handler)
 	go func() {
