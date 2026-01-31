@@ -33,9 +33,9 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 		}
 	}
 
-	// Check if the RDAP information for the IP is cached in Redis
+	// Check if the RDAP information for the IP is cached
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, resource)
-	cacheResult, err := utils.GetFromCache(ctx, config.RedisClient, key)
+	cacheResult, err := utils.GetFromCache(ctx, config.CacheManager, key)
 	if err != nil {
 		// If there's an error during caching, return an HTTP error
 		utils.HandleInternalError(w, err)
@@ -70,8 +70,8 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 	}
 	queryResult := string(resultBytes)
 
-	// Cache the RDAP information in Redis
-	err = utils.SetToCache(ctx, config.RedisClient, key, queryResult, config.CacheExpiration)
+	// Cache the RDAP information
+	err = utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration)
 	if err != nil {
 		// Log the error but don't fail the request
 		// The response will still be returned to the user

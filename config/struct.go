@@ -11,6 +11,12 @@ type Config struct {
 	} `json:"redis" yaml:"redis"`
 	// CacheExpiration is the expiration time for the cache, in seconds.
 	CacheExpiration int `json:"cacheExpiration" yaml:"cacheexpiration"`
+	// Cache holds advanced cache configuration (optional, for backward compatibility)
+	Cache struct {
+		RequireRedis        bool `json:"requireRedis" yaml:"requireredis"`               // RequireRedis determines if Redis is required (default: false)
+		MemoryMaxSize       int  `json:"memoryMaxSize" yaml:"memorymaxsize"`             // MemoryMaxSize is the maximum number of entries in memory cache (default: 10000)
+		MemoryCleanInterval int  `json:"memoryCleanInterval" yaml:"memorycleaninterval"` // MemoryCleanInterval is the interval to clean expired entries in seconds (default: 300)
+	} `json:"cache" yaml:"cache"`
 	// Port is the port number for the server.
 	Port int `json:"port" yaml:"port"`
 	// RateLimit is the maximum number of requests that a client can make in a specified period of time.

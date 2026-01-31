@@ -30,8 +30,8 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	// Generate the cache key
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, asn)
 
-	// Check if the RDAP information for the ASN is cached in Redis
-	cacheResult, err := utils.GetFromCache(ctx, config.RedisClient, key)
+	// Check if the RDAP information for the ASN is cached
+	cacheResult, err := utils.GetFromCache(ctx, config.CacheManager, key)
 	if err != nil {
 		// If there's an error during caching, return an HTTP error
 		utils.HandleInternalError(w, err)
@@ -90,8 +90,8 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	}
 	queryResult := string(resultBytes)
 
-	// Cache the RDAP information in Redis
-	err = utils.SetToCache(ctx, config.RedisClient, key, queryResult, config.CacheExpiration)
+	// Cache the RDAP information
+	err = utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration)
 	if err != nil {
 		// Log the error but don't fail the request
 		// The response will still be returned to the user

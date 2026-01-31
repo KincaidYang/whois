@@ -64,11 +64,9 @@ func TestSetToCacheStringData(t *testing.T) {
 func TestSetToCacheStructData(t *testing.T) {
 	// Test that struct data is marshaled to JSON correctly
 	testStruct := struct {
-		Name  string `json:"name"`
-		Value int    `json:"value"`
+		Name string `json:"name"`
 	}{
-		Name:  "test",
-		Value: 123,
+		Name: "test",
 	}
 
 	// In a real test, we would verify JSON marshaling works correctly

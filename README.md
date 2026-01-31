@@ -37,18 +37,34 @@ vim config.yaml
 ```
 ```yaml
 redis:
-  addr: "redis:6379"
-  password: ""
-  db: 0
-cacheExpiration: 3600
-port: 8043
-rateLimit: 50
-ProxyServer: "http://127.0.0.1:8080"
-ProxySuffixes: 
-ProxyUsername: ""
-ProxyPassword: ""
+  addr: "redis:6379"          # Redis服务器地址
+  password: ""                 # Redis密码，如无密码则留空
+  db: 0                        # Redis数据库编号
+cacheExpiration: 3600          # 缓存过期时间，单位：秒
+
+# 高级缓存配置（可选，新版本功能）
+cache:
+  requireRedis: false          # false=允许Redis失败时降级到内存缓存，true=Redis必须可用否则程序退出
+  memoryMaxSize: 10000         # 内存缓存最大条目数，超过此数量将不再缓存新数据（默认: 10000）
+  memoryCleanInterval: 300     # 内存缓存过期数据清理间隔，单位：秒（默认: 300）
+
+port: 8043                     # 服务监听端口
+rateLimit: 50                  # 并发限制，即程序向上游whois服务器发起的最大并发请求数
+
+# 代理配置（可选）
+ProxyServer: "http://127.0.0.1:8080"  # 代理服务器地址
+ProxySuffixes:                         # 需要使用代理的TLD后缀列表，留空表示不使用代理
+ProxyUsername: ""                      # 代理服务器用户名（如需认证）
+ProxyPassword: ""                      # 代理服务器密码（如需认证）
 ```
-根据需要修改 Redis 地址、端口、密码、数据库、缓存时间、监听端口、限频、如果需要在向注册局查询时使用代理，请配置代理服务器、需要代理的后缀、代理服务器用户名&密码（可选）等参数。
+
+**配置说明：**
+- **Redis配置**：建议使用Redis以获得更好的性能和多实例缓存共享能力
+- **缓存过期时间**：根据查询频率调整，建议3600秒
+- **并发限制**：控制向上游服务器的请求频率，避免被限流。
+- **代理配置**：某些TLD可能需要代理访问，可配置特定后缀使用代理
+
+
 > ⚠️ **Warning:** 限频针对的是程序向 whois 服务器发起的请求，而非用户向本程序发起的请求。例如，您将限频设置为 50，那么程序向注册局 whois 服务器发起的请求将不会超过 50 次/秒，但是用户向本程序发起的请求不受限制。请您通过 Nginx 等工具对本程序进行限流，以防止恶意请求。
 
 ### 运行
