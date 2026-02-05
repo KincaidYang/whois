@@ -206,3 +206,8 @@ func (fc *FallbackCache) Set(ctx context.Context, key string, value string, expi
 func (fc *FallbackCache) IsHealthy() bool {
 	return fc.primary.IsHealthy() || fc.fallback.IsHealthy()
 }
+
+// IsPrimaryHealthy returns true if the primary cache (Redis) is healthy
+func (fc *FallbackCache) IsPrimaryHealthy() bool {
+	return fc.primary.IsHealthy()
+}
