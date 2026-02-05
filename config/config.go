@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,11 @@ func (l *discardLogger) Printf(ctx context.Context, format string, v ...interfac
 }
 
 var (
+	// Version information - read from build info (Go 1.18+)
+	Version   string
+	BuildTime string
+	GitCommit string
+
 	// redisClient is the Redis client
 	RedisClient *redis.Client
 	// CacheManager is the unified cache interface with fallback support
@@ -57,6 +63,9 @@ var (
 )
 
 func init() {
+	// Initialize version info from build info (Go 1.18+)
+	initVersionInfo()
+
 	var config Config
 
 	// Load configuration from file
@@ -241,5 +250,41 @@ func overrideConfigWithEnv(config *Config) {
 	}
 	if proxySuffixes := os.Getenv("WHOIS_PROXY_SUFFIXES"); proxySuffixes != "" {
 		config.ProxySuffixes = strings.Split(proxySuffixes, ",")
+	}
+}
+
+// initVersionInfo reads version information from Go build info
+// This works automatically with `go build` (Go 1.18+)
+func initVersionInfo() {
+	Version = "dev"
+	BuildTime = "unknown"
+	GitCommit = "unknown"
+
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+
+	// Get module version
+	if info.Main.Version != "" && info.Main.Version != "(devel)" {
+		Version = info.Main.Version
+	}
+
+	// Get VCS info from build settings
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			if len(setting.Value) >= 7 {
+				GitCommit = setting.Value[:7] // short commit hash
+			} else {
+				GitCommit = setting.Value
+			}
+		case "vcs.time":
+			BuildTime = setting.Value
+		case "vcs.modified":
+			if setting.Value == "true" {
+				GitCommit += "-dirty"
+			}
+		}
 	}
 }

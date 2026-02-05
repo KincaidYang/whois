@@ -67,6 +67,12 @@ func main() {
 	// Note: Redis connection is now checked during config initialization
 	// The service will continue with memory cache if Redis is unavailable
 
+	// Health check endpoints (new, non-breaking)
+	http.HandleFunc("/health", handle_resources.HandleHealth)
+	http.HandleFunc("/ready", handle_resources.HandleReady)
+	http.HandleFunc("/info", handle_resources.HandleInfo)
+
+	// Main query handler
 	http.HandleFunc("/", handler)
 	go func() {
 		fmt.Printf("Server is listening on port %d...\n", config.Port)
