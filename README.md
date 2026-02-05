@@ -1,5 +1,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/KincaidYang/whois.svg)](https://pkg.go.dev/github.com/KincaidYang/whois) [![Go](https://github.com/KincaidYang/whois/actions/workflows/go.yml/badge.svg)](https://github.com/KincaidYang/whois/actions/workflows/go.yml) [![CodeQL](https://github.com/KincaidYang/whois/actions/workflows/codeql.yml/badge.svg)](https://github.com/KincaidYang/whois/actions/workflows/codeql.yml)
 
+[English](README_EN.md)
+
 ## 介绍
 基于 Golang 实现的域名 Whois 查询工具，支持所有允许公开查询的 TLD 后缀的域名、IPv4/v6、ASN 的 Whois 信息查询。
 根据 ICANN 《通用顶级域名注册数据临时政策细则（Temporary Specification for gTLD Registration Data）》和欧盟《通用数据保护条例》合规要求，在查询域名信息时，程序只返回了部分必要的信息（详见下方返回结果示例），不会返回所有者的`联系方式`、`地址`、`电话`、`邮箱`等字段。
@@ -72,6 +74,31 @@ ProxyPassword: ""                      # 代理服务器密码（如需认证）
 ./whois
 ```
 **注意：** 本程序默认监听 8043 端口。
+
+### 健康检查端点
+
+服务提供以下健康检查端点：
+
+| 端点 | 描述 |
+|------|------|
+| `GET /health` | 存活检查 - 服务运行即返回 200 |
+| `GET /ready` | 就绪检查 - 检查缓存和并发容量状态 |
+| `GET /info` | 运行时信息 - 版本、运行时间、Go 版本等 |
+
+**示例：**
+```bash
+curl http://localhost:8043/health
+```
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-02-05T01:32:05Z",
+  "uptime": "10s",
+  "checks": {
+    "cache": {"status": "ok", "message": "redis"}
+  }
+}
+```
 
 ### 进程守护（可选）
 您可以使用 systemd 等工具将本程序设置为守护进程，以便在系统重启后自动运行。
