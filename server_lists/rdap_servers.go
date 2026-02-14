@@ -1621,7 +1621,7 @@ var TLDToRdapServer = map[string]string{
 	// 下方是 https://data.iana.org/rdap/dns.json 未列出，但实际支持 RDAP 的 TLD List
 	"us": "https://rdap.nic.us/",
 	"me": "https://rdap.identitydigital.services/rdap/",
-	"co": "https://rdap.nic.co/",
+	"co": "https://rdap.registry.co/co/",
 	"de": "https://rdap.denic.de/",
 	"io": "https://rdap.donuts.co/rdap/",
 	"my": "https://rdap.mynic.my/rdap/",
