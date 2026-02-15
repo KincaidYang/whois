@@ -758,3 +758,140 @@ func ParseWhoisResponseLA(response string, domain string) (structs.DomainInfo, e
 
 	return domainInfo, nil
 }
+
+// ParseWhoisResponseJP parses WHOIS response for .jp domains
+func ParseWhoisResponseJP(response string, domain string) (structs.DomainInfo, error) {
+	var domainInfo structs.DomainInfo
+	domainInfo.DomainName = domain
+
+	// 正则表达式匹配 JP WHOIS 数据
+	reDomainName := regexp.MustCompile(`\[Domain Name\]\s+(.*)`)
+	reRegistrant := regexp.MustCompile(`\[Registrant\]\s+(.*)`)
+	reNameServer := regexp.MustCompile(`\[Name Server\]\s+(\S+)`)
+	reCreationDate := regexp.MustCompile(`\[登録年月日\]\s+(.*)`)
+	reExpiryDate := regexp.MustCompile(`\[有効期限\]\s+(.*)`)
+	reStatus := regexp.MustCompile(`\[状態\]\s+(.*)`)
+	reLockStatus := regexp.MustCompile(`\[ロック状態\]\s+(.*)`)
+	reUpdatedDate := regexp.MustCompile(`\[最終更新\]\s+(.*)`)
+
+	// 解析域名
+	matchDomainName := reDomainName.FindStringSubmatch(response)
+	if len(matchDomainName) > 1 {
+		domainInfo.DomainName = strings.TrimSpace(matchDomainName[1])
+	}
+
+	// 解析注册人（作为 Registrar，因为 JP 没有传统意义上的 Registrar 字段）
+	matchRegistrant := reRegistrant.FindStringSubmatch(response)
+	if len(matchRegistrant) > 1 {
+		domainInfo.Registrar = strings.TrimSpace(matchRegistrant[1])
+	}
+
+	// 解析名称服务器
+	matchNameServers := reNameServer.FindAllStringSubmatch(response, -1)
+	if len(matchNameServers) > 0 {
+		var nameServers []string
+		for _, match := range matchNameServers {
+			ns := strings.TrimSpace(match[1])
+			if ns != "" {
+				nameServers = append(nameServers, ns)
+			}
+		}
+		domainInfo.NameServer = nameServers
+	}
+
+	// 解析 DNSSEC (Signing Key)
+	// 查找 [Signing Key] 到下一个 [ 之间的内容
+	signingKeyStart := strings.Index(response, "[Signing Key]")
+	if signingKeyStart != -1 {
+		// 从 [Signing Key] 后面开始查找
+		afterKey := response[signingKeyStart+len("[Signing Key]"):]
+		// 找到下一个 [ 或 \n\n
+		endIdx := strings.Index(afterKey, "\n\n")
+		nextBracket := strings.Index(afterKey, "\n[")
+		if nextBracket != -1 && (endIdx == -1 || nextBracket < endIdx) {
+			endIdx = nextBracket
+		}
+		if endIdx == -1 {
+			endIdx = len(afterKey)
+		}
+
+		signingKeyRaw := afterKey[:endIdx]
+		// 清理格式：移除括号、换行、多余空格
+		signingKeyRaw = strings.ReplaceAll(signingKeyRaw, "(", "")
+		signingKeyRaw = strings.ReplaceAll(signingKeyRaw, ")", "")
+		signingKeyRaw = strings.ReplaceAll(signingKeyRaw, "\n", " ")
+		signingKeyRaw = strings.ReplaceAll(signingKeyRaw, "\t", " ")
+		// 压缩多个空格为一个
+		signingKeyRaw = regexp.MustCompile(`\s+`).ReplaceAllString(signingKeyRaw, " ")
+		signingKeyRaw = strings.TrimSpace(signingKeyRaw)
+
+		if signingKeyRaw != "" {
+			domainInfo.DNSSec = "signedDelegation"
+			domainInfo.DNSSecDSData = []string{signingKeyRaw}
+		} else {
+			domainInfo.DNSSec = "unsigned"
+		}
+	} else {
+		domainInfo.DNSSec = "unsigned"
+	}
+
+	// 解析注册日期 (格式: 2001/05/23)
+	matchCreationDate := reCreationDate.FindStringSubmatch(response)
+	if len(matchCreationDate) > 1 {
+		dateStr := strings.TrimSpace(matchCreationDate[1])
+		t, err := time.Parse("2006/01/02", dateStr)
+		if err == nil {
+			domainInfo.CreationDate = t.Format("2006-01-02")
+		}
+	}
+
+	// 解析过期日期 (格式: 2026/05/31)
+	matchExpiryDate := reExpiryDate.FindStringSubmatch(response)
+	if len(matchExpiryDate) > 1 {
+		dateStr := strings.TrimSpace(matchExpiryDate[1])
+		t, err := time.Parse("2006/01/02", dateStr)
+		if err == nil {
+			domainInfo.RegistryExpiryDate = t.Format("2006-01-02")
+		}
+	}
+
+	// 解析状态
+	var statuses []string
+	matchStatus := reStatus.FindStringSubmatch(response)
+	if len(matchStatus) > 1 {
+		statuses = append(statuses, strings.TrimSpace(matchStatus[1]))
+	}
+	// 解析锁定状态
+	matchLockStatuses := reLockStatus.FindAllStringSubmatch(response, -1)
+	for _, match := range matchLockStatuses {
+		if len(match) > 1 {
+			statuses = append(statuses, strings.TrimSpace(match[1]))
+		}
+	}
+	if len(statuses) > 0 {
+		domainInfo.DomainStatus = statuses
+	}
+
+	// 解析最终更新时间 (格式: 2025/06/01 01:05:04 (JST))
+	matchUpdatedDate := reUpdatedDate.FindStringSubmatch(response)
+	if len(matchUpdatedDate) > 1 {
+		dateStr := strings.TrimSpace(matchUpdatedDate[1])
+		// 移除时区标记 (JST)
+		dateStr = regexp.MustCompile(`\s*\([A-Z]+\)\s*$`).ReplaceAllString(dateStr, "")
+		t, err := time.Parse("2006/01/02 15:04:05", dateStr)
+		if err == nil {
+			// JST 是 UTC+9
+			domainInfo.UpdatedDate = t.Add(-9 * time.Hour).Format(time.RFC3339)
+		}
+	}
+
+	// 设置数据库更新时间为当前时间
+	domainInfo.LastUpdateOfRDAPDB = time.Now().UTC().Format(time.RFC3339)
+
+	// 验证必要字段
+	if domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+		return structs.DomainInfo{}, errors.New("domain not found")
+	}
+
+	return domainInfo, nil
+}
