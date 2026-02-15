@@ -9,6 +9,28 @@ import (
 	"github.com/KincaidYang/whois/rdap_tools/structs"
 )
 
+// JP WHOIS 预编译正则表达式
+var (
+	// 格式1：.jp 域名
+	reJPDomainName = regexp.MustCompile(`\[Domain Name\]\s+(.*)`)
+	reJPRegistrant = regexp.MustCompile(`\[Registrant\]\s+(.*)`)
+	reJPNameServer = regexp.MustCompile(`\[Name Server\]\s+(\S+)`)
+	// 格式2：.co.jp 等变体域名
+	reJPDomainNameAlt = regexp.MustCompile(`a\.\s*\[ドメイン名\]\s+(.*)`)
+	reJPOrganization  = regexp.MustCompile(`g\.\s*\[Organization\]\s+(.*)`)
+	reJPNameServerAlt = regexp.MustCompile(`p\.\s*\[ネームサーバ\]\s+(\S+)`)
+	// 通用字段
+	reJPCreationDate = regexp.MustCompile(`\[登録年月日\]\s+(.*)`)
+	reJPExpiryDate   = regexp.MustCompile(`\[有効期限\]\s+(.*)`)
+	reJPStatus       = regexp.MustCompile(`\[状態\]\s+(.*)`)
+	reJPLockStatus   = regexp.MustCompile(`\[ロック状態\]\s+(.*)`)
+	reJPUpdatedDate  = regexp.MustCompile(`\[最終更新\]\s+(.*)`)
+	// 工具正则
+	reJPExpiryInStatus = regexp.MustCompile(`\((\d{4}/\d{2}/\d{2})\)`)
+	reJPTimezone       = regexp.MustCompile(`\s*\([A-Z]+\)\s*$`)
+	reMultiSpace       = regexp.MustCompile(`\s+`)
+)
+
 func ParseWhoisResponseCN(response string, domain string) (structs.DomainInfo, error) {
 	var domainInfo structs.DomainInfo
 	domainInfo.DomainName = domain
@@ -759,111 +781,69 @@ func ParseWhoisResponseLA(response string, domain string) (structs.DomainInfo, e
 	return domainInfo, nil
 }
 
-// ParseWhoisResponseJP parses WHOIS response for .jp domains
+// ParseWhoisResponseJP parses WHOIS response for .jp domains (including .co.jp and other variants)
 func ParseWhoisResponseJP(response string, domain string) (structs.DomainInfo, error) {
 	var domainInfo structs.DomainInfo
 	domainInfo.DomainName = domain
 
-	// 正则表达式匹配 JP WHOIS 数据
-	reDomainName := regexp.MustCompile(`\[Domain Name\]\s+(.*)`)
-	reRegistrant := regexp.MustCompile(`\[Registrant\]\s+(.*)`)
-	reNameServer := regexp.MustCompile(`\[Name Server\]\s+(\S+)`)
-	reCreationDate := regexp.MustCompile(`\[登録年月日\]\s+(.*)`)
-	reExpiryDate := regexp.MustCompile(`\[有効期限\]\s+(.*)`)
-	reStatus := regexp.MustCompile(`\[状態\]\s+(.*)`)
-	reLockStatus := regexp.MustCompile(`\[ロック状態\]\s+(.*)`)
-	reUpdatedDate := regexp.MustCompile(`\[最終更新\]\s+(.*)`)
-
-	// 解析域名
-	matchDomainName := reDomainName.FindStringSubmatch(response)
-	if len(matchDomainName) > 1 {
-		domainInfo.DomainName = strings.TrimSpace(matchDomainName[1])
+	// 解析域名 - 尝试两种格式
+	domainInfo.DomainName = matchFirstGroup(reJPDomainName, response,
+		func() string { return matchFirstGroup(reJPDomainNameAlt, response, nil) })
+	if domainInfo.DomainName == "" {
+		domainInfo.DomainName = domain
 	}
 
-	// 解析注册人（作为 Registrar，因为 JP 没有传统意义上的 Registrar 字段）
-	matchRegistrant := reRegistrant.FindStringSubmatch(response)
-	if len(matchRegistrant) > 1 {
-		domainInfo.Registrar = strings.TrimSpace(matchRegistrant[1])
+	// 解析注册人/组织 - 尝试两种格式
+	domainInfo.Registrar = matchFirstGroup(reJPRegistrant, response,
+		func() string { return matchFirstGroup(reJPOrganization, response, nil) })
+
+	// 解析名称服务器 - 尝试两种格式
+	domainInfo.NameServer = matchAllFirstGroup(reJPNameServer, response)
+	if len(domainInfo.NameServer) == 0 {
+		domainInfo.NameServer = matchAllFirstGroup(reJPNameServerAlt, response)
 	}
 
-	// 解析名称服务器
-	matchNameServers := reNameServer.FindAllStringSubmatch(response, -1)
-	if len(matchNameServers) > 0 {
-		var nameServers []string
-		for _, match := range matchNameServers {
-			ns := strings.TrimSpace(match[1])
-			if ns != "" {
-				nameServers = append(nameServers, ns)
-			}
-		}
-		domainInfo.NameServer = nameServers
-	}
-
-	// 解析 DNSSEC (Signing Key)
-	// 查找 [Signing Key] 到下一个 [ 之间的内容
-	signingKeyStart := strings.Index(response, "[Signing Key]")
-	if signingKeyStart != -1 {
-		// 从 [Signing Key] 后面开始查找
-		afterKey := response[signingKeyStart+len("[Signing Key]"):]
-		// 找到下一个 [ 或 \n\n
-		endIdx := strings.Index(afterKey, "\n\n")
-		nextBracket := strings.Index(afterKey, "\n[")
-		if nextBracket != -1 && (endIdx == -1 || nextBracket < endIdx) {
-			endIdx = nextBracket
-		}
-		if endIdx == -1 {
-			endIdx = len(afterKey)
-		}
-
-		signingKeyRaw := afterKey[:endIdx]
-		// 清理格式：移除括号、换行、多余空格
-		signingKeyRaw = strings.ReplaceAll(signingKeyRaw, "(", "")
-		signingKeyRaw = strings.ReplaceAll(signingKeyRaw, ")", "")
-		signingKeyRaw = strings.ReplaceAll(signingKeyRaw, "\n", " ")
-		signingKeyRaw = strings.ReplaceAll(signingKeyRaw, "\t", " ")
-		// 压缩多个空格为一个
-		signingKeyRaw = regexp.MustCompile(`\s+`).ReplaceAllString(signingKeyRaw, " ")
-		signingKeyRaw = strings.TrimSpace(signingKeyRaw)
-
-		if signingKeyRaw != "" {
-			domainInfo.DNSSec = "signedDelegation"
-			domainInfo.DNSSecDSData = []string{signingKeyRaw}
-		} else {
-			domainInfo.DNSSec = "unsigned"
-		}
-	} else {
-		domainInfo.DNSSec = "unsigned"
+	// 解析 DNSSEC - 支持 [Signing Key] 和 s. [署名鍵] 两种格式
+	domainInfo.DNSSec = "unsigned"
+	if signingKeyRaw := extractSigningKey(response); signingKeyRaw != "" {
+		domainInfo.DNSSec = "signedDelegation"
+		domainInfo.DNSSecDSData = []string{signingKeyRaw}
 	}
 
 	// 解析注册日期 (格式: 2001/05/23)
-	matchCreationDate := reCreationDate.FindStringSubmatch(response)
-	if len(matchCreationDate) > 1 {
-		dateStr := strings.TrimSpace(matchCreationDate[1])
-		t, err := time.Parse("2006/01/02", dateStr)
-		if err == nil {
+	if dateStr := matchFirstGroup(reJPCreationDate, response, nil); dateStr != "" {
+		if t, err := time.Parse("2006/01/02", dateStr); err == nil {
 			domainInfo.CreationDate = t.Format("2006-01-02")
 		}
 	}
 
-	// 解析过期日期 (格式: 2026/05/31)
-	matchExpiryDate := reExpiryDate.FindStringSubmatch(response)
-	if len(matchExpiryDate) > 1 {
-		dateStr := strings.TrimSpace(matchExpiryDate[1])
-		t, err := time.Parse("2006/01/02", dateStr)
-		if err == nil {
+	// 解析过期日期 - 优先 [有効期限] 字段，再从 [状態] 中提取
+	if dateStr := matchFirstGroup(reJPExpiryDate, response, nil); dateStr != "" {
+		if t, err := time.Parse("2006/01/02", dateStr); err == nil {
 			domainInfo.RegistryExpiryDate = t.Format("2006-01-02")
 		}
 	}
 
-	// 解析状态
+	// 解析 [状態] - 同时提取过期日期(如有)和状态文本
 	var statuses []string
-	matchStatus := reStatus.FindStringSubmatch(response)
-	if len(matchStatus) > 1 {
-		statuses = append(statuses, strings.TrimSpace(matchStatus[1]))
+	if statusStr := matchFirstGroup(reJPStatus, response, nil); statusStr != "" {
+		// 从状态中提取过期日期 (适用于 co.jp: "Connected (2026/10/31)")
+		if domainInfo.RegistryExpiryDate == "" {
+			if matchExpiry := reJPExpiryInStatus.FindStringSubmatch(statusStr); len(matchExpiry) > 1 {
+				if t, err := time.Parse("2006/01/02", matchExpiry[1]); err == nil {
+					domainInfo.RegistryExpiryDate = t.Format("2006-01-02")
+				}
+			}
+		}
+		// 清理状态文本（移除日期部分）
+		statusClean := strings.TrimSpace(reJPExpiryInStatus.ReplaceAllString(statusStr, ""))
+		if statusClean != "" {
+			statuses = append(statuses, statusClean)
+		}
 	}
+
 	// 解析锁定状态
-	matchLockStatuses := reLockStatus.FindAllStringSubmatch(response, -1)
-	for _, match := range matchLockStatuses {
+	for _, match := range reJPLockStatus.FindAllStringSubmatch(response, -1) {
 		if len(match) > 1 {
 			statuses = append(statuses, strings.TrimSpace(match[1]))
 		}
@@ -873,14 +853,9 @@ func ParseWhoisResponseJP(response string, domain string) (structs.DomainInfo, e
 	}
 
 	// 解析最终更新时间 (格式: 2025/06/01 01:05:04 (JST))
-	matchUpdatedDate := reUpdatedDate.FindStringSubmatch(response)
-	if len(matchUpdatedDate) > 1 {
-		dateStr := strings.TrimSpace(matchUpdatedDate[1])
-		// 移除时区标记 (JST)
-		dateStr = regexp.MustCompile(`\s*\([A-Z]+\)\s*$`).ReplaceAllString(dateStr, "")
-		t, err := time.Parse("2006/01/02 15:04:05", dateStr)
-		if err == nil {
-			// JST 是 UTC+9
+	if dateStr := matchFirstGroup(reJPUpdatedDate, response, nil); dateStr != "" {
+		dateStr = reJPTimezone.ReplaceAllString(dateStr, "")
+		if t, err := time.Parse("2006/01/02 15:04:05", dateStr); err == nil {
 			domainInfo.UpdatedDate = t.Add(-9 * time.Hour).Format(time.RFC3339)
 		}
 	}
@@ -894,4 +869,59 @@ func ParseWhoisResponseJP(response string, domain string) (structs.DomainInfo, e
 	}
 
 	return domainInfo, nil
+}
+
+// matchFirstGroup 返回正则第一个捕获组的 TrimSpace 结果，未匹配时调用 fallback
+func matchFirstGroup(re *regexp.Regexp, s string, fallback func() string) string {
+	if m := re.FindStringSubmatch(s); len(m) > 1 {
+		if v := strings.TrimSpace(m[1]); v != "" {
+			return v
+		}
+	}
+	if fallback != nil {
+		return fallback()
+	}
+	return ""
+}
+
+// matchAllFirstGroup 返回正则所有匹配的第一个捕获组
+func matchAllFirstGroup(re *regexp.Regexp, s string) []string {
+	matches := re.FindAllStringSubmatch(s, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	var results []string
+	for _, m := range matches {
+		if v := strings.TrimSpace(m[1]); v != "" {
+			results = append(results, v)
+		}
+	}
+	return results
+}
+
+// extractSigningKey 从 JP WHOIS 响应中提取 DNSSEC 签名数据
+func extractSigningKey(response string) string {
+	// 支持 [Signing Key] 和 s. [署名鍵] 两种标签
+	var afterKey string
+	if idx := strings.Index(response, "[Signing Key]"); idx != -1 {
+		afterKey = response[idx+len("[Signing Key]"):]
+	} else if idx := strings.Index(response, "s. [署名鍵]"); idx != -1 {
+		afterKey = response[idx+len("s. [署名鍵]"):]
+	} else {
+		return ""
+	}
+
+	// 找到下一个字段或空行作为结束边界
+	endIdx := len(afterKey)
+	if i := strings.Index(afterKey, "\n\n"); i != -1 {
+		endIdx = i
+	}
+	if i := strings.Index(afterKey, "\n["); i != -1 && i < endIdx {
+		endIdx = i
+	}
+
+	// 清理格式：移除括号、换行，压缩空格
+	raw := afterKey[:endIdx]
+	raw = strings.NewReplacer("(", "", ")", "", "\n", " ", "\t", " ").Replace(raw)
+	return strings.TrimSpace(reMultiSpace.ReplaceAllString(raw, " "))
 }

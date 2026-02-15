@@ -53,10 +53,16 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	// Get the TLD (Top-Level Domain) of the domain
 	tld, _ := publicsuffix.PublicSuffix(resource)
 
-	// If the TLD is not as expected (e.g., "com.cn"), read the domain from right to left and take the part to the right of the first dot as the TLD
+	// For compound TLDs like "co.jp", check if we have a dedicated parser or server.
+	// Otherwise, fall back to the root TLD (e.g., "jp").
 	if strings.Contains(tld, ".") {
-		parts := strings.Split(tld, ".")
-		tld = parts[len(parts)-1]
+		_, hasParser := whoisParsers[tld]
+		_, hasWhoisServer := server_lists.TLDToWhoisServer[tld]
+		_, hasRdapServer := server_lists.TLDToRdapServer[tld]
+		if !hasParser && !hasWhoisServer && !hasRdapServer {
+			parts := strings.Split(tld, ".")
+			tld = parts[len(parts)-1]
+		}
 	}
 
 	// Get the main domain
