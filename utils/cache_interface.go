@@ -79,9 +79,9 @@ func (mc *MemoryCache) Set(ctx context.Context, key string, value string, expira
 			currentSize = mc.size
 			mc.mu.RUnlock()
 
-			// If still over limit, don't cache
+			// If still over limit, evict one arbitrary entry to make room
 			if currentSize >= mc.maxSize {
-				return nil
+				mc.evictOne()
 			}
 		}
 	}
@@ -121,6 +121,16 @@ func (mc *MemoryCache) decrementSize() {
 		mc.size--
 	}
 	mc.mu.Unlock()
+}
+
+// evictOne removes the first entry encountered in the cache.
+// sync.Map iteration order is unspecified, giving effectively random eviction.
+func (mc *MemoryCache) evictOne() {
+	mc.data.Range(func(key, _ interface{}) bool {
+		mc.data.Delete(key)
+		mc.decrementSize()
+		return false // stop after first entry
+	})
 }
 
 // startCleaner runs a periodic cleanup of expired entries
