@@ -18,20 +18,8 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 	// Parse the IP
 	ip := net.ParseIP(resource)
 
-	// Find the corresponding TLD from the TLDToRdapServer map
-	var tld string
-	for cidr := range server_lists.TLDToRdapServer {
-		_, ipNet, err := net.ParseCIDR(cidr)
-		if err != nil {
-			// If the key cannot be parsed as a CIDR, skip this key
-			continue
-		}
-
-		if ipNet.Contains(ip) {
-			tld = cidr
-			break
-		}
-	}
+	// Find the corresponding RDAP server key via pre-built CIDR index
+	tld, _ := server_lists.LookupIPKey(ip)
 
 	// Check if the RDAP information for the IP is cached
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, resource)
