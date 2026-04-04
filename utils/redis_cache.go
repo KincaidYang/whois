@@ -11,18 +11,16 @@ import (
 
 // RedisCache implements Cache interface using Redis
 type RedisCache struct {
-	client        *redis.Client
-	healthy       bool
-	healthChecked bool // Whether we've done the initial health check
-	mu            sync.RWMutex
+	client  *redis.Client
+	healthy bool
+	mu      sync.RWMutex
 }
 
 // NewRedisCache creates a new Redis cache instance
 func NewRedisCache(client *redis.Client) *RedisCache {
 	rc := &RedisCache{
-		client:        client,
-		healthy:       false,
-		healthChecked: false,
+		client:  client,
+		healthy: false,
 	}
 
 	// Check initial health
@@ -109,9 +107,6 @@ func (rc *RedisCache) checkHealth(isInitial bool) {
 		}
 	}
 
-	rc.mu.Lock()
-	rc.healthChecked = true
-	rc.mu.Unlock()
 }
 
 // startHealthChecker runs periodic health checks
