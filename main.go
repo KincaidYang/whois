@@ -15,6 +15,7 @@ import (
 
 	"github.com/KincaidYang/whois/config"
 	"github.com/KincaidYang/whois/handle_resources"
+	"github.com/KincaidYang/whois/utils"
 )
 
 // Pre-compiled regular expressions for better performance
@@ -40,7 +41,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	default:
 		config.Wg.Done()
 		log.Printf("Rate limit reached, rejecting request for %s\n", r.URL.Path)
-		http.Error(w, `{"error":"too many concurrent requests"}`, http.StatusTooManyRequests)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, `{"error":"too many concurrent requests"}`)
 		return
 	}
 	defer func() {
@@ -62,9 +65,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	} else if isDomain(resource) {
 		handle_resources.HandleDomain(ctx, w, resource, cacheKeyPrefix)
 	} else {
-		// If input is invalid, return HTTP 400 Bad Request
-		http.Error(w, "Invalid input. Please provide a valid domain, IP, or ASN.", http.StatusBadRequest)
-		return
+		utils.HandleHTTPError(w, utils.ErrorTypeBadRequest, "Invalid input. Please provide a valid domain, IP, or ASN.")
 	}
 }
 
