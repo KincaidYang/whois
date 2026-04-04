@@ -19,6 +19,27 @@ var (
 	ErrQueryDenied      = errors.New("the registry denied the query")
 )
 
+// proxyClient is a pre-built HTTP client for proxied RDAP requests.
+// Initialized once at startup to enable connection pool reuse across requests.
+var proxyClient *http.Client
+
+func init() {
+	if config.ProxyServer != "" {
+		proxyURL, err := url.Parse(config.ProxyServer)
+		if err == nil {
+			if config.ProxyUsername != "" && config.ProxyPassword != "" {
+				proxyURL.User = url.UserPassword(config.ProxyUsername, config.ProxyPassword)
+			}
+			proxyClient = &http.Client{
+				Timeout: config.HttpClient.Timeout,
+				Transport: &http.Transport{
+					Proxy: http.ProxyURL(proxyURL),
+				},
+			}
+		}
+	}
+}
+
 // contains function is used to check if a string is in a slice of strings.
 func contains(slice []string, str string) bool {
 	for _, item := range slice {
@@ -29,24 +50,13 @@ func contains(slice []string, str string) bool {
 	return false
 }
 
-// getHTTPClient returns an HTTP client with appropriate proxy settings
-// Creates a new client to avoid concurrent modification issues
+// getHTTPClient returns an HTTP client with appropriate proxy settings.
+// Returns the pre-built proxyClient for proxied TLDs, or config.HttpClient otherwise.
 func getHTTPClient(tld string) *http.Client {
-	client := &http.Client{
-		Timeout: config.HttpClient.Timeout,
+	if proxyClient != nil && (contains(config.ProxySuffixes, tld) || contains(config.ProxySuffixes, "all")) {
+		return proxyClient
 	}
-
-	if contains(config.ProxySuffixes, tld) || contains(config.ProxySuffixes, "all") {
-		proxyURL, _ := url.Parse(config.ProxyServer)
-		if config.ProxyUsername != "" && config.ProxyPassword != "" {
-			proxyURL.User = url.UserPassword(config.ProxyUsername, config.ProxyPassword)
-		}
-		client.Transport = &http.Transport{
-			Proxy: http.ProxyURL(proxyURL),
-		}
-	}
-
-	return client
+	return config.HttpClient
 }
 
 // doRDAPRequest performs the common RDAP HTTP request logic

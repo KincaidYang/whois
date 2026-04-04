@@ -44,29 +44,8 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 		return
 	}
 
-	// Find the corresponding TLD from the TLDToRdapServer map
-	var tld string
-	for rangeStr := range server_lists.TLDToRdapServer {
-		if !strings.Contains(rangeStr, "-") {
-			continue
-		}
-		rangeParts := strings.Split(rangeStr, "-")
-		if len(rangeParts) != 2 {
-			continue
-		}
-		lower, err := strconv.Atoi(rangeParts[0])
-		if err != nil {
-			continue
-		}
-		upper, err := strconv.Atoi(rangeParts[1])
-		if err != nil {
-			continue
-		}
-		if asnInt >= lower && asnInt <= upper {
-			tld = rangeStr
-			break
-		}
-	}
+	// Find the corresponding RDAP server key via pre-built sorted ASN range index
+	tld, _ := server_lists.LookupASNKey(asnInt)
 
 	// Query the RDAP information for the ASN
 	queryresult, err := rdap_tools.RDAPQueryASN(asn, tld)
