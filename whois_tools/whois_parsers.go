@@ -390,7 +390,7 @@ func ParseWhoisResponseSO(response string, domain string) (structs.DomainInfo, e
 	// 解析数据库更新时间
 	matchLastUpdateOfRDAPDB := reSOLastUpdateOfRDAPDB.FindStringSubmatch(response)
 	if len(matchLastUpdateOfRDAPDB) > 1 {
-		domainInfo.LastUpdateOfRDAPDB = strings.TrimSuffix(matchLastUpdateOfRDAPDB[1], " \u003c\u003c\u003c")
+		domainInfo.LastUpdateOfRDAPDB = strings.TrimSuffix(matchLastUpdateOfRDAPDB[1], " <<<")
 	}
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
@@ -520,7 +520,7 @@ func ParseWhoisResponseSB(response string, domain string) (structs.DomainInfo, e
 	// 解析数据库更新时间
 	matchLastUpdateOfRDAPDB := reSBLastUpdateOfRDAPDB.FindStringSubmatch(response)
 	if len(matchLastUpdateOfRDAPDB) > 1 {
-		domainInfo.LastUpdateOfRDAPDB = strings.TrimSuffix(matchLastUpdateOfRDAPDB[1], " \u003c\u003c\u003c")
+		domainInfo.LastUpdateOfRDAPDB = strings.TrimSuffix(matchLastUpdateOfRDAPDB[1], " <<<")
 	}
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
@@ -571,7 +571,7 @@ func ParseWhoisResponseAU(response string, domain string) (structs.DomainInfo, e
 	domainInfo.DomainName = domain
 
 	// 清理响应数据
-	cleanedResponse := strings.Replace(strings.TrimRight(response, "\r"), "\r", "", -1)
+	cleanedResponse := strings.ReplaceAll(response, "\r", "")
 
 	// 解析创建日期
 	matchCreationDate := reAUCreationDate.FindStringSubmatch(cleanedResponse)

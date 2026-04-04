@@ -34,14 +34,15 @@ func isDomain(resource string) bool {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
+	config.Wg.Add(1)
 	select {
 	case config.ConcurrencyLimiter <- struct{}{}:
 	default:
+		config.Wg.Done()
 		log.Printf("Rate limit reached, rejecting request for %s\n", r.URL.Path)
 		http.Error(w, `{"error":"too many concurrent requests"}`, http.StatusTooManyRequests)
 		return
 	}
-	config.Wg.Add(1)
 	defer func() {
 		config.Wg.Done()
 		<-config.ConcurrencyLimiter
