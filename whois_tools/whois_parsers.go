@@ -559,7 +559,7 @@ func ParseWhoisResponseMO(response string, domain string) (structs.DomainInfo, e
 	now := time.Now().UTC().Format(time.RFC3339)
 	domainInfo.LastUpdateOfRDAPDB = now
 
-	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+	if domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
 		return structs.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
