@@ -83,7 +83,11 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	}
 
 	if cacheResult.Found {
-		utils.HandleCacheResponse(w, cacheResult.Data, "application/json")
+		contentType := "application/json"
+		if len(cacheResult.Data) == 0 || cacheResult.Data[0] != '{' {
+			contentType = "text/plain; charset=utf-8"
+		}
+		utils.HandleCacheResponse(w, cacheResult.Data, contentType)
 		return
 	}
 
