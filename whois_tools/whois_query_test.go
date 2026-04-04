@@ -1,6 +1,7 @@
 package whois_tools
 
 import (
+	"context"
 	"net"
 	"testing"
 
@@ -52,7 +53,7 @@ func TestWhois(t *testing.T) {
 	domain := "example.com"
 	tld := "com"
 
-	result, err := Whois(domain, tld)
+	result, err := Whois(context.Background(), domain, tld)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -70,7 +71,7 @@ func TestWhoisUnknownTLD(t *testing.T) {
 	domain := "example.xyz"
 	tld := "xyz"
 
-	_, err := Whois(domain, tld)
+	_, err := Whois(context.Background(), domain, tld)
 	if err == nil {
 		t.Fatalf("Expected an error for unknown TLD, got none")
 	}

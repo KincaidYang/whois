@@ -2,6 +2,7 @@ package rdap_tools
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -54,8 +55,8 @@ func getHTTPClient(tld string) *http.Client {
 }
 
 // doRDAPRequest performs the common RDAP HTTP request logic
-func doRDAPRequest(client *http.Client, url string) (string, error) {
-	req, err := http.NewRequest("GET", url, nil)
+func doRDAPRequest(ctx context.Context, client *http.Client, url string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return "", err
 	}
@@ -85,7 +86,7 @@ func doRDAPRequest(client *http.Client, url string) (string, error) {
 }
 
 // RDAPQuery function is used to query the RDAP information for a given domain.
-func RDAPQuery(domain, tld string) (string, error) {
+func RDAPQuery(ctx context.Context, domain, tld string) (string, error) {
 	rdapServer, ok := server_lists.TLDToRdapServer[tld]
 	if !ok {
 		return "", fmt.Errorf("no RDAP server known for TLD: %s", tld)
@@ -94,11 +95,11 @@ func RDAPQuery(domain, tld string) (string, error) {
 	log.Printf("Querying RDAP for domain: %s with TLD: %s on server: %s\n", domain, tld, rdapServer)
 
 	client := getHTTPClient(tld)
-	return doRDAPRequest(client, rdapServer+"domain/"+domain)
+	return doRDAPRequest(ctx, client, rdapServer+"domain/"+domain)
 }
 
 // RDAPQueryIP function is used to query the RDAP information for a given IP address.
-func RDAPQueryIP(ip, tld string) (string, error) {
+func RDAPQueryIP(ctx context.Context, ip, tld string) (string, error) {
 	rdapServer, ok := server_lists.TLDToRdapServer[tld]
 	if !ok {
 		return "", fmt.Errorf("no RDAP server known for IP: %s", ip)
@@ -107,11 +108,11 @@ func RDAPQueryIP(ip, tld string) (string, error) {
 	log.Printf("Querying RDAP for IP: %s with TLD: %s on server: %s\n", ip, tld, rdapServer)
 
 	client := getHTTPClient(tld)
-	return doRDAPRequest(client, rdapServer+"ip/"+ip)
+	return doRDAPRequest(ctx, client, rdapServer+"ip/"+ip)
 }
 
 // RDAPQueryASN function is used to query the RDAP information for a given ASN.
-func RDAPQueryASN(as, tld string) (string, error) {
+func RDAPQueryASN(ctx context.Context, as, tld string) (string, error) {
 	rdapServer, ok := server_lists.TLDToRdapServer[tld]
 	if !ok {
 		return "", fmt.Errorf("no RDAP server known for ASN: %s", as)
@@ -120,5 +121,5 @@ func RDAPQueryASN(as, tld string) (string, error) {
 	log.Printf("Querying RDAP for AS: %s with TLD: %s on server: %s\n", as, tld, rdapServer)
 
 	client := getHTTPClient(tld)
-	return doRDAPRequest(client, rdapServer+"autnum/"+as)
+	return doRDAPRequest(ctx, client, rdapServer+"autnum/"+as)
 }

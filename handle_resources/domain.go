@@ -111,7 +111,7 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 
 // handleRDAPQuery handles RDAP queries for domains
 func handleRDAPQuery(ctx context.Context, w http.ResponseWriter, domain, tld, key string) (string, error) {
-	queryResult, err := rdap_tools.RDAPQuery(domain, tld)
+	queryResult, err := rdap_tools.RDAPQuery(ctx, domain, tld)
 	if err != nil {
 		utils.HandleQueryError(w, err)
 		return "", err
@@ -134,7 +134,7 @@ func handleRDAPQuery(ctx context.Context, w http.ResponseWriter, domain, tld, ke
 	// Cache the result
 	err = utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration)
 	if err != nil {
-		// Log the error but don't fail the request
+		log.Printf("cache write error for key %s: %v", key, err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -143,7 +143,7 @@ func handleRDAPQuery(ctx context.Context, w http.ResponseWriter, domain, tld, ke
 
 // handleWhoisQuery handles WHOIS queries for domains
 func handleWhoisQuery(ctx context.Context, w http.ResponseWriter, domain, tld, key string) (string, error) {
-	queryResult, err := whois_tools.Whois(domain, tld)
+	queryResult, err := whois_tools.Whois(ctx, domain, tld)
 	if err != nil {
 		// If there's a network or other error during the WHOIS query
 		utils.HandleHTTPError(w, utils.ErrorTypeInternalServer, err.Error())
