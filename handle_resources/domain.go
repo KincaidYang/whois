@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 
@@ -169,7 +170,7 @@ func handleWhoisQuery(ctx context.Context, w http.ResponseWriter, domain, tld, k
 		// Cache the result
 		err = utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration)
 		if err != nil {
-			// Log the error but don't fail the request
+			log.Printf("cache write error for key %s: %v", key, err)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -178,7 +179,7 @@ func handleWhoisQuery(ctx context.Context, w http.ResponseWriter, domain, tld, k
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		err = utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration)
 		if err != nil {
-			// Log the error but don't fail the request
+			log.Printf("cache write error for key %s: %v", key, err)
 		}
 	}
 

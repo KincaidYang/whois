@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -27,19 +28,14 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 		return
 	}
 
-	// Generate the cache key
+	// Check cache first before doing any lookups
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, asn)
-
-	// Check if the RDAP information for the ASN is cached
 	cacheResult, err := utils.GetFromCache(ctx, config.CacheManager, key)
 	if err != nil {
-		// If there's an error during caching, return an HTTP error
 		utils.HandleInternalError(w, err)
 		return
 	}
-
 	if cacheResult.Found {
-		// If the RDAP information is cached, return the cached result
 		utils.HandleCacheResponse(w, cacheResult.Data, "application/json")
 		return
 	}
@@ -72,8 +68,7 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	// Cache the RDAP information
 	err = utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration)
 	if err != nil {
-		// Log the error but don't fail the request
-		// The response will still be returned to the user
+		log.Printf("cache write error for key %s: %v", key, err)
 	}
 
 	// Return the RDAP information
