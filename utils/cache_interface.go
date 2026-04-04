@@ -166,20 +166,18 @@ func NewFallbackCache(primary, fallback Cache) *FallbackCache {
 	}
 }
 
-// Get tries primary cache first, then fallback
+// Get tries primary cache first, then fallback.
+// Falls through to fallback on primary error OR miss, so that entries written
+// to memory-only during a Redis outage are still served after Redis recovers.
 func (fc *FallbackCache) Get(ctx context.Context, key string) (CacheResult, error) {
-	// Try primary cache if healthy
 	if fc.primary.IsHealthy() {
 		result, err := fc.primary.Get(ctx, key)
-		if err == nil {
-			// Primary cache worked (hit or miss), return the result
-			// No need to check fallback since we do dual-write
+		if err == nil && result.Found {
 			return result, nil
 		}
-		// Primary cache had an error, fall through to fallback
+		// Primary missed or errored — fall through to fallback
 	}
 
-	// Primary unhealthy or errored, try fallback cache
 	return fc.fallback.Get(ctx, key)
 }
 
