@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 )
 
@@ -29,10 +30,10 @@ func writeJSONError(w http.ResponseWriter, statusCode int, message string) {
 
 // HandleQueryError handles common query errors with appropriate HTTP responses
 func HandleQueryError(w http.ResponseWriter, err error) {
-	switch err.Error() {
-	case "resource not found", "domain not found":
+	switch {
+	case errors.Is(err, ErrResourceNotFound), errors.Is(err, ErrDomainNotFound):
 		writeJSONError(w, http.StatusNotFound, "Resource not found")
-	case "the registry denied the query":
+	case errors.Is(err, ErrQueryDenied):
 		writeJSONError(w, http.StatusForbidden, "The registry denied the query")
 	default:
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
