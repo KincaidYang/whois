@@ -1,12 +1,12 @@
 package whois_tools
 
 import (
-	"errors"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/KincaidYang/whois/rdap_tools/structs"
+	"github.com/KincaidYang/whois/utils"
 )
 
 // 预编译正则表达式（所有解析器共享，避免每次调用重复编译）
@@ -188,7 +188,7 @@ func ParseWhoisResponseCN(response string, domain string) (structs.DomainInfo, e
 	domainInfo.LastUpdateOfRDAPDB = now
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return structs.DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil
@@ -250,7 +250,7 @@ func ParseWhoisResponseHK(response string, domain string) (structs.DomainInfo, e
 	domainInfo.LastUpdateOfRDAPDB = now
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return structs.DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil
@@ -318,7 +318,7 @@ func ParseWhoisResponseTW(response string, domain string) (structs.DomainInfo, e
 	domainInfo.LastUpdateOfRDAPDB = now
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return structs.DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil
@@ -394,7 +394,7 @@ func ParseWhoisResponseSO(response string, domain string) (structs.DomainInfo, e
 	}
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return structs.DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil
@@ -446,7 +446,7 @@ func ParseWhoisResponseRU(response string, domain string) (structs.DomainInfo, e
 	}
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return structs.DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil
@@ -524,7 +524,7 @@ func ParseWhoisResponseSB(response string, domain string) (structs.DomainInfo, e
 	}
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return structs.DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil
@@ -560,7 +560,7 @@ func ParseWhoisResponseMO(response string, domain string) (structs.DomainInfo, e
 	domainInfo.LastUpdateOfRDAPDB = now
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return structs.DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil
@@ -640,7 +640,7 @@ func ParseWhoisResponseAU(response string, domain string) (structs.DomainInfo, e
 	}
 
 	if domainInfo.Registrar == "" {
-		return structs.DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil
@@ -700,7 +700,7 @@ func ParseWhoisResponseSG(response string, domain string) (structs.DomainInfo, e
 	}
 
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return structs.DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil
@@ -777,7 +777,7 @@ func ParseWhoisResponseLA(response string, domain string) (structs.DomainInfo, e
 
 	// 验证必要字段
 	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return structs.DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil
@@ -867,7 +867,7 @@ func ParseWhoisResponseJP(response string, domain string) (structs.DomainInfo, e
 
 	// 验证必要字段
 	if domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
-		return structs.DomainInfo{}, errors.New("domain not found")
+		return structs.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil

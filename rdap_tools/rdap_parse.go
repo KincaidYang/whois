@@ -7,250 +7,254 @@ import (
 	"github.com/KincaidYang/whois/rdap_tools/structs"
 )
 
+// Internal structs for safe RDAP JSON deserialization.
+// Using typed structs instead of map[string]interface{} eliminates panic risk
+// from unchecked type assertions on unexpected server responses.
+
+type rdapEvent struct {
+	EventAction string `json:"eventAction"`
+	EventDate   string `json:"eventDate"`
+}
+
+type rdapPublicId struct {
+	Type       string `json:"type"`
+	Identifier string `json:"identifier"`
+}
+
+type rdapEntity struct {
+	Roles      []string          `json:"roles"`
+	VcardArray []json.RawMessage `json:"vcardArray"`
+	PublicIds  []rdapPublicId    `json:"publicIds"`
+}
+
+type rdapNameserver struct {
+	LdhName string `json:"ldhName"`
+}
+
+type rdapDsData struct {
+	KeyTag     int    `json:"keyTag"`
+	Algorithm  int    `json:"algorithm"`
+	DigestType int    `json:"digestType"`
+	Digest     string `json:"digest"`
+}
+
+type rdapSecureDNS struct {
+	DelegationSigned bool         `json:"delegationSigned"`
+	DsData           []rdapDsData `json:"dsData"`
+}
+
+type rdapDomainResponse struct {
+	LdhName     string           `json:"ldhName"`
+	Status      []string         `json:"status"`
+	Entities    []rdapEntity     `json:"entities"`
+	Events      []rdapEvent      `json:"events"`
+	Nameservers []rdapNameserver `json:"nameservers"`
+	SecureDNS   *rdapSecureDNS   `json:"secureDNS"`
+}
+
+type rdapCIDR struct {
+	V4Prefix string  `json:"v4prefix"`
+	V6Prefix string  `json:"v6prefix"`
+	Length   float64 `json:"length"`
+}
+
+type rdapRemark struct {
+	Title       string   `json:"title"`
+	Description []string `json:"description"`
+}
+
+type rdapIPResponse struct {
+	Handle       string       `json:"handle"`
+	StartAddress string       `json:"startAddress"`
+	EndAddress   string       `json:"endAddress"`
+	Name         string       `json:"name"`
+	Cidr0Cidrs   []rdapCIDR   `json:"cidr0_cidrs"`
+	Type         *string      `json:"type"`
+	Country      string       `json:"country"`
+	Status       []string     `json:"status"`
+	Events       []rdapEvent  `json:"events"`
+	Remarks      []rdapRemark `json:"remarks"`
+}
+
+type rdapASNResponse struct {
+	Handle  string       `json:"handle"`
+	Name    string       `json:"name"`
+	Status  []string     `json:"status"`
+	Events  []rdapEvent  `json:"events"`
+	Remarks []rdapRemark `json:"remarks"`
+}
+
+// extractRegistrarName extracts the "fn" (full name) property from a vCard array.
+// The vCard format per RFC 7095 is: ["vcard", [["fn", {}, "text", "Name"], ...]]
+func extractRegistrarName(vcardArray []json.RawMessage) string {
+	if len(vcardArray) < 2 {
+		return ""
+	}
+	var properties []json.RawMessage
+	if err := json.Unmarshal(vcardArray[1], &properties); err != nil {
+		return ""
+	}
+	for _, prop := range properties {
+		var fields []json.RawMessage
+		if err := json.Unmarshal(prop, &fields); err != nil {
+			continue
+		}
+		if len(fields) < 4 {
+			continue
+		}
+		var propName string
+		if err := json.Unmarshal(fields[0], &propName); err != nil || propName != "fn" {
+			continue
+		}
+		var value string
+		if err := json.Unmarshal(fields[3], &value); err != nil {
+			continue
+		}
+		return value
+	}
+	return ""
+}
+
 // ParseRDAPResponseforDomain parses the RDAP response for a domain and returns a DomainInfo structure.
 func ParseRDAPResponseforDomain(response string) (structs.DomainInfo, error) {
-	var result map[string]interface{}
-	err := json.Unmarshal([]byte(response), &result)
-	if err != nil {
+	var rdap rdapDomainResponse
+	if err := json.Unmarshal([]byte(response), &rdap); err != nil {
 		return structs.DomainInfo{}, err
 	}
 
-	domainInfo := structs.DomainInfo{}
-
-	if ldhName, ok := result["ldhName"]; ok {
-		domainInfo.DomainName = ldhName.(string)
+	info := structs.DomainInfo{
+		DomainName:   rdap.LdhName,
+		DomainStatus: rdap.Status,
 	}
 
-	if status, ok := result["status"]; ok {
-		domainInfo.DomainStatus = make([]string, len(status.([]interface{})))
-		for i, s := range status.([]interface{}) {
-			domainInfo.DomainStatus[i] = s.(string)
-		}
-	}
-
-	if entities, ok := result["entities"]; ok {
-		for _, entity := range entities.([]interface{}) {
-			if roles, ok := entity.(map[string]interface{})["roles"]; ok {
-				for _, role := range roles.([]interface{}) {
-					if role.(string) == "registrar" {
-						registrarEntity := entity.(map[string]interface{})
-						if vcardArray, ok := registrarEntity["vcardArray"]; ok {
-							vcardArraySlice, ok := vcardArray.([]interface{})
-							if ok && len(vcardArraySlice) > 1 {
-								innerSlice, ok := vcardArraySlice[1].([]interface{})
-								if ok {
-									for _, item := range innerSlice {
-										itemSlice, ok := item.([]interface{})
-										if ok && len(itemSlice) > 0 {
-											if itemSlice[0] == "fn" && len(itemSlice) > 3 {
-												domainInfo.Registrar = itemSlice[3].(string)
-												break
-											}
-										}
-									}
-								}
-							}
-						}
-						if publicIds, ok := registrarEntity["publicIds"]; ok {
-							domainInfo.RegistrarIANAID = publicIds.([]interface{})[0].(map[string]interface{})["identifier"].(string)
-						}
-						break
-					}
+	// Extract registrar info from entities
+	for _, entity := range rdap.Entities {
+		for _, role := range entity.Roles {
+			if role == "registrar" {
+				info.Registrar = extractRegistrarName(entity.VcardArray)
+				if len(entity.PublicIds) > 0 {
+					info.RegistrarIANAID = entity.PublicIds[0].Identifier
 				}
+				break
 			}
 		}
 	}
 
-	if events, ok := result["events"]; ok {
-		for _, event := range events.([]interface{}) {
-			eventInfo := event.(map[string]interface{})
-			switch eventInfo["eventAction"].(string) {
-			case "registration":
-				domainInfo.CreationDate = eventInfo["eventDate"].(string)
-			case "expiration":
-				domainInfo.RegistryExpiryDate = eventInfo["eventDate"].(string)
-			case "last changed":
-				domainInfo.UpdatedDate = eventInfo["eventDate"].(string)
-			case "last update of RDAP database":
-				domainInfo.LastUpdateOfRDAPDB = eventInfo["eventDate"].(string)
-			}
+	// Extract event dates
+	for _, event := range rdap.Events {
+		switch event.EventAction {
+		case "registration":
+			info.CreationDate = event.EventDate
+		case "expiration":
+			info.RegistryExpiryDate = event.EventDate
+		case "last changed":
+			info.UpdatedDate = event.EventDate
+		case "last update of RDAP database":
+			info.LastUpdateOfRDAPDB = event.EventDate
 		}
 	}
 
-	if nameservers, ok := result["nameservers"]; ok {
-		domainInfo.NameServer = make([]string, len(nameservers.([]interface{})))
-		for i, ns := range nameservers.([]interface{}) {
-			domainInfo.NameServer[i] = ns.(map[string]interface{})["ldhName"].(string)
+	// Extract nameservers
+	info.NameServer = make([]string, 0, len(rdap.Nameservers))
+	for _, ns := range rdap.Nameservers {
+		info.NameServer = append(info.NameServer, ns.LdhName)
+	}
+
+	// Extract DNSSEC info
+	info.DNSSec = "unsigned"
+	if rdap.SecureDNS != nil && rdap.SecureDNS.DelegationSigned {
+		info.DNSSec = "signedDelegation"
+		for _, ds := range rdap.SecureDNS.DsData {
+			info.DNSSecDSData = append(info.DNSSecDSData, fmt.Sprintf("%d %d %d %s",
+				ds.KeyTag, ds.Algorithm, ds.DigestType, ds.Digest))
 		}
 	}
 
-	domainInfo.DNSSec = "unsigned"
-	if secureDNS, ok := result["secureDNS"]; ok {
-		if delegationSigned, ok := secureDNS.(map[string]interface{})["delegationSigned"].(bool); ok && delegationSigned {
-			domainInfo.DNSSec = "signedDelegation"
-			if dsData, ok := secureDNS.(map[string]interface{})["dsData"].([]interface{}); ok && len(dsData) > 0 {
-				for _, ds := range dsData {
-					dsRecord := ds.(map[string]interface{})
-					dsDataStr := fmt.Sprintf("%d %d %d %s",
-						int(dsRecord["keyTag"].(float64)),
-						int(dsRecord["algorithm"].(float64)),
-						int(dsRecord["digestType"].(float64)),
-						dsRecord["digest"].(string),
-					)
-					domainInfo.DNSSecDSData = append(domainInfo.DNSSecDSData, dsDataStr)
-				}
-			}
-		}
-	}
-
-	return domainInfo, nil
+	return info, nil
 }
 
-// parseWhoisResponseforIP function is used to parse the WHOIS response for an IP address.
+// ParseRDAPResponseforIP parses the RDAP response for an IP address.
 func ParseRDAPResponseforIP(response string) (structs.IPInfo, error) {
-	var result map[string]interface{}
-	err := json.Unmarshal([]byte(response), &result)
-	if err != nil {
+	var rdap rdapIPResponse
+	if err := json.Unmarshal([]byte(response), &rdap); err != nil {
 		return structs.IPInfo{}, err
 	}
 
-	ipinfo := structs.IPInfo{}
-
-	if handle, ok := result["handle"]; ok {
-		ipinfo.IP = handle.(string)
+	info := structs.IPInfo{
+		IP:      rdap.Handle,
+		NetName: rdap.Name,
+		Country: rdap.Country,
+		IPStatus: rdap.Status,
 	}
 
-	if startAddress, ok := result["startAddress"]; ok {
-		ipinfo.Range = startAddress.(string)
-	}
-
-	if endAddress, ok := result["endAddress"]; ok {
-		ipinfo.Range += " - " + endAddress.(string)
-	}
-
-	if name, ok := result["name"]; ok {
-		ipinfo.NetName = name.(string)
-	}
-
-	if cidrs, ok := result["cidr0_cidrs"]; ok {
-		for _, cidr := range cidrs.([]interface{}) {
-			cidrMap := cidr.(map[string]interface{})
-			if v4prefix, ok := cidrMap["v4prefix"]; ok {
-				length := cidrMap["length"].(float64)
-				ipinfo.CIDR = fmt.Sprintf("%s/%d", v4prefix.(string), int(length))
-			} else if v6prefix, ok := cidrMap["v6prefix"]; ok {
-				length := cidrMap["length"].(float64)
-				ipinfo.CIDR = fmt.Sprintf("%s/%d", v6prefix.(string), int(length))
-			}
+	if rdap.StartAddress != "" {
+		info.Range = rdap.StartAddress
+		if rdap.EndAddress != "" {
+			info.Range += " - " + rdap.EndAddress
 		}
 	}
 
-	if type_, ok := result["type"]; ok && type_ != nil {
-		ipinfo.Networktype = type_.(string)
+	if rdap.Type != nil {
+		info.Networktype = *rdap.Type
 	} else {
-		ipinfo.Networktype = "Unknown"
+		info.Networktype = "Unknown"
 	}
 
-	if country, ok := result["country"]; ok {
-		ipinfo.Country = country.(string)
-	}
-
-	if status, ok := result["status"]; ok {
-		ipinfo.IPStatus = make([]string, len(status.([]interface{})))
-		for i, s := range status.([]interface{}) {
-			ipinfo.IPStatus[i] = s.(string)
+	for _, cidr := range rdap.Cidr0Cidrs {
+		if cidr.V4Prefix != "" {
+			info.CIDR = fmt.Sprintf("%s/%d", cidr.V4Prefix, int(cidr.Length))
+		} else if cidr.V6Prefix != "" {
+			info.CIDR = fmt.Sprintf("%s/%d", cidr.V6Prefix, int(cidr.Length))
 		}
 	}
 
-	if events, ok := result["events"]; ok {
-		for _, event := range events.([]interface{}) {
-			eventInfo := event.(map[string]interface{})
-			switch eventInfo["eventAction"].(string) {
-			case "registration":
-				ipinfo.CreationDate = eventInfo["eventDate"].(string)
-			case "last changed":
-				ipinfo.UpdatedDate = eventInfo["eventDate"].(string)
-			}
+	for _, event := range rdap.Events {
+		switch event.EventAction {
+		case "registration":
+			info.CreationDate = event.EventDate
+		case "last changed":
+			info.UpdatedDate = event.EventDate
 		}
 	}
 
-	if remarks, ok := result["remarks"]; ok {
-		for _, remark := range remarks.([]interface{}) {
-			remarkMap := remark.(map[string]interface{})
-			newRemark := structs.Remark{}
-
-			if title, ok := remarkMap["title"]; ok {
-				newRemark.Title = title.(string)
-			}
-
-			if description, ok := remarkMap["description"]; ok {
-				for _, desc := range description.([]interface{}) {
-					newRemark.Description = append(newRemark.Description, desc.(string))
-				}
-			}
-
-			ipinfo.Remarks = append(ipinfo.Remarks, newRemark)
-		}
+	for _, remark := range rdap.Remarks {
+		info.Remarks = append(info.Remarks, structs.Remark{
+			Title:       remark.Title,
+			Description: remark.Description,
+		})
 	}
 
-	return ipinfo, nil
+	return info, nil
 }
 
-// parseRDAPResponseforASN function is used to parse the RDAP response for an ASN.
+// ParseRDAPResponseforASN parses the RDAP response for an ASN.
 func ParseRDAPResponseforASN(response string) (structs.ASNInfo, error) {
-	var result map[string]interface{}
-	err := json.Unmarshal([]byte(response), &result)
-	if err != nil {
+	var rdap rdapASNResponse
+	if err := json.Unmarshal([]byte(response), &rdap); err != nil {
 		return structs.ASNInfo{}, err
 	}
 
-	asninfo := structs.ASNInfo{}
-
-	if handle, ok := result["handle"]; ok {
-		asninfo.ASN = handle.(string)
+	info := structs.ASNInfo{
+		ASN:      rdap.Handle,
+		ASName:   rdap.Name,
+		ASStatus: rdap.Status,
 	}
 
-	if name, ok := result["name"]; ok {
-		asninfo.ASName = name.(string)
-	}
-
-	if status, ok := result["status"]; ok {
-		asninfo.ASStatus = make([]string, len(status.([]interface{})))
-		for i, s := range status.([]interface{}) {
-			asninfo.ASStatus[i] = s.(string)
+	for _, event := range rdap.Events {
+		switch event.EventAction {
+		case "registration":
+			info.CreationDate = event.EventDate
+		case "last changed":
+			info.UpdatedDate = event.EventDate
 		}
 	}
 
-	if events, ok := result["events"]; ok {
-		for _, event := range events.([]interface{}) {
-			eventInfo := event.(map[string]interface{})
-			switch eventInfo["eventAction"].(string) {
-			case "registration":
-				asninfo.CreationDate = eventInfo["eventDate"].(string)
-			case "last changed":
-				asninfo.UpdatedDate = eventInfo["eventDate"].(string)
-			}
-		}
+	for _, remark := range rdap.Remarks {
+		info.Remarks = append(info.Remarks, structs.Remark{
+			Title:       remark.Title,
+			Description: remark.Description,
+		})
 	}
 
-	if remarks, ok := result["remarks"]; ok {
-		for _, remark := range remarks.([]interface{}) {
-			remarkMap := remark.(map[string]interface{})
-			newRemark := structs.Remark{}
-
-			if title, ok := remarkMap["title"]; ok {
-				newRemark.Title = title.(string)
-			}
-
-			if description, ok := remarkMap["description"]; ok {
-				for _, desc := range description.([]interface{}) {
-					newRemark.Description = append(newRemark.Description, desc.(string))
-				}
-			}
-
-			asninfo.Remarks = append(asninfo.Remarks, newRemark)
-		}
-	}
-
-	return asninfo, nil
+	return info, nil
 }

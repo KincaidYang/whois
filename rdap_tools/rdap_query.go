@@ -2,7 +2,6 @@ package rdap_tools
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -11,12 +10,7 @@ import (
 
 	"github.com/KincaidYang/whois/config"
 	"github.com/KincaidYang/whois/server_lists"
-)
-
-// Common errors for RDAP queries
-var (
-	ErrResourceNotFound = errors.New("resource not found")
-	ErrQueryDenied      = errors.New("the registry denied the query")
+	"github.com/KincaidYang/whois/utils"
 )
 
 // proxyClient is a pre-built HTTP client for proxied RDAP requests.
@@ -82,9 +76,9 @@ func doRDAPRequest(client *http.Client, url string) (string, error) {
 		}
 		return buf.String(), nil
 	case http.StatusNotFound:
-		return "", ErrResourceNotFound
+		return "", utils.ErrResourceNotFound
 	case http.StatusForbidden:
-		return "", ErrQueryDenied
+		return "", utils.ErrQueryDenied
 	default:
 		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
