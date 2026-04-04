@@ -137,6 +137,16 @@ func applyDefaultCacheConfig(config *Config) {
 	if config.Cache.MemoryCleanInterval == 0 {
 		config.Cache.MemoryCleanInterval = 300
 	}
+
+	// Default port: 8043
+	if config.Port == 0 {
+		config.Port = 8043
+	}
+
+	// Default rate limit: 100 concurrent requests
+	if config.RateLimit == 0 {
+		config.RateLimit = 100
+	}
 }
 
 // initializeCacheManager sets up the cache with Redis primary and memory fallback

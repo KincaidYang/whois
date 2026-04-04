@@ -1,11 +1,13 @@
 package whois_tools
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/KincaidYang/whois/rdap_tools/structs"
+	"github.com/KincaidYang/whois/utils"
 )
 
 func TestParseWhoisResponseCN(t *testing.T) {
@@ -186,8 +188,7 @@ DNSSEC: unsigned
 		return
 	}
 
-	expectedError := "domain not found"
-	if err.Error() != expectedError {
-		t.Errorf("Expected error message '%s', got '%s'", expectedError, err.Error())
+	if !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("Expected ErrDomainNotFound, got %v", err)
 	}
 }
