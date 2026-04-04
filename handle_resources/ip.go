@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 
@@ -15,26 +16,21 @@ import (
 
 // HandleIP function is used to handle the HTTP request for querying the RDAP information for a given IP.
 func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cacheKeyPrefix string) {
-	// Parse the IP
-	ip := net.ParseIP(resource)
-
-	// Find the corresponding RDAP server key via pre-built CIDR index
-	tld, _ := server_lists.LookupIPKey(ip)
-
-	// Check if the RDAP information for the IP is cached
+	// Check cache first before doing any lookups
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, resource)
 	cacheResult, err := utils.GetFromCache(ctx, config.CacheManager, key)
 	if err != nil {
-		// If there's an error during caching, return an HTTP error
 		utils.HandleInternalError(w, err)
 		return
 	}
-
 	if cacheResult.Found {
-		// If the RDAP information is cached, return the cached result
 		utils.HandleCacheResponse(w, cacheResult.Data, "application/json")
 		return
 	}
+
+	// Parse the IP and find the corresponding RDAP server key
+	ip := net.ParseIP(resource)
+	tld, _ := server_lists.LookupIPKey(ip)
 
 	// Query the RDAP information for the IP
 	queryresult, err := rdap_tools.RDAPQueryIP(resource, tld)
@@ -61,8 +57,7 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 	// Cache the RDAP information
 	err = utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration)
 	if err != nil {
-		// Log the error but don't fail the request
-		// The response will still be returned to the user
+		log.Printf("cache write error for key %s: %v", key, err)
 	}
 
 	// Return the RDAP information

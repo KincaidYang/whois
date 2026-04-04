@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/KincaidYang/whois/config"
 	"github.com/KincaidYang/whois/handle_resources"
@@ -43,7 +44,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		<-config.ConcurrencyLimiter
 	}()
 
-	ctx := context.Background()
+	ctx := r.Context()
 	resource := strings.TrimPrefix(r.URL.Path, "/")
 	resource = strings.ToLower(resource)
 
@@ -74,16 +75,18 @@ func main() {
 
 	// Main query handler
 	http.HandleFunc("/", handler)
+
+	srv := &http.Server{Addr: fmt.Sprintf(":%d", config.Port)}
+
 	go func() {
 		fmt.Printf("Server is listening on port %d...\n", config.Port)
-		err := http.ListenAndServe(fmt.Sprintf(":%d", config.Port), nil)
-		if err != nil {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			fmt.Println("Server failed to start:", err)
 			os.Exit(1)
 		}
 	}()
 
-	// Add a signal listener. When a shutdown signal is received, wait for all queries to complete before shutting down the server.
+	// Wait for shutdown signal, then drain in-flight requests before exiting.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	<-sigCh
@@ -92,8 +95,13 @@ func main() {
 	config.Wg.Wait()
 
 	log.Println("All queries completed. Shutting down server...")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
+	}
+
 	if config.RedisClient != nil {
 		config.RedisClient.Close()
 	}
-	os.Exit(0)
 }
