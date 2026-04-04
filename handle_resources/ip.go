@@ -33,7 +33,7 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 	tld, _ := server_lists.LookupIPKey(ip)
 
 	// Query the RDAP information for the IP
-	queryresult, err := rdap_tools.RDAPQueryIP(resource, tld)
+	queryresult, err := rdap_tools.RDAPQueryIP(ctx, resource, tld)
 	if err != nil {
 		utils.HandleQueryError(w, err)
 		return

@@ -2,6 +2,7 @@ package whois_tools
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -17,7 +18,7 @@ const (
 )
 
 // Whois function is used to query the WHOIS information for a given domain.
-func Whois(domain, tld string) (string, error) {
+func Whois(ctx context.Context, domain, tld string) (string, error) {
 	whoisServer, ok := server_lists.TLDToWhoisServer[tld]
 	if !ok {
 		return "", fmt.Errorf("no Whois server known for TLD: %s", tld)
@@ -30,8 +31,8 @@ func Whois(domain, tld string) (string, error) {
 		whoisServer = net.JoinHostPort(whoisServer, whoisDefaultPort)
 	}
 
-	// Use DialTimeout to prevent hanging connections
-	conn, err := net.DialTimeout("tcp", whoisServer, whoisTimeout)
+	d := net.Dialer{Timeout: whoisTimeout}
+	conn, err := d.DialContext(ctx, "tcp", whoisServer)
 	if err != nil {
 		return "", err
 	}

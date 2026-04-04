@@ -44,7 +44,7 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	tld, _ := server_lists.LookupASNKey(asnInt)
 
 	// Query the RDAP information for the ASN
-	queryresult, err := rdap_tools.RDAPQueryASN(asn, tld)
+	queryresult, err := rdap_tools.RDAPQueryASN(ctx, asn, tld)
 	if err != nil {
 		utils.HandleQueryError(w, err)
 		return
