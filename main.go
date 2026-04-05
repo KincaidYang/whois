@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -54,7 +54,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	case config.ConcurrencyLimiter <- struct{}{}:
 	default:
 		config.Wg.Done()
-		log.Printf("Rate limit reached, rejecting request for %s\n", r.URL.Path)
+		slog.Warn("rate limit reached", "path", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
 		fmt.Fprint(w, `{"error":"too many concurrent requests"}`)
@@ -95,8 +95,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Note: Redis connection is now checked during config initialization
-	// The service will continue with memory cache if Redis is unavailable
+	// Set up structured JSON logging to stderr
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})))
 
 	// Health check endpoints
 	http.HandleFunc("/health", handle_resources.HandleHealth)
@@ -112,9 +114,9 @@ func main() {
 	srv := &http.Server{Addr: fmt.Sprintf(":%d", config.Port)}
 
 	go func() {
-		fmt.Printf("Server is listening on port %d...\n", config.Port)
+		slog.Info("server listening", "port", config.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			fmt.Println("Server failed to start:", err)
+			slog.Error("server failed to start", "err", err)
 			os.Exit(1)
 		}
 	}()
@@ -124,14 +126,14 @@ func main() {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	<-sigCh
 
-	log.Println("Received shutdown signal, waiting for all queries to complete...")
+	slog.Info("shutdown signal received, waiting for in-flight requests")
 	config.Wg.Wait()
 
-	log.Println("All queries completed. Shutting down server...")
+	slog.Info("all requests completed, shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Server shutdown error: %v", err)
+		slog.Error("server shutdown error", "err", err)
 	}
 
 	if config.RedisClient != nil {

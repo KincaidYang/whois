@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -98,7 +98,7 @@ func RDAPQuery(ctx context.Context, domain, tld string) (string, error) {
 		return "", fmt.Errorf("no RDAP server known for TLD: %s", tld)
 	}
 
-	log.Printf("Querying RDAP for domain: %s with TLD: %s on server: %s\n", domain, tld, rdapServer)
+	slog.Debug("querying RDAP", "type", "domain", "query", domain, "tld", tld, "server", rdapServer)
 
 	client := getHTTPClient(tld)
 	return doRDAPRequest(ctx, client, rdapServer+"domain/"+domain)
@@ -111,7 +111,7 @@ func RDAPQueryIP(ctx context.Context, ip, tld string) (string, error) {
 		return "", fmt.Errorf("no RDAP server known for IP: %s", ip)
 	}
 
-	log.Printf("Querying RDAP for IP: %s with TLD: %s on server: %s\n", ip, tld, rdapServer)
+	slog.Debug("querying RDAP", "type", "ip", "query", ip, "tld", tld, "server", rdapServer)
 
 	client := getHTTPClient(tld)
 	return doRDAPRequest(ctx, client, rdapServer+"ip/"+ip)
@@ -124,7 +124,7 @@ func RDAPQueryASN(ctx context.Context, as, tld string) (string, error) {
 		return "", fmt.Errorf("no RDAP server known for ASN: %s", as)
 	}
 
-	log.Printf("Querying RDAP for AS: %s with TLD: %s on server: %s\n", as, tld, rdapServer)
+	slog.Debug("querying RDAP", "type", "asn", "query", as, "tld", tld, "server", rdapServer)
 
 	client := getHTTPClient(tld)
 	return doRDAPRequest(ctx, client, rdapServer+"autnum/"+as)

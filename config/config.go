@@ -3,7 +3,7 @@ package config
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -162,16 +162,16 @@ func initializeCacheManager() {
 
 	// Log cache configuration
 	if redisCache.IsHealthy() {
-		log.Println("✓ Redis cache initialized successfully")
+		slog.Info("Redis cache initialized")
 	} else {
-		log.Println("⚠ Redis unavailable, using memory cache as fallback")
+		slog.Warn("Redis unavailable, falling back to memory cache")
 		if RequireRedis {
-			log.Fatal("Redis is required but unavailable. Set cache.requireRedis to false to allow fallback.")
+			slog.Error("Redis is required but unavailable; set cache.requireRedis to false to allow fallback")
+			os.Exit(1)
 		}
 	}
 
-	log.Printf("Cache configuration: Max memory entries=%d, Clean interval=%v\n",
-		MemoryMaxSize, MemoryCleanInterval)
+	slog.Info("cache configuration", "memory_max_entries", MemoryMaxSize, "clean_interval", MemoryCleanInterval)
 }
 
 func loadConfigFromFile(config *Config) {
@@ -179,7 +179,8 @@ func loadConfigFromFile(config *Config) {
 	if err != nil {
 		configFile, err = os.Open("config.json")
 		if err != nil {
-			log.Fatalf("Failed to open configuration file: %v", err)
+			slog.Error("failed to open configuration file", "err", err)
+			os.Exit(1)
 		}
 	}
 	defer configFile.Close()
@@ -190,16 +191,19 @@ func loadConfigFromFile(config *Config) {
 		decoder := yaml.NewDecoder(configFile)
 		err = decoder.Decode(config)
 		if err != nil {
-			log.Fatalf("Failed to decode YAML from configuration file: %v", err)
+			slog.Error("failed to decode YAML configuration", "err", err)
+			os.Exit(1)
 		}
 	case ".json":
 		decoder := json.NewDecoder(configFile)
 		err = decoder.Decode(config)
 		if err != nil {
-			log.Fatalf("Failed to decode JSON from configuration file: %v", err)
+			slog.Error("failed to decode JSON configuration", "err", err)
+			os.Exit(1)
 		}
 	default:
-		log.Fatalf("Unsupported configuration file format: %s", fileExt)
+		slog.Error("unsupported configuration file format", "ext", fileExt)
+		os.Exit(1)
 	}
 }
 

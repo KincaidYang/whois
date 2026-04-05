@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"time"
 
@@ -28,7 +28,7 @@ func Whois(ctx context.Context, domain, tld string) (result string, err error) {
 		return "", fmt.Errorf("no Whois server known for TLD: %s", tld)
 	}
 
-	log.Printf("Querying WHOIS for domain: %s with TLD: %s on server: %s\n", domain, tld, whoisServer)
+	slog.Debug("querying WHOIS", "domain", domain, "tld", tld, "server", whoisServer)
 
 	// Check if the server address already includes a port
 	if _, _, err := net.SplitHostPort(whoisServer); err != nil {
