@@ -87,6 +87,7 @@ logLevel: "info"                       # 日志级别：debug、info、warn、er
 | `GET /health` | 存活检查 - 服务运行即返回 200 |
 | `GET /ready` | 就绪检查 - 检查缓存和并发容量状态 |
 | `GET /info` | 运行时信息 - 版本、运行时间、Go 版本等 |
+| `GET /metrics` | Prometheus 指标 - 请求计数、延迟、缓存命中率、上游查询耗时 |
 
 **示例：**
 ```bash

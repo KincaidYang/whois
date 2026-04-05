@@ -98,6 +98,7 @@ The service provides the following health check endpoints:
 | `GET /health` | Liveness probe - returns 200 if service is running |
 | `GET /ready` | Readiness probe - checks cache and capacity status |
 | `GET /info` | Runtime information - version, uptime, Go version, etc. |
+| `GET /metrics` | Prometheus metrics - request count, latency, cache hit rate, upstream query duration |
 
 ### Process Daemon (Optional)
 
