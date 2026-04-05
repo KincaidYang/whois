@@ -60,7 +60,7 @@ ProxyUsername: ""                      # 代理服务器用户名（如需认证
 ProxyPassword: ""                      # 代理服务器密码（如需认证）
 
 logLevel: "info"                       # 日志级别：debug、info、warn、error（默认：info）
-bootstrapInterval: 86400               # RDAP 服务器列表从 IANA 刷新间隔，单位：秒（默认：86400，0 表示禁用）
+bootstrapInterval: 86400               # RDAP 服务器列表从 IANA 刷新间隔，单位：秒；0 或不填则禁用（推荐：86400）
 ```
 
 **配置说明：**

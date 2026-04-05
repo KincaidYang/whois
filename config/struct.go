@@ -32,6 +32,7 @@ type Config struct {
 	// LogLevel sets the minimum log level: debug, info, warn, error (default: info).
 	LogLevel string `json:"logLevel" yaml:"loglevel"`
 	// BootstrapInterval is how often (in seconds) to refresh RDAP server lists
-	// from IANA bootstrap data. 0 disables automatic refresh (default: 86400).
+	// from IANA bootstrap data. 0 or unset disables all fetching; set to 86400
+	// in the default config.yaml to enable 24-hour refresh.
 	BootstrapInterval int `json:"bootstrapInterval" yaml:"bootstrapinterval"`
 }
