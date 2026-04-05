@@ -63,15 +63,14 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 		utils.HandleInternalError(w, err)
 		return
 	}
-	queryResult := string(resultBytes)
 
 	// Cache the RDAP information
-	err = utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration)
+	err = utils.SetToCache(ctx, config.CacheManager, key, string(resultBytes), config.CacheExpiration)
 	if err != nil {
 		log.Printf("cache write error for key %s: %v", key, err)
 	}
 
 	// Return the RDAP information
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, queryResult)
+	w.Write(resultBytes)
 }
