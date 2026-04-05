@@ -68,6 +68,8 @@ ProxyServer: "http://127.0.0.1:8080"  # Proxy server address
 ProxySuffixes:                         # TLD suffixes that need proxy, leave empty to disable
 ProxyUsername: ""                      # Proxy server username (if authentication required)
 ProxyPassword: ""                      # Proxy server password (if authentication required)
+
+logLevel: "info"                       # Log level: debug, info, warn, error (default: info)
 ```
 
 **Configuration Notes:**
@@ -75,6 +77,7 @@ ProxyPassword: ""                      # Proxy server password (if authenticatio
 - **Cache Expiration**: Adjust based on query frequency, 3600 seconds recommended
 - **Concurrency Limit**: Controls request frequency to upstream servers to avoid rate limiting
 - **Proxy Configuration**: Some TLDs may require proxy access
+- **Log Level**: `debug` logs every cache hit and upstream query dispatch — noisy under load; `info` is recommended for production
 
 > ⚠️ **Warning:** The rate limit applies to requests from this program to WHOIS servers, not requests from users to this program. For example, if you set the limit to 50, the program will not exceed 50 requests/second to registry WHOIS servers, but user requests to this program are unlimited. Please use Nginx or other tools to rate-limit this program to prevent malicious requests.
 
@@ -248,7 +251,7 @@ This project uses the following Go standard libraries:
 - [`errors`](https://golang.org/pkg/errors/): Error creation and manipulation
 - [`fmt`](https://golang.org/pkg/fmt/): Formatted I/O functions
 - [`io`](https://golang.org/pkg/io/): I/O primitives
-- [`log`](https://golang.org/pkg/log/): Simple logging service
+- [`log/slog`](https://golang.org/pkg/log/slog/): Structured logging
 - [`net`](https://golang.org/pkg/net/): Network I/O primitives
 - [`net/http`](https://golang.org/pkg/net/http/): HTTP client and server implementation
 - [`os`](https://golang.org/pkg/os/): OS functionality

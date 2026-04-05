@@ -58,6 +58,8 @@ ProxyServer: "http://127.0.0.1:8080"  # 代理服务器地址
 ProxySuffixes:                         # 需要使用代理的TLD后缀列表，留空表示不使用代理
 ProxyUsername: ""                      # 代理服务器用户名（如需认证）
 ProxyPassword: ""                      # 代理服务器密码（如需认证）
+
+logLevel: "info"                       # 日志级别：debug、info、warn、error（默认：info）
 ```
 
 **配置说明：**
@@ -65,6 +67,7 @@ ProxyPassword: ""                      # 代理服务器密码（如需认证）
 - **缓存过期时间**：根据查询频率调整，建议3600秒
 - **并发限制**：控制向上游服务器的请求频率，避免被限流。
 - **代理配置**：某些TLD可能需要代理访问，可配置特定后缀使用代理
+- **日志级别**：`debug` 会输出每次缓存命中和上游查询，流量大时噪声较高；生产环境建议保持 `info`
 
 
 > ⚠️ **Warning:** 限频针对的是程序向 whois 服务器发起的请求，而非用户向本程序发起的请求。例如，您将限频设置为 50，那么程序向注册局 whois 服务器发起的请求将不会超过 50 次/秒，但是用户向本程序发起的请求不受限制。请您通过 Nginx 等工具对本程序进行限流，以防止恶意请求。
@@ -262,7 +265,7 @@ curl http://localhost:8043/205794
 - [`errors`](https://golang.org/pkg/errors/)：创建错误和操作错误的函数。
 - [`fmt`](https://golang.org/pkg/fmt/)：格式化I/O函数。
 - [`io`](https://golang.org/pkg/io/)：I/O原语函数。
-- [`log`](https://golang.org/pkg/log/)：简单的日志服务。
+- [`log/slog`](https://golang.org/pkg/log/slog/)：结构化日志服务。
 - [`net`](https://golang.org/pkg/net/)：网络I/O原语的函数。
 - [`net/http`](https://golang.org/pkg/net/http/)：HTTP客户端和服务器实现。
 - [`os`](https://golang.org/pkg/os/)：操作系统功能的函数。
