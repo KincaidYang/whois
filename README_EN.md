@@ -70,6 +70,7 @@ ProxyUsername: ""                      # Proxy server username (if authenticatio
 ProxyPassword: ""                      # Proxy server password (if authentication required)
 
 logLevel: "info"                       # Log level: debug, info, warn, error (default: info)
+bootstrapInterval: 86400               # RDAP server list refresh interval in seconds (default: 86400, 0 to disable)
 ```
 
 **Configuration Notes:**
@@ -78,6 +79,7 @@ logLevel: "info"                       # Log level: debug, info, warn, error (de
 - **Concurrency Limit**: Controls request frequency to upstream servers to avoid rate limiting
 - **Proxy Configuration**: Some TLDs may require proxy access
 - **Log Level**: `debug` logs every cache hit and upstream query dispatch — noisy under load; `info` is recommended for production
+- **Bootstrap Interval**: On startup the service immediately fetches the latest RDAP server list from IANA, then refreshes on this interval; compiled-in data serves as fallback if the fetch fails
 
 > ⚠️ **Warning:** The rate limit applies to requests from this program to WHOIS servers, not requests from users to this program. For example, if you set the limit to 50, the program will not exceed 50 requests/second to registry WHOIS servers, but user requests to this program are unlimited. Please use Nginx or other tools to rate-limit this program to prevent malicious requests.
 

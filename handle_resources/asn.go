@@ -40,11 +40,11 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 		return
 	}
 
-	// Find the corresponding RDAP server key via pre-built sorted ASN range index
-	tld, _ := server_lists.LookupASNKey(asnInt)
+	// Find the RDAP server URL via pre-built sorted ASN range index
+	serverURL, _ := server_lists.LookupASNKey(asnInt)
 
 	// Query the RDAP information for the ASN
-	queryresult, err := rdap_tools.RDAPQueryASN(ctx, asn, tld)
+	queryresult, err := rdap_tools.RDAPQueryASN(ctx, asn, serverURL)
 	if err != nil {
 		utils.HandleQueryError(w, err)
 		return

@@ -28,12 +28,12 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 		return
 	}
 
-	// Parse the IP and find the corresponding RDAP server key
+	// Parse the IP and find the RDAP server URL
 	ip := net.ParseIP(resource)
-	tld, _ := server_lists.LookupIPKey(ip)
+	serverURL, _ := server_lists.LookupIPKey(ip)
 
 	// Query the RDAP information for the IP
-	queryresult, err := rdap_tools.RDAPQueryIP(ctx, resource, tld)
+	queryresult, err := rdap_tools.RDAPQueryIP(ctx, resource, serverURL)
 	if err != nil {
 		utils.HandleQueryError(w, err)
 		return

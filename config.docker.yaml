@@ -14,3 +14,4 @@ proxysuffixes: []
 proxyusername: ""
 proxypassword: ""
 loglevel: "info"
+bootstrapinterval: 86400

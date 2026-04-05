@@ -59,7 +59,7 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	if strings.Contains(tld, ".") {
 		_, hasParser := whoisParsers[tld]
 		_, hasWhoisServer := server_lists.TLDToWhoisServer[tld]
-		_, hasRdapServer := server_lists.TLDToRdapServer[tld]
+		_, hasRdapServer := server_lists.LookupRdapServer(tld)
 		if !hasParser && !hasWhoisServer && !hasRdapServer {
 			parts := strings.Split(tld, ".")
 			tld = parts[len(parts)-1]
@@ -94,7 +94,7 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	var queryResult string
 
 	// If the RDAP server for the TLD is known, query the RDAP information for the domain
-	if _, ok := server_lists.TLDToRdapServer[tld]; ok {
+	if _, ok := server_lists.LookupRdapServer(tld); ok {
 		queryResult, err = handleRDAPQuery(ctx, w, domain, tld, key)
 		if err != nil {
 			return // Error already handled in function
