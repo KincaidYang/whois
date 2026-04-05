@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -25,8 +26,7 @@ type MemoryCache struct {
 	data          sync.Map
 	maxSize       int
 	cleanInterval time.Duration
-	mu            sync.RWMutex
-	size          int
+	size          atomic.Int64
 }
 
 // NewMemoryCache creates a new memory cache instance
@@ -34,7 +34,6 @@ func NewMemoryCache(maxSize int, cleanInterval time.Duration) *MemoryCache {
 	mc := &MemoryCache{
 		maxSize:       maxSize,
 		cleanInterval: cleanInterval,
-		size:          0,
 	}
 
 	// Start background cleaner
@@ -65,22 +64,14 @@ func (mc *MemoryCache) Get(ctx context.Context, key string) (CacheResult, error)
 
 // Set stores a value in memory cache
 func (mc *MemoryCache) Set(ctx context.Context, key string, value string, expiration time.Duration) error {
-	// Check size limit
+	// Check size limit only for new entries
 	if _, exists := mc.data.Load(key); !exists {
-		mc.mu.RLock()
-		currentSize := mc.size
-		mc.mu.RUnlock()
-
-		if currentSize >= mc.maxSize {
+		if mc.size.Load() >= int64(mc.maxSize) {
 			// Try to clean expired entries first
 			mc.cleanExpired()
 
-			mc.mu.RLock()
-			currentSize = mc.size
-			mc.mu.RUnlock()
-
 			// If still over limit, evict one arbitrary entry to make room
-			if currentSize >= mc.maxSize {
+			if mc.size.Load() >= int64(mc.maxSize) {
 				mc.evictOne()
 			}
 		}
@@ -107,20 +98,14 @@ func (mc *MemoryCache) IsHealthy() bool {
 	return true
 }
 
-// incrementSize safely increments the size counter
+// incrementSize atomically increments the size counter
 func (mc *MemoryCache) incrementSize() {
-	mc.mu.Lock()
-	mc.size++
-	mc.mu.Unlock()
+	mc.size.Add(1)
 }
 
-// decrementSize safely decrements the size counter
+// decrementSize atomically decrements the size counter
 func (mc *MemoryCache) decrementSize() {
-	mc.mu.Lock()
-	if mc.size > 0 {
-		mc.size--
-	}
-	mc.mu.Unlock()
+	mc.size.Add(-1)
 }
 
 // evictOne removes the first entry encountered in the cache.
@@ -143,23 +128,17 @@ func (mc *MemoryCache) startCleaner() {
 	}
 }
 
-// cleanExpired removes all expired entries
+// cleanExpired removes all expired entries in a single pass
 func (mc *MemoryCache) cleanExpired() {
 	now := time.Now()
-	keysToDelete := make([]string, 0)
-
 	mc.data.Range(func(key, value interface{}) bool {
 		entry := value.(cacheEntry)
 		if now.After(entry.ExpiresAt) {
-			keysToDelete = append(keysToDelete, key.(string))
+			mc.data.Delete(key)
+			mc.decrementSize()
 		}
 		return true
 	})
-
-	for _, key := range keysToDelete {
-		mc.data.Delete(key)
-		mc.decrementSize()
-	}
 }
 
 // FallbackCache implements Cache with primary and fallback caches
