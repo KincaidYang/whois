@@ -9,14 +9,28 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/KincaidYang/whois/config"
 	"github.com/KincaidYang/whois/handle_resources"
+	"github.com/KincaidYang/whois/metrics"
 	"github.com/KincaidYang/whois/utils"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+// statusWriter wraps http.ResponseWriter to capture the written status code.
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (sw *statusWriter) WriteHeader(code int) {
+	sw.code = code
+	sw.ResponseWriter.WriteHeader(code)
+}
 
 // Pre-compiled regular expressions for better performance
 var (
@@ -44,6 +58,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
 		fmt.Fprint(w, `{"error":"too many concurrent requests"}`)
+		metrics.HTTPRequestsTotal.WithLabelValues("unknown", "429").Inc()
 		return
 	}
 	defer func() {
@@ -56,27 +71,40 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	resource = strings.ToLower(resource)
 
 	cacheKeyPrefix := "whois:"
+	sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+	start := time.Now()
 
-	// Validate user input
+	var resourceType string
 	if net.ParseIP(resource) != nil {
-		handle_resources.HandleIP(ctx, w, resource, cacheKeyPrefix)
+		resourceType = "ip"
+		handle_resources.HandleIP(ctx, sw, resource, cacheKeyPrefix)
 	} else if isASN(resource) {
-		handle_resources.HandleASN(ctx, w, resource, cacheKeyPrefix)
+		resourceType = "asn"
+		handle_resources.HandleASN(ctx, sw, resource, cacheKeyPrefix)
 	} else if isDomain(resource) {
-		handle_resources.HandleDomain(ctx, w, resource, cacheKeyPrefix)
+		resourceType = "domain"
+		handle_resources.HandleDomain(ctx, sw, resource, cacheKeyPrefix)
 	} else {
-		utils.HandleHTTPError(w, utils.ErrorTypeBadRequest, "Invalid input. Please provide a valid domain, IP, or ASN.")
+		resourceType = "unknown"
+		utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Invalid input. Please provide a valid domain, IP, or ASN.")
 	}
+
+	elapsed := time.Since(start).Seconds()
+	metrics.HTTPRequestsTotal.WithLabelValues(resourceType, strconv.Itoa(sw.code)).Inc()
+	metrics.HTTPRequestDuration.WithLabelValues(resourceType).Observe(elapsed)
 }
 
 func main() {
 	// Note: Redis connection is now checked during config initialization
 	// The service will continue with memory cache if Redis is unavailable
 
-	// Health check endpoints (new, non-breaking)
+	// Health check endpoints
 	http.HandleFunc("/health", handle_resources.HandleHealth)
 	http.HandleFunc("/ready", handle_resources.HandleReady)
 	http.HandleFunc("/info", handle_resources.HandleInfo)
+
+	// Prometheus metrics endpoint
+	http.Handle("/metrics", promhttp.Handler())
 
 	// Main query handler
 	http.HandleFunc("/", handler)

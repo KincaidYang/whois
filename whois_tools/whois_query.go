@@ -8,6 +8,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/KincaidYang/whois/metrics"
 	"github.com/KincaidYang/whois/server_lists"
 )
 
@@ -17,7 +18,11 @@ const (
 )
 
 // Whois function is used to query the WHOIS information for a given domain.
-func Whois(ctx context.Context, domain, tld string) (string, error) {
+func Whois(ctx context.Context, domain, tld string) (result string, err error) {
+	start := time.Now()
+	defer func() {
+		metrics.UpstreamDuration.WithLabelValues("whois").Observe(time.Since(start).Seconds())
+	}()
 	whoisServer, ok := server_lists.TLDToWhoisServer[tld]
 	if !ok {
 		return "", fmt.Errorf("no Whois server known for TLD: %s", tld)

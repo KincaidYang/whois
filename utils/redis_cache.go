@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KincaidYang/whois/metrics"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -42,9 +43,10 @@ func (rc *RedisCache) Get(ctx context.Context, key string) (CacheResult, error) 
 	switch {
 	case err == nil:
 		log.Printf("Serving cached result from Redis for key: %s\n", key)
+		metrics.CacheRequestsTotal.WithLabelValues("redis", "hit").Inc()
 		return CacheResult{Data: cacheResult, Found: true}, nil
 	case err == redis.Nil:
-		// Cache miss - not an error
+		metrics.CacheRequestsTotal.WithLabelValues("redis", "miss").Inc()
 		return CacheResult{Found: false}, nil
 	default:
 		// Redis error occurred, mark as unhealthy

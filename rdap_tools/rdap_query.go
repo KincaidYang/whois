@@ -7,8 +7,10 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/KincaidYang/whois/config"
+	"github.com/KincaidYang/whois/metrics"
 	"github.com/KincaidYang/whois/server_lists"
 	"github.com/KincaidYang/whois/utils"
 )
@@ -56,7 +58,11 @@ func getHTTPClient(tld string) *http.Client {
 }
 
 // doRDAPRequest performs the common RDAP HTTP request logic
-func doRDAPRequest(ctx context.Context, client *http.Client, url string) (string, error) {
+func doRDAPRequest(ctx context.Context, client *http.Client, url string) (result string, err error) {
+	start := time.Now()
+	defer func() {
+		metrics.UpstreamDuration.WithLabelValues("rdap").Observe(time.Since(start).Seconds())
+	}()
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return "", err

@@ -6,6 +6,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/KincaidYang/whois/metrics"
 )
 
 // Cache defines the interface for cache operations
@@ -46,6 +48,7 @@ func NewMemoryCache(maxSize int, cleanInterval time.Duration) *MemoryCache {
 func (mc *MemoryCache) Get(ctx context.Context, key string) (CacheResult, error) {
 	value, ok := mc.data.Load(key)
 	if !ok {
+		metrics.CacheRequestsTotal.WithLabelValues("memory", "miss").Inc()
 		return CacheResult{Found: false}, nil
 	}
 
@@ -55,10 +58,12 @@ func (mc *MemoryCache) Get(ctx context.Context, key string) (CacheResult, error)
 	if time.Now().After(entry.ExpiresAt) {
 		mc.data.Delete(key)
 		mc.decrementSize()
+		metrics.CacheRequestsTotal.WithLabelValues("memory", "miss").Inc()
 		return CacheResult{Found: false}, nil
 	}
 
 	log.Printf("Serving cached result from memory for key: %s\n", key)
+	metrics.CacheRequestsTotal.WithLabelValues("memory", "hit").Inc()
 	return CacheResult{Data: entry.Value, Found: true}, nil
 }
 
