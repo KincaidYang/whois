@@ -29,4 +29,6 @@ type Config struct {
 	ProxyPassword string `json:"proxyPassword" yaml:"proxypassword"`
 	// ProxySuffixes is the list of TLDs that use a proxy server.
 	ProxySuffixes []string `json:"proxySuffixes" yaml:"proxysuffixes"`
+	// LogLevel sets the minimum log level: debug, info, warn, error (default: info).
+	LogLevel string `json:"logLevel" yaml:"loglevel"`
 }

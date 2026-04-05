@@ -62,6 +62,26 @@ var (
 	MemoryCleanInterval time.Duration
 )
 
+// initLogger sets up the global slog JSON handler with the given level string.
+// Accepted values: "debug", "info", "warn", "error" (case-insensitive).
+// Defaults to Info for any unrecognised value.
+func initLogger(levelStr string) {
+	var level slog.Level
+	switch strings.ToLower(levelStr) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn", "warning":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level: level,
+	})))
+}
+
 func init() {
 	// Initialize version info from build info (Go 1.18+)
 	initVersionInfo()
@@ -73,6 +93,10 @@ func init() {
 
 	// Override configuration with environment variables if they exist
 	overrideConfigWithEnv(&config)
+
+	// Set up structured logger as early as possible so all subsequent
+	// init messages use the configured level and JSON format.
+	initLogger(config.LogLevel)
 
 	// Apply default values for cache configuration (backward compatibility)
 	applyDefaultCacheConfig(&config)
@@ -264,6 +288,9 @@ func overrideConfigWithEnv(config *Config) {
 	}
 	if proxySuffixes := os.Getenv("WHOIS_PROXY_SUFFIXES"); proxySuffixes != "" {
 		config.ProxySuffixes = strings.Split(proxySuffixes, ",")
+	}
+	if logLevel := os.Getenv("WHOIS_LOG_LEVEL"); logLevel != "" {
+		config.LogLevel = logLevel
 	}
 }
 

@@ -95,10 +95,6 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	// Set up structured JSON logging to stderr
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
-		Level: slog.LevelDebug,
-	})))
 
 	// Health check endpoints
 	http.HandleFunc("/health", handle_resources.HandleHealth)
