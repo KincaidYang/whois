@@ -93,7 +93,7 @@ func doRDAPRequest(ctx context.Context, client *http.Client, url string) (result
 
 // RDAPQuery function is used to query the RDAP information for a given domain.
 func RDAPQuery(ctx context.Context, domain, tld string) (string, error) {
-	rdapServer, ok := server_lists.TLDToRdapServer[tld]
+	rdapServer, ok := server_lists.LookupRdapServer(tld)
 	if !ok {
 		return "", fmt.Errorf("no RDAP server known for TLD: %s", tld)
 	}
@@ -104,28 +104,22 @@ func RDAPQuery(ctx context.Context, domain, tld string) (string, error) {
 	return doRDAPRequest(ctx, client, rdapServer+"domain/"+domain)
 }
 
-// RDAPQueryIP function is used to query the RDAP information for a given IP address.
-func RDAPQueryIP(ctx context.Context, ip, tld string) (string, error) {
-	rdapServer, ok := server_lists.TLDToRdapServer[tld]
-	if !ok {
+// RDAPQueryIP queries the RDAP information for a given IP address.
+// serverURL is obtained by the caller via server_lists.LookupIPKey.
+func RDAPQueryIP(ctx context.Context, ip, serverURL string) (string, error) {
+	if serverURL == "" {
 		return "", fmt.Errorf("no RDAP server known for IP: %s", ip)
 	}
-
-	slog.Debug("querying RDAP", "type", "ip", "query", ip, "tld", tld, "server", rdapServer)
-
-	client := getHTTPClient(tld)
-	return doRDAPRequest(ctx, client, rdapServer+"ip/"+ip)
+	slog.Debug("querying RDAP", "type", "ip", "query", ip, "server", serverURL)
+	return doRDAPRequest(ctx, config.HttpClient, serverURL+"ip/"+ip)
 }
 
-// RDAPQueryASN function is used to query the RDAP information for a given ASN.
-func RDAPQueryASN(ctx context.Context, as, tld string) (string, error) {
-	rdapServer, ok := server_lists.TLDToRdapServer[tld]
-	if !ok {
+// RDAPQueryASN queries the RDAP information for a given ASN.
+// serverURL is obtained by the caller via server_lists.LookupASNKey.
+func RDAPQueryASN(ctx context.Context, as, serverURL string) (string, error) {
+	if serverURL == "" {
 		return "", fmt.Errorf("no RDAP server known for ASN: %s", as)
 	}
-
-	slog.Debug("querying RDAP", "type", "asn", "query", as, "tld", tld, "server", rdapServer)
-
-	client := getHTTPClient(tld)
-	return doRDAPRequest(ctx, client, rdapServer+"autnum/"+as)
+	slog.Debug("querying RDAP", "type", "asn", "query", as, "server", serverURL)
+	return doRDAPRequest(ctx, config.HttpClient, serverURL+"autnum/"+as)
 }

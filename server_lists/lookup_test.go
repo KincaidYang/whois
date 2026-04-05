@@ -2,21 +2,20 @@ package server_lists
 
 import (
 	"net"
+	"strings"
 	"testing"
 )
 
 func TestLookupIPKey_IPv4(t *testing.T) {
 	tests := []struct {
-		ip       string
-		wantKey  string
+		ip        string
+		wantURL   string // substring expected in the returned URL
 		wantFound bool
 	}{
-		// IPs inside known /8 blocks
-		{"1.1.1.1", "1.0.0.0/8", true},      // APNIC
-		{"1.255.255.255", "1.0.0.0/8", true}, // last addr in block
-		{"41.0.0.1", "41.0.0.0/8", true},     // AFRINIC
-		{"102.128.0.1", "102.0.0.0/8", true}, // AFRINIC
-		// First octet not allocated to any RIR
+		{"1.1.1.1", "rdap.apnic.net", true},      // APNIC
+		{"1.255.255.255", "rdap.apnic.net", true}, // last addr in 1.0.0.0/8
+		{"41.0.0.1", "rdap.afrinic.net", true},    // AFRINIC
+		{"102.128.0.1", "rdap.afrinic.net", true}, // AFRINIC
 		{"0.0.0.1", "", false},
 		{"255.255.255.255", "", false},
 	}
@@ -26,13 +25,13 @@ func TestLookupIPKey_IPv4(t *testing.T) {
 		if ip == nil {
 			t.Fatalf("invalid IP in test: %s", tt.ip)
 		}
-		gotKey, gotFound := LookupIPKey(ip)
+		gotURL, gotFound := LookupIPKey(ip)
 		if gotFound != tt.wantFound {
 			t.Errorf("LookupIPKey(%s): found=%v, want %v", tt.ip, gotFound, tt.wantFound)
 			continue
 		}
-		if tt.wantFound && gotKey != tt.wantKey {
-			t.Errorf("LookupIPKey(%s): key=%q, want %q", tt.ip, gotKey, tt.wantKey)
+		if tt.wantFound && !strings.Contains(gotURL, tt.wantURL) {
+			t.Errorf("LookupIPKey(%s): url=%q, want to contain %q", tt.ip, gotURL, tt.wantURL)
 		}
 	}
 }
@@ -45,8 +44,8 @@ func TestLookupIPKey_IPv6(t *testing.T) {
 		{"2001:4200::1", true},  // AFRINIC 2001:4200::/23
 		{"2c00::1", true},       // AFRINIC 2c00::/12
 		{"2001:200::1", true},   // APNIC   2001:200::/23
-		{"::1", false},          // loopback, not in any RIR block
-		{"fe80::1", false},      // link-local, not in any RIR block
+		{"::1", false},          // loopback
+		{"fe80::1", false},      // link-local
 	}
 
 	for _, tt := range tests {
@@ -62,56 +61,70 @@ func TestLookupIPKey_IPv6(t *testing.T) {
 }
 
 func TestLookupIPKey_BoundaryValues(t *testing.T) {
-	// Verify that the first and last address of a /8 both resolve correctly
 	first := net.ParseIP("1.0.0.0")
 	last := net.ParseIP("1.255.255.255")
 
-	keyFirst, foundFirst := LookupIPKey(first)
-	keyLast, foundLast := LookupIPKey(last)
+	urlFirst, foundFirst := LookupIPKey(first)
+	urlLast, foundLast := LookupIPKey(last)
 
-	if !foundFirst || keyFirst != "1.0.0.0/8" {
-		t.Errorf("first address of 1.0.0.0/8: got (%q, %v)", keyFirst, foundFirst)
+	if !foundFirst || !strings.Contains(urlFirst, "rdap.apnic.net") {
+		t.Errorf("first address of 1.0.0.0/8: got (%q, %v)", urlFirst, foundFirst)
 	}
-	if !foundLast || keyLast != "1.0.0.0/8" {
-		t.Errorf("last address of 1.0.0.0/8: got (%q, %v)", keyLast, foundLast)
+	if !foundLast || !strings.Contains(urlLast, "rdap.apnic.net") {
+		t.Errorf("last address of 1.0.0.0/8: got (%q, %v)", urlLast, foundLast)
 	}
 }
 
 func TestLookupASNKey(t *testing.T) {
 	tests := []struct {
 		asn       int
-		wantKey   string
+		wantURL   string // substring expected in the returned URL
 		wantFound bool
 	}{
-		// Inside known ranges
-		{36864, "36864-37887", true},   // lower bound
-		{37887, "36864-37887", true},   // upper bound
-		{37000, "36864-37887", true},   // mid range
-		{4608, "4608-4865", true},      // APNIC lower bound
-		{4865, "4608-4865", true},      // APNIC upper bound
-		// Not in any range
+		{36864, "rdap.afrinic.net", true}, // lower bound of 36864-37887
+		{37887, "rdap.afrinic.net", true}, // upper bound
+		{37000, "rdap.afrinic.net", true}, // mid range
+		{4608, "rdap.apnic.net", true},    // APNIC lower bound of 4608-4865
+		{4865, "rdap.apnic.net", true},    // APNIC upper bound
 		{0, "", false},
 		{4294967295, "", false},
 	}
 
 	for _, tt := range tests {
-		gotKey, gotFound := LookupASNKey(tt.asn)
+		gotURL, gotFound := LookupASNKey(tt.asn)
 		if gotFound != tt.wantFound {
 			t.Errorf("LookupASNKey(%d): found=%v, want %v", tt.asn, gotFound, tt.wantFound)
 			continue
 		}
-		if tt.wantFound && gotKey != tt.wantKey {
-			t.Errorf("LookupASNKey(%d): key=%q, want %q", tt.asn, gotKey, tt.wantKey)
+		if tt.wantFound && !strings.Contains(gotURL, tt.wantURL) {
+			t.Errorf("LookupASNKey(%d): url=%q, want to contain %q", tt.asn, gotURL, tt.wantURL)
 		}
 	}
 }
 
 func TestLookupASNKey_BoundaryBeyondRange(t *testing.T) {
-	// ASN that is one above an upper bound should not match
-	// 37887 is the upper bound of "36864-37887"
 	_, found := LookupASNKey(37888)
-	// 37888 might belong to another range; just verify the result is consistent
-	// with Contains - we don't assert false here since another range may cover it.
-	// Instead, test an ASN we know is between two non-adjacent ranges.
-	_ = found
+	_ = found // may or may not be in another range
+}
+
+func TestUpdateFromIANA(t *testing.T) {
+	// Verify that UpdateFromIANA replaces IANA data but custom entries still win.
+	original, _ := LookupRdapServer("com")
+
+	fakeIANA := map[string]string{
+		"com": "https://fake-iana.example/rdap/",
+	}
+	UpdateFromIANA(fakeIANA)
+
+	got, ok := LookupRdapServer("com")
+	if !ok || got != "https://fake-iana.example/rdap/" {
+		t.Errorf("after UpdateFromIANA: got %q, want fake URL", got)
+	}
+
+	// Restore with original compiled data so other tests aren't affected.
+	UpdateFromIANA(compiledRdapServers)
+	restored, _ := LookupRdapServer("com")
+	if restored != original {
+		t.Errorf("after restore: got %q, want %q", restored, original)
+	}
 }

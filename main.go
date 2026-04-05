@@ -17,6 +17,7 @@ import (
 	"github.com/KincaidYang/whois/config"
 	"github.com/KincaidYang/whois/handle_resources"
 	"github.com/KincaidYang/whois/metrics"
+	"github.com/KincaidYang/whois/server_lists"
 	"github.com/KincaidYang/whois/utils"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -95,6 +96,11 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+
+	// Start RDAP bootstrap refresh (initial fetch + periodic updates)
+	bootstrapCtx, bootstrapCancel := context.WithCancel(context.Background())
+	defer bootstrapCancel()
+	server_lists.StartBootstrapRefresh(bootstrapCtx, config.HttpClient, config.BootstrapInterval)
 
 	// Health check endpoints
 	http.HandleFunc("/health", handle_resources.HandleHealth)

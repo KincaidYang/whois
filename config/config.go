@@ -60,6 +60,8 @@ var (
 	RequireRedis        bool
 	MemoryMaxSize       int
 	MemoryCleanInterval time.Duration
+	// BootstrapInterval is how often to refresh RDAP server lists from IANA.
+	BootstrapInterval time.Duration
 )
 
 // initLogger sets up the global slog JSON handler with the given level string.
@@ -146,6 +148,9 @@ func init() {
 	ProxyUsername = config.ProxyUsername
 	ProxyPassword = config.ProxyPassword
 	ProxySuffixes = config.ProxySuffixes
+
+	// Set the bootstrap interval
+	BootstrapInterval = time.Duration(config.BootstrapInterval) * time.Second
 }
 
 // applyDefaultCacheConfig sets default values for cache configuration if not specified
@@ -170,6 +175,11 @@ func applyDefaultCacheConfig(config *Config) {
 	// Default rate limit: 100 concurrent requests
 	if config.RateLimit == 0 {
 		config.RateLimit = 100
+	}
+
+	// Default bootstrap interval: 24 hours
+	if config.BootstrapInterval == 0 {
+		config.BootstrapInterval = 86400
 	}
 }
 

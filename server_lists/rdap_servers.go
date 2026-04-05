@@ -1,9 +1,9 @@
 package server_lists
 
-// TLDToRdapServer
-// This map is used to determine the RDAP server for a given IP address or ASN.
+// compiledRdapServers is the compiled-in IANA baseline data.
+// It is used as a fallback when the live IANA bootstrap fetch fails.
 // Source: https://data.iana.org/rdap/
-var TLDToRdapServer = map[string]string{
+var compiledRdapServers = map[string]string{
 	// IPv4 RDAP servers
 	"41.0.0.0/8":  "https://rdap.afrinic.net/rdap/",
 	"102.0.0.0/8": "https://rdap.afrinic.net/rdap/",
