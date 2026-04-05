@@ -1,76 +1,65 @@
 package utils
 
 import (
+	"context"
 	"testing"
+	"time"
 )
 
-func TestCacheResult(t *testing.T) {
-	tests := []struct {
-		name     string
-		data     string
-		found    bool
-		expected CacheResult
-	}{
-		{
-			name:     "Cache hit",
-			data:     "test data",
-			found:    true,
-			expected: CacheResult{Data: "test data", Found: true},
-		},
-		{
-			name:     "Cache miss",
-			data:     "",
-			found:    false,
-			expected: CacheResult{Data: "", Found: false},
-		},
+func TestSetToCache_String(t *testing.T) {
+	ctx := context.Background()
+	cache := NewMemoryCache(10, time.Minute)
+
+	err := SetToCache(ctx, cache, "k1", "hello", time.Minute)
+	if err != nil {
+		t.Fatalf("SetToCache string: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := CacheResult{Data: tt.data, Found: tt.found}
-			if result.Data != tt.expected.Data || result.Found != tt.expected.Found {
-				t.Errorf("CacheResult = %v, expected %v", result, tt.expected)
-			}
-		})
+	result, err := GetFromCache(ctx, cache, "k1")
+	if err != nil {
+		t.Fatalf("GetFromCache: %v", err)
+	}
+	if !result.Found {
+		t.Fatal("expected cache hit")
+	}
+	if result.Data != "hello" {
+		t.Errorf("got %q, want %q", result.Data, "hello")
 	}
 }
 
-func TestGetFromCacheError(t *testing.T) {
-	// Test case for when Redis returns an error (not redis.Nil)
-	// This would require a mock Redis client in a real test scenario
-	// For now, we'll just test the CacheResult struct behavior
-	result := CacheResult{Found: false}
-	if result.Found {
-		t.Error("Expected Found to be false for cache miss")
-	}
-}
+func TestSetToCache_Struct(t *testing.T) {
+	ctx := context.Background()
+	cache := NewMemoryCache(10, time.Minute)
 
-func TestSetToCacheStringData(t *testing.T) {
-	// Test that string data is handled correctly
-	// This would require a mock Redis client for proper testing
-	// For now, we'll test the basic logic structure
-	testData := "test string data"
-
-	// In a real test, we would:
-	// 1. Set up a mock Redis client
-	// 2. Call SetToCache
-	// 3. Verify the correct data was stored
-
-	if testData == "" {
-		t.Error("Test data should not be empty")
-	}
-}
-
-func TestSetToCacheStructData(t *testing.T) {
-	// Test that struct data is marshaled to JSON correctly
-	testStruct := struct {
+	type payload struct {
 		Name string `json:"name"`
-	}{
-		Name: "test",
+	}
+	err := SetToCache(ctx, cache, "k2", payload{Name: "test"}, time.Minute)
+	if err != nil {
+		t.Fatalf("SetToCache struct: %v", err)
 	}
 
-	// In a real test, we would verify JSON marshaling works correctly
-	if testStruct.Name == "" {
-		t.Error("Test struct should have a name")
+	result, err := GetFromCache(ctx, cache, "k2")
+	if err != nil {
+		t.Fatalf("GetFromCache: %v", err)
+	}
+	if !result.Found {
+		t.Fatal("expected cache hit")
+	}
+	if result.Data != `{"name":"test"}` {
+		t.Errorf("got %q, want %q", result.Data, `{"name":"test"}`)
+	}
+}
+
+func TestGetFromCache_Miss(t *testing.T) {
+	ctx := context.Background()
+	cache := NewMemoryCache(10, time.Minute)
+
+	result, err := GetFromCache(ctx, cache, "nonexistent")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Found {
+		t.Error("expected cache miss, got hit")
 	}
 }
