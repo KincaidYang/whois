@@ -177,10 +177,6 @@ func applyDefaultCacheConfig(config *Config) {
 		config.RateLimit = 100
 	}
 
-	// Default bootstrap interval: 24 hours
-	if config.BootstrapInterval == 0 {
-		config.BootstrapInterval = 86400
-	}
 }
 
 // initializeCacheManager sets up the cache with Redis primary and memory fallback

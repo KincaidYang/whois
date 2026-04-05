@@ -97,10 +97,13 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 
-	// Start RDAP bootstrap refresh (initial fetch + periodic updates)
-	bootstrapCtx, bootstrapCancel := context.WithCancel(context.Background())
-	defer bootstrapCancel()
-	server_lists.StartBootstrapRefresh(bootstrapCtx, config.HttpClient, config.BootstrapInterval)
+	// Start RDAP bootstrap refresh (initial fetch + periodic updates).
+	// Disabled when BootstrapInterval is 0 or unset.
+	if config.BootstrapInterval > 0 {
+		bootstrapCtx, bootstrapCancel := context.WithCancel(context.Background())
+		defer bootstrapCancel()
+		server_lists.StartBootstrapRefresh(bootstrapCtx, config.HttpClient, config.BootstrapInterval)
+	}
 
 	// Health check endpoints
 	http.HandleFunc("/health", handle_resources.HandleHealth)

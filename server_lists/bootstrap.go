@@ -104,7 +104,11 @@ func FetchIANA(ctx context.Context, client *http.Client) map[string]string {
 
 // StartBootstrapRefresh fetches IANA data immediately on startup, then
 // refreshes on the given interval. Stops when ctx is cancelled.
+// interval must be positive; callers should guard with interval > 0.
 func StartBootstrapRefresh(ctx context.Context, client *http.Client, interval time.Duration) {
+	if interval <= 0 {
+		return
+	}
 	refresh := func() {
 		fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()

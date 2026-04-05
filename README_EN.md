@@ -70,7 +70,7 @@ ProxyUsername: ""                      # Proxy server username (if authenticatio
 ProxyPassword: ""                      # Proxy server password (if authentication required)
 
 logLevel: "info"                       # Log level: debug, info, warn, error (default: info)
-bootstrapInterval: 86400               # RDAP server list refresh interval in seconds (default: 86400, 0 to disable)
+bootstrapInterval: 86400               # RDAP server list refresh interval in seconds; 0 or unset disables fetching (recommended: 86400)
 ```
 
 **Configuration Notes:**
