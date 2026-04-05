@@ -2,7 +2,7 @@ package utils
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -62,7 +62,7 @@ func (mc *MemoryCache) Get(ctx context.Context, key string) (CacheResult, error)
 		return CacheResult{Found: false}, nil
 	}
 
-	log.Printf("Serving cached result from memory for key: %s\n", key)
+	slog.Debug("cache hit", "backend", "memory", "key", key)
 	metrics.CacheRequestsTotal.WithLabelValues("memory", "hit").Inc()
 	return CacheResult{Data: entry.Value, Found: true}, nil
 }

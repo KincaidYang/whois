@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -67,7 +67,7 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	// Cache the RDAP information
 	err = utils.SetToCache(ctx, config.CacheManager, key, string(resultBytes), config.CacheExpiration)
 	if err != nil {
-		log.Printf("cache write error for key %s: %v", key, err)
+		slog.Warn("cache write error", "key", key, "err", err)
 	}
 
 	// Return the RDAP information

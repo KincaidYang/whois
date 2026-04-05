@@ -2,7 +2,7 @@ package utils
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -42,7 +42,7 @@ func (rc *RedisCache) Get(ctx context.Context, key string) (CacheResult, error) 
 	cacheResult, err := rc.client.Get(ctx, key).Result()
 	switch {
 	case err == nil:
-		log.Printf("Serving cached result from Redis for key: %s\n", key)
+		slog.Debug("cache hit", "backend", "redis", "key", key)
 		metrics.CacheRequestsTotal.WithLabelValues("redis", "hit").Inc()
 		return CacheResult{Data: cacheResult, Found: true}, nil
 	case err == redis.Nil:
@@ -94,18 +94,15 @@ func (rc *RedisCache) checkHealth(isInitial bool) {
 
 	if err != nil {
 		rc.setHealthy(false)
-		// Log only on initial check or when state changes from healthy to unhealthy
 		if isInitial {
-			log.Printf("⚠ Redis unavailable: %v\n", err)
+			slog.Warn("Redis unavailable", "err", err)
 		} else if wasHealthy {
-			log.Printf("⚠ Redis connection lost: %v\n", err)
+			slog.Warn("Redis connection lost", "err", err)
 		}
-		// Don't log repeated failures during background checks
 	} else {
 		rc.setHealthy(true)
-		// Log when connection is restored (not on initial success)
 		if !isInitial && !wasHealthy {
-			log.Println("✓ Redis connection restored")
+			slog.Info("Redis connection restored")
 		}
 	}
 
