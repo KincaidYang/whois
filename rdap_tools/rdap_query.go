@@ -1,7 +1,6 @@
 package rdap_tools
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -18,6 +17,9 @@ import (
 // Initialized once at startup to enable connection pool reuse across requests.
 var proxyClient *http.Client
 
+// proxySuffixSet is a set built from config.ProxySuffixes for O(1) lookup.
+var proxySuffixSet map[string]struct{}
+
 func init() {
 	if config.ProxyServer != "" {
 		proxyURL, err := url.Parse(config.ProxyServer)
@@ -33,23 +35,22 @@ func init() {
 			}
 		}
 	}
-}
 
-// contains function is used to check if a string is in a slice of strings.
-func contains(slice []string, str string) bool {
-	for _, item := range slice {
-		if item == str {
-			return true
-		}
+	proxySuffixSet = make(map[string]struct{}, len(config.ProxySuffixes))
+	for _, s := range config.ProxySuffixes {
+		proxySuffixSet[s] = struct{}{}
 	}
-	return false
 }
 
 // getHTTPClient returns an HTTP client with appropriate proxy settings.
 // Returns the pre-built proxyClient for proxied TLDs, or config.HttpClient otherwise.
 func getHTTPClient(tld string) *http.Client {
-	if proxyClient != nil && (contains(config.ProxySuffixes, tld) || contains(config.ProxySuffixes, "all")) {
-		return proxyClient
+	if proxyClient != nil {
+		_, matchTLD := proxySuffixSet[tld]
+		_, matchAll := proxySuffixSet["all"]
+		if matchTLD || matchAll {
+			return proxyClient
+		}
 	}
 	return config.HttpClient
 }
@@ -70,12 +71,11 @@ func doRDAPRequest(ctx context.Context, client *http.Client, url string) (string
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		var buf bytes.Buffer
-		_, err = io.Copy(&buf, resp.Body)
+		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return "", err
 		}
-		return buf.String(), nil
+		return string(body), nil
 	case http.StatusNotFound:
 		return "", utils.ErrResourceNotFound
 	case http.StatusForbidden:

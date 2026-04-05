@@ -1,7 +1,6 @@
 package whois_tools
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -45,10 +44,10 @@ func Whois(ctx context.Context, domain, tld string) (string, error) {
 		return "", err
 	}
 
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, conn); err != nil {
+	body, err := io.ReadAll(conn)
+	if err != nil {
 		return "", err
 	}
 
-	return buf.String(), nil
+	return string(body), nil
 }
