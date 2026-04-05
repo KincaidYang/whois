@@ -101,6 +101,7 @@ The service provides the following health check endpoints:
 | `GET /ready` | Readiness probe - checks cache and capacity status |
 | `GET /info` | Runtime information - version, uptime, Go version, etc. |
 | `GET /metrics` | Prometheus metrics - request count, latency, cache hit rate, upstream query duration |
+| `POST /mcp` | MCP Streamable HTTP endpoint - for AI assistant integration |
 
 ### Process Daemon (Optional)
 
@@ -237,6 +238,21 @@ Response:
   ]
 }
 ```
+
+### MCP Integration
+
+The service exposes an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) endpoint at `/mcp` using the Streamable HTTP transport, allowing AI assistants (e.g. Claude) to call WHOIS lookups as a tool.
+
+**Tool:** `whois_lookup`
+
+**Input:**
+```json
+{ "query": "example.com" }
+```
+
+Accepts a domain name, IPv4/v6 address, or ASN (e.g. `AS12345`). Returns the same JSON as the REST API.
+
+**MCP server URL:** `http://ip:port/mcp`
 
 ## Known Issues
 

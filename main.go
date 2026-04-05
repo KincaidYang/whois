@@ -16,6 +16,7 @@ import (
 
 	"github.com/KincaidYang/whois/config"
 	"github.com/KincaidYang/whois/handle_resources"
+	"github.com/KincaidYang/whois/mcp_server"
 	"github.com/KincaidYang/whois/metrics"
 	"github.com/KincaidYang/whois/server_lists"
 	"github.com/KincaidYang/whois/utils"
@@ -112,6 +113,9 @@ func main() {
 
 	// Prometheus metrics endpoint
 	http.Handle("/metrics", promhttp.Handler())
+
+	// MCP Streamable HTTP endpoint
+	http.Handle("/mcp", mcp_server.NewHandler(config.Version))
 
 	// Main query handler
 	http.HandleFunc("/", handler)
