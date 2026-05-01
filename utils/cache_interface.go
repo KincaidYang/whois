@@ -119,6 +119,7 @@ func (mc *MemoryCache) evictOne() {
 	mc.data.Range(func(key, _ interface{}) bool {
 		mc.data.Delete(key)
 		mc.decrementSize()
+		metrics.CacheEvictionsTotal.WithLabelValues("memory").Inc()
 		return false // stop after first entry
 	})
 }

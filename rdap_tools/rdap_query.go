@@ -59,10 +59,6 @@ func getHTTPClient(tld string) *http.Client {
 
 // doRDAPRequest performs the common RDAP HTTP request logic
 func doRDAPRequest(ctx context.Context, client *http.Client, url string) (result string, err error) {
-	start := time.Now()
-	defer func() {
-		metrics.UpstreamDuration.WithLabelValues("rdap").Observe(time.Since(start).Seconds())
-	}()
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return "", err
@@ -100,6 +96,10 @@ func RDAPQuery(ctx context.Context, domain, tld string) (string, error) {
 
 	slog.Debug("querying RDAP", "type", "domain", "query", domain, "tld", tld, "server", rdapServer)
 
+	start := time.Now()
+	defer func() {
+		metrics.UpstreamDuration.WithLabelValues("rdap", tld).Observe(time.Since(start).Seconds())
+	}()
 	client := getHTTPClient(tld)
 	return doRDAPRequest(ctx, client, rdapServer+"domain/"+domain)
 }
@@ -111,6 +111,10 @@ func RDAPQueryIP(ctx context.Context, ip, serverURL string) (string, error) {
 		return "", fmt.Errorf("no RDAP server known for IP: %s", ip)
 	}
 	slog.Debug("querying RDAP", "type", "ip", "query", ip, "server", serverURL)
+	start := time.Now()
+	defer func() {
+		metrics.UpstreamDuration.WithLabelValues("rdap", "_ip").Observe(time.Since(start).Seconds())
+	}()
 	return doRDAPRequest(ctx, config.HttpClient, serverURL+"ip/"+ip)
 }
 
@@ -121,5 +125,9 @@ func RDAPQueryASN(ctx context.Context, as, serverURL string) (string, error) {
 		return "", fmt.Errorf("no RDAP server known for ASN: %s", as)
 	}
 	slog.Debug("querying RDAP", "type", "asn", "query", as, "server", serverURL)
+	start := time.Now()
+	defer func() {
+		metrics.UpstreamDuration.WithLabelValues("rdap", "_asn").Observe(time.Since(start).Seconds())
+	}()
 	return doRDAPRequest(ctx, config.HttpClient, serverURL+"autnum/"+as)
 }

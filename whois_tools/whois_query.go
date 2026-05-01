@@ -21,7 +21,7 @@ const (
 func Whois(ctx context.Context, domain, tld string) (result string, err error) {
 	start := time.Now()
 	defer func() {
-		metrics.UpstreamDuration.WithLabelValues("whois").Observe(time.Since(start).Seconds())
+		metrics.UpstreamDuration.WithLabelValues("whois", tld).Observe(time.Since(start).Seconds())
 	}()
 	whoisServer, ok := server_lists.TLDToWhoisServer[tld]
 	if !ok {

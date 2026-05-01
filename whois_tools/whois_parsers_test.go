@@ -168,14 +168,13 @@ URL of the ICANN Whois Inaccuracy Complaint Form: https://www.icann.org/wicf/
 }
 
 func TestParseWhoisResponseLA_DomainNotFound(t *testing.T) {
-	// 测试域名不存在的情况 - 缺少必要字段
 	response := `Domain Name: NOTFOUND.LA
-Registry Domain ID: 
+Registry Domain ID:
 Registrar WHOIS Server:
 Registrar URL:
-Updated Date: 
-Creation Date: 
-Registry Expiry Date: 
+Updated Date:
+Creation Date:
+Registry Expiry Date:
 Name Server: NS1.EXAMPLE.COM
 DNSSEC: unsigned
 >>> Last update of WHOIS database: 2025-10-12T04:26:45.0Z <<<`
@@ -190,5 +189,386 @@ DNSSEC: unsigned
 
 	if !errors.Is(err, utils.ErrDomainNotFound) {
 		t.Errorf("Expected ErrDomainNotFound, got %v", err)
+	}
+}
+
+func TestParseWhoisResponseHK(t *testing.T) {
+	response := "Domain Name: example.hk\n" +
+		"Domain Name Commencement Date: 01-03-2010\n" +
+		"Expiry Date: 01-03-2026\n" +
+		"Registrar Name: Example HK Registrar\n" +
+		"Domain Status: Active\n" +
+		"DNSSEC: unsigned\n" +
+		"Name Servers Information:\n" +
+		"\n" +
+		"ns1.example.com\n" +
+		"ns2.example.com\n"
+
+	domain := "example.hk"
+	info, err := ParseWhoisResponseHK(response, domain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.DomainName != domain {
+		t.Errorf("DomainName: got %q, want %q", info.DomainName, domain)
+	}
+	if info.Registrar != "Example HK Registrar" {
+		t.Errorf("Registrar: got %q", info.Registrar)
+	}
+	if info.CreationDate != "2010-03-01" {
+		t.Errorf("CreationDate: got %q, want 2010-03-01", info.CreationDate)
+	}
+	if info.RegistryExpiryDate != "2026-03-01" {
+		t.Errorf("RegistryExpiryDate: got %q, want 2026-03-01", info.RegistryExpiryDate)
+	}
+	if info.DNSSec != "unsigned" {
+		t.Errorf("DNSSec: got %q", info.DNSSec)
+	}
+}
+
+func TestParseWhoisResponseHK_NotFound(t *testing.T) {
+	response := "Domain Name: notfound.hk\r\nDomain Status: Not Registered\r\n"
+	_, err := ParseWhoisResponseHK(response, "notfound.hk")
+	if !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("expected ErrDomainNotFound, got %v", err)
+	}
+}
+
+func TestParseWhoisResponseTW(t *testing.T) {
+	response := `Registration Service Provider: Example TW Registrar
+Domain Status: active
+Record created on 2010-03-01 08:00:00
+Record expires on 2026-03-01 08:00:00
+DNSSEC: unsigned
+Domain servers in listed order:
+   ns1.example.com
+   ns2.example.com
+
+`
+	domain := "example.tw"
+	info, err := ParseWhoisResponseTW(response, domain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Registrar != "Example TW Registrar" {
+		t.Errorf("Registrar: got %q", info.Registrar)
+	}
+	// Dates converted from CST (UTC+8) to UTC: 08:00:00 CST = 00:00:00 UTC
+	if info.CreationDate == "" {
+		t.Error("CreationDate is empty")
+	}
+	if info.RegistryExpiryDate == "" {
+		t.Error("RegistryExpiryDate is empty")
+	}
+	if len(info.DomainStatus) == 0 || info.DomainStatus[0] != "active" {
+		t.Errorf("DomainStatus: got %v", info.DomainStatus)
+	}
+	if len(info.NameServer) != 2 {
+		t.Errorf("NameServer count: got %d, want 2", len(info.NameServer))
+	}
+}
+
+func TestParseWhoisResponseTW_NotFound(t *testing.T) {
+	response := `No match for "NOTFOUND.TW".`
+	_, err := ParseWhoisResponseTW(response, "notfound.tw")
+	if !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("expected ErrDomainNotFound, got %v", err)
+	}
+}
+
+func TestParseWhoisResponseSO(t *testing.T) {
+	response := `Registrar: Example SO Registrar
+Domain Status: active
+Registrar IANA ID: 1234
+Creation Date: 2010-03-01T00:00:00Z
+Registry Expiry Date: 2026-03-01T00:00:00Z
+Updated Date: 2025-01-01T00:00:00Z
+Name Server: ns1.example.so
+Name Server: ns2.example.so
+DNSSEC: unsigned
+Last update of WHOIS database: 2025-10-12T05:44:20Z <<<`
+
+	domain := "example.so"
+	info, err := ParseWhoisResponseSO(response, domain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Registrar != "Example SO Registrar" {
+		t.Errorf("Registrar: got %q", info.Registrar)
+	}
+	if info.CreationDate != "2010-03-01T00:00:00Z" {
+		t.Errorf("CreationDate: got %q", info.CreationDate)
+	}
+	if info.RegistryExpiryDate != "2026-03-01T00:00:00Z" {
+		t.Errorf("RegistryExpiryDate: got %q", info.RegistryExpiryDate)
+	}
+	if info.RegistrarIANAID != "1234" {
+		t.Errorf("RegistrarIANAID: got %q", info.RegistrarIANAID)
+	}
+	if len(info.NameServer) != 2 {
+		t.Errorf("NameServer count: got %d, want 2", len(info.NameServer))
+	}
+}
+
+func TestParseWhoisResponseSO_NotFound(t *testing.T) {
+	response := `Domain Status: available`
+	_, err := ParseWhoisResponseSO(response, "notfound.so")
+	if !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("expected ErrDomainNotFound, got %v", err)
+	}
+}
+
+func TestParseWhoisResponseRU(t *testing.T) {
+	response := `% WHOIS server
+
+domain: EXAMPLE.RU
+nserver: ns1.example.ru
+nserver: ns2.example.ru
+state: REGISTERED, DELEGATED
+registrar: Example RU Registrar
+created: 2010-03-01T00:00:00Z
+paid-till: 2026-03-01T00:00:00Z
+Last updated on 2025-10-12T05:44:20Z`
+
+	domain := "example.ru"
+	info, err := ParseWhoisResponseRU(response, domain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Registrar != "Example RU Registrar" {
+		t.Errorf("Registrar: got %q", info.Registrar)
+	}
+	if info.CreationDate != "2010-03-01T00:00:00Z" {
+		t.Errorf("CreationDate: got %q", info.CreationDate)
+	}
+	if info.RegistryExpiryDate != "2026-03-01T00:00:00Z" {
+		t.Errorf("RegistryExpiryDate: got %q", info.RegistryExpiryDate)
+	}
+	if len(info.NameServer) != 2 {
+		t.Errorf("NameServer count: got %d, want 2", len(info.NameServer))
+	}
+	if len(info.DomainStatus) == 0 {
+		t.Error("DomainStatus is empty")
+	}
+}
+
+func TestParseWhoisResponseRU_NotFound(t *testing.T) {
+	response := `% No entries found for the selected source(s).`
+	_, err := ParseWhoisResponseRU(response, "notfound.ru")
+	if !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("expected ErrDomainNotFound, got %v", err)
+	}
+}
+
+func TestParseWhoisResponseSB(t *testing.T) {
+	response := `Registrar: Example SB Registrar
+Domain Status: active
+Registrar IANA ID: 5678
+Creation Date: 2010-03-01T00:00:00Z
+Registry Expiry Date: 2026-03-01T00:00:00Z
+Updated Date: 2025-01-01T00:00:00Z
+Name Server: ns1.example.sb
+DNSSEC: unsigned
+Last update of WHOIS database: 2025-10-12T05:44:20Z <<<`
+
+	domain := "example.sb"
+	info, err := ParseWhoisResponseSB(response, domain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Registrar != "Example SB Registrar" {
+		t.Errorf("Registrar: got %q", info.Registrar)
+	}
+	if info.CreationDate != "2010-03-01T00:00:00Z" {
+		t.Errorf("CreationDate: got %q", info.CreationDate)
+	}
+	if info.RegistryExpiryDate != "2026-03-01T00:00:00Z" {
+		t.Errorf("RegistryExpiryDate: got %q", info.RegistryExpiryDate)
+	}
+}
+
+func TestParseWhoisResponseSB_NotFound(t *testing.T) {
+	response := `Domain Status: available`
+	_, err := ParseWhoisResponseSB(response, "notfound.sb")
+	if !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("expected ErrDomainNotFound, got %v", err)
+	}
+}
+
+func TestParseWhoisResponseMO(t *testing.T) {
+	response := `
+Record created on 2010-03-01
+Record expires on 2026-03-01
+
+Domain name servers:
+ ---
+ ns1.example.mo
+ ns2.example.mo
+
+`
+	domain := "example.mo"
+	info, err := ParseWhoisResponseMO(response, domain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.DomainName != domain {
+		t.Errorf("DomainName: got %q", info.DomainName)
+	}
+	if info.CreationDate != "2010-03-01" {
+		t.Errorf("CreationDate: got %q", info.CreationDate)
+	}
+	if info.RegistryExpiryDate != "2026-03-01" {
+		t.Errorf("RegistryExpiryDate: got %q", info.RegistryExpiryDate)
+	}
+	if len(info.NameServer) != 2 {
+		t.Errorf("NameServer count: got %d, want 2", len(info.NameServer))
+	}
+}
+
+func TestParseWhoisResponseMO_NotFound(t *testing.T) {
+	response := `No object found.`
+	_, err := ParseWhoisResponseMO(response, "notfound.mo")
+	if !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("expected ErrDomainNotFound, got %v", err)
+	}
+}
+
+func TestParseWhoisResponseAU(t *testing.T) {
+	response := "Registrar Name: Example AU Registrar\r\n" +
+		"Registrar IANA ID: 9012\r\n" +
+		"Status: serverHold\r\n" +
+		"Creation Date: 2010-03-01T00:00:00Z\r\n" +
+		"Registry Expiry Date: 2026-03-01T00:00:00Z\r\n" +
+		"Last Modified: 2025-01-01T00:00:00Z\r\n" +
+		"Name Server: ns1.example.au\r\n" +
+		"Name Server: ns2.example.au\r\n" +
+		"DNSSEC: unsigned\r\n" +
+		"Last update of WHOIS database: 2025-10-12T00:00:00Z\r\n"
+
+	domain := "example.com.au"
+	info, err := ParseWhoisResponseAU(response, domain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Registrar != "Example AU Registrar" {
+		t.Errorf("Registrar: got %q", info.Registrar)
+	}
+	if info.CreationDate != "2010-03-01T00:00:00Z" {
+		t.Errorf("CreationDate: got %q", info.CreationDate)
+	}
+	if info.RegistryExpiryDate != "2026-03-01T00:00:00Z" {
+		t.Errorf("RegistryExpiryDate: got %q", info.RegistryExpiryDate)
+	}
+	if len(info.NameServer) != 2 {
+		t.Errorf("NameServer count: got %d, want 2", len(info.NameServer))
+	}
+	if len(info.DomainStatus) == 0 || info.DomainStatus[0] != "serverHold" {
+		t.Errorf("DomainStatus: got %v", info.DomainStatus)
+	}
+}
+
+func TestParseWhoisResponseAU_NotFound(t *testing.T) {
+	response := "% No Data Found\r\n"
+	_, err := ParseWhoisResponseAU(response, "notfound.com.au")
+	if !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("expected ErrDomainNotFound, got %v", err)
+	}
+}
+
+func TestParseWhoisResponseSG(t *testing.T) {
+	response := "Registrar: Example SG Registrar\r\n" +
+		"Domain Status: Active\r\n" +
+		"Creation Date: 2010-03-01T00:00:00Z\r\n" +
+		"Expiration Date: 2026-03-01T00:00:00Z\r\n" +
+		"Modified Date: 2025-01-01T00:00:00Z\r\n" +
+		"Name Servers: ns1.example.sg\r\n" +
+		"Name Servers: ns2.example.sg\r\n" +
+		"DNSSEC: unsigned\r\n"
+
+	domain := "example.sg"
+	info, err := ParseWhoisResponseSG(response, domain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Registrar != "Example SG Registrar" {
+		t.Errorf("Registrar: got %q", info.Registrar)
+	}
+	if info.CreationDate != "2010-03-01T00:00:00Z" {
+		t.Errorf("CreationDate: got %q", info.CreationDate)
+	}
+	if info.RegistryExpiryDate != "2026-03-01T00:00:00Z" {
+		t.Errorf("RegistryExpiryDate: got %q", info.RegistryExpiryDate)
+	}
+	if len(info.NameServer) != 2 {
+		t.Errorf("NameServer count: got %d, want 2", len(info.NameServer))
+	}
+}
+
+func TestParseWhoisResponseSG_NotFound(t *testing.T) {
+	response := "% Domain not registered\r\n"
+	_, err := ParseWhoisResponseSG(response, "notfound.sg")
+	if !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("expected ErrDomainNotFound, got %v", err)
+	}
+}
+
+func TestParseWhoisResponseJP(t *testing.T) {
+	response := `[Domain Name] EXAMPLE.JP
+[Registrant] Example JP Corp
+[Name Server] ns1.example.jp
+[Name Server] ns2.example.jp
+[登録年月日] 2010/03/01
+[有効期限] 2026/03/01
+[状態] Active
+[最終更新] 2025/01/01 09:00:00 (JST)`
+
+	domain := "example.jp"
+	info, err := ParseWhoisResponseJP(response, domain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Registrar != "Example JP Corp" {
+		t.Errorf("Registrar: got %q", info.Registrar)
+	}
+	if info.CreationDate != "2010-03-01" {
+		t.Errorf("CreationDate: got %q", info.CreationDate)
+	}
+	if info.RegistryExpiryDate != "2026-03-01" {
+		t.Errorf("RegistryExpiryDate: got %q", info.RegistryExpiryDate)
+	}
+	if len(info.NameServer) != 2 {
+		t.Errorf("NameServer count: got %d, want 2", len(info.NameServer))
+	}
+	if info.DNSSec != "unsigned" {
+		t.Errorf("DNSSec: got %q, want unsigned", info.DNSSec)
+	}
+}
+
+func TestParseWhoisResponseJP_CoJp(t *testing.T) {
+	response := `a. [ドメイン名] EXAMPLE.CO.JP
+g. [Organization] Example CO JP Corp
+p. [ネームサーバ] ns1.example.co.jp
+[登録年月日] 2010/03/01
+[状態] Connected (2026/03/01)
+[最終更新] 2025/01/01 09:00:00 (JST)`
+
+	domain := "example.co.jp"
+	info, err := ParseWhoisResponseJP(response, domain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.Registrar != "Example CO JP Corp" {
+		t.Errorf("Registrar: got %q", info.Registrar)
+	}
+	if info.RegistryExpiryDate != "2026-03-01" {
+		t.Errorf("RegistryExpiryDate from status: got %q", info.RegistryExpiryDate)
+	}
+}
+
+func TestParseWhoisResponseJP_NotFound(t *testing.T) {
+	response := `No match!!`
+	_, err := ParseWhoisResponseJP(response, "notfound.jp")
+	if !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("expected ErrDomainNotFound, got %v", err)
 	}
 }
