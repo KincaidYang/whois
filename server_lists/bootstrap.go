@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/KincaidYang/whois/metrics"
 )
 
 // bootstrapResponse is the common structure for IANA RDAP bootstrap JSON files.
@@ -116,9 +118,12 @@ func StartBootstrapRefresh(ctx context.Context, client *http.Client, interval ti
 		data := FetchIANA(fetchCtx, client)
 		if len(data) == 0 {
 			slog.Warn("RDAP bootstrap: no data fetched, retaining current index")
+			metrics.BootstrapRefreshTotal.WithLabelValues("failure").Inc()
 			return
 		}
 		UpdateFromIANA(data)
+		metrics.BootstrapRefreshTotal.WithLabelValues("success").Inc()
+		metrics.BootstrapLastFetchTimestamp.Set(float64(time.Now().Unix()))
 		slog.Info("RDAP bootstrap index updated", "entries", len(data))
 	}
 
