@@ -85,5 +85,9 @@ func NewHandler(version string) http.Handler {
 
 	return mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server {
 		return server
-	}, nil)
+	}, &mcp.StreamableHTTPOptions{
+		// Server runs behind a reverse proxy; the Host header will be the public
+		// domain, not localhost, so DNS rebinding protection must be disabled.
+		DisableLocalhostProtection: true,
+	})
 }
