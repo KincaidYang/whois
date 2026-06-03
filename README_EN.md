@@ -47,35 +47,42 @@ This program requires Redis service support. You can refer to https://redis.io/d
 vim config.yaml
 ```
 
+> ⚠️ YAML keys in the config file are **case-sensitive** — use all lowercase (e.g. `cacheexpiration`, `requireredis`, `proxyserver`), otherwise the key is ignored and falls back to its default.
+
 ```yaml
 redis:
   addr: "redis:6379"           # Redis server address
   password: ""                 # Redis password, leave empty if none
   db: 0                        # Redis database number
-cacheExpiration: 3600          # Cache expiration time in seconds
+cacheexpiration: 3600          # Cache expiration time in seconds
 
 # Advanced cache configuration (optional, new feature)
 cache:
-  requireRedis: false          # false=allow fallback to memory cache when Redis fails, true=Redis must be available or program exits
-  memoryMaxSize: 10000         # Maximum entries in memory cache (default: 10000)
-  memoryCleanInterval: 300     # Memory cache cleanup interval in seconds (default: 300)
+  requireredis: false          # false=allow fallback to memory cache when Redis fails, true=Redis must be available or program exits
+  memorymaxsize: 10000         # Maximum entries in memory cache; least-recently-used entries are evicted past this (default: 10000)
+  memorycleaninterval: 300     # Memory cache cleanup interval in seconds (default: 300)
+  negativecacheexpiration: 60  # How long "not found / denied" results are cached, in seconds (default: 60; set negative to disable)
 
 port: 8043                     # Server listening port
-rateLimit: 50                  # Concurrency limit for upstream WHOIS server requests
+ratelimit: 50                  # Concurrency limit for upstream WHOIS server requests
 
 # Proxy configuration (optional)
-ProxyServer: "http://127.0.0.1:8080"  # Proxy server address
-ProxySuffixes:                         # TLD suffixes that need proxy, leave empty to disable
-ProxyUsername: ""                      # Proxy server username (if authentication required)
-ProxyPassword: ""                      # Proxy server password (if authentication required)
+proxyserver: "http://127.0.0.1:8080"  # Proxy server address
+proxysuffixes: []                      # TLD suffixes that use the proxy; empty to disable; ["all"] routes everything through the proxy
+proxyusername: ""                      # Proxy server username (if authentication required)
+proxypassword: ""                      # Proxy server password (if authentication required)
 
-logLevel: "info"                       # Log level: debug, info, warn, error (default: info)
-bootstrapInterval: 86400               # RDAP server list refresh interval in seconds; 0 or unset disables fetching (recommended: 86400)
+loglevel: "info"                       # Log level: debug, info, warn, error (default: info)
+bootstrapinterval: 86400               # RDAP server list refresh interval in seconds; 0 or unset disables fetching (recommended: 86400)
 ```
+
+Selected options can be overridden via environment variables (which take precedence over the config file), e.g. `WHOIS_REDIS_ADDR`, `WHOIS_PORT`, `WHOIS_RATE_LIMIT`, `WHOIS_CACHE_EXPIRATION`, `WHOIS_NEGATIVE_CACHE_EXPIRATION`, `WHOIS_LOG_LEVEL`.
 
 **Configuration Notes:**
 - **Redis Configuration**: Redis is recommended for better performance and multi-instance cache sharing
 - **Cache Expiration**: Adjust based on query frequency, 3600 seconds recommended
+- **Memory Cache**: Fallback when Redis is unavailable; evicts least-recently-used (LRU) entries once full
+- **Negative Cache**: Briefly caches "not found / denied" results to avoid repeatedly hitting upstream for missing resources; defaults to 60 seconds
 - **Concurrency Limit**: Controls request frequency to upstream servers to avoid rate limiting
 - **Proxy Configuration**: Some TLDs may require proxy access
 - **Log Level**: `debug` logs every cache hit and upstream query dispatch — noisy under load; `info` is recommended for production
@@ -135,6 +142,8 @@ GET requests
 #### Browser Access
 
 After deployment, access `http://ip:port/domain-or-ip-or-asn` via browser. Default port is `8043`, e.g., `http://1.2.3.4:8043/example.com`
+
+> Internationalized domain names (IDN, including Unicode domains with non-ASCII characters) can be queried directly; the program converts them to Punycode automatically, e.g. `http://1.2.3.4:8043/例子.cn`.
 
 #### Query Domain WHOIS Information
 
@@ -285,6 +294,8 @@ This project uses the following Go standard libraries:
 This project also uses the following third-party libraries:
 
 - [`github.com/redis/go-redis/v9`](https://github.com/go-redis/redis): Redis client for Go
+- [`github.com/prometheus/client_golang`](https://github.com/prometheus/client_golang): Prometheus metrics instrumentation and exposition
+- [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk): MCP (Model Context Protocol) Go SDK
 - [`golang.org/x/net/idna`](https://pkg.go.dev/golang.org/x/net/idna): IDNA (Internationalized Domain Names in Applications) implementation
 - [`golang.org/x/net/publicsuffix`](https://pkg.go.dev/golang.org/x/net/publicsuffix): Public Suffix List implementation
 - [`gopkg.in/yaml.v3`](https://gopkg.in/yaml.v3): YAML parsing library

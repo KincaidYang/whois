@@ -60,6 +60,8 @@ var (
 	RequireRedis        bool
 	MemoryMaxSize       int
 	MemoryCleanInterval time.Duration
+	// NegativeCacheExpiration is how long not-found/denied results are cached.
+	NegativeCacheExpiration time.Duration
 	// BootstrapInterval is how often to refresh RDAP server lists from IANA.
 	BootstrapInterval time.Duration
 )
@@ -132,6 +134,7 @@ func init() {
 	RequireRedis = config.Cache.RequireRedis
 	MemoryMaxSize = config.Cache.MemoryMaxSize
 	MemoryCleanInterval = time.Duration(config.Cache.MemoryCleanInterval) * time.Second
+	NegativeCacheExpiration = time.Duration(config.Cache.NegativeCacheExpiration) * time.Second
 
 	// Initialize cache manager with fallback
 	initializeCacheManager()
@@ -165,6 +168,12 @@ func applyDefaultCacheConfig(config *Config) {
 	// Default: clean every 5 minutes (300 seconds)
 	if config.Cache.MemoryCleanInterval == 0 {
 		config.Cache.MemoryCleanInterval = 300
+	}
+
+	// Default: cache not-found/denied results for 60 seconds.
+	// A negative value disables negative caching; only 0 (unset) gets the default.
+	if config.Cache.NegativeCacheExpiration == 0 {
+		config.Cache.NegativeCacheExpiration = 60
 	}
 
 	// Default port: 8043
@@ -270,6 +279,11 @@ func overrideConfigWithEnv(config *Config) {
 	if memoryCleanInterval := os.Getenv("WHOIS_MEMORY_CLEAN_INTERVAL"); memoryCleanInterval != "" {
 		if interval, err := strconv.Atoi(memoryCleanInterval); err == nil {
 			config.Cache.MemoryCleanInterval = interval
+		}
+	}
+	if negativeCacheExpiration := os.Getenv("WHOIS_NEGATIVE_CACHE_EXPIRATION"); negativeCacheExpiration != "" {
+		if exp, err := strconv.Atoi(negativeCacheExpiration); err == nil {
+			config.Cache.NegativeCacheExpiration = exp
 		}
 	}
 

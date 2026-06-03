@@ -81,6 +81,26 @@ func TestHandlerIDNCacheHit(t *testing.T) {
 	}
 }
 
+// TestHandlerNegativeCacheHit verifies a cached negative marker is served as a
+// 404 rather than as a normal payload, exercising the read-side interception.
+func TestHandlerNegativeCacheHit(t *testing.T) {
+	domain := "negativecachetest99999.cn"
+	key := "whois:" + domain
+	ctx := context.Background()
+	// Seed a not-found negative marker (same encoding CacheNegativeResult writes).
+	if err := config.CacheManager.Set(ctx, key, "\x00neg:notfound", time.Minute); err != nil {
+		t.Fatalf("failed to seed cache: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/"+domain, nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for negative cache hit, got %d", w.Code)
+	}
+}
+
 // TestHandlerIPCacheHit confirms the IP branch resolves and serves cached data.
 func TestHandlerIPCacheHit(t *testing.T) {
 	ip := "192.0.2.1"
