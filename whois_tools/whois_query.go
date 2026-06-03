@@ -15,6 +15,9 @@ import (
 const (
 	whoisDefaultPort = "43"
 	whoisTimeout     = 10 * time.Second
+	// maxResponseSize caps how much we read from a WHOIS server to guard
+	// against a misbehaving or malicious server exhausting memory.
+	maxResponseSize = 2 << 20 // 2 MiB
 )
 
 // Whois function is used to query the WHOIS information for a given domain.
@@ -49,7 +52,7 @@ func Whois(ctx context.Context, domain, tld string) (result string, err error) {
 		return "", err
 	}
 
-	body, err := io.ReadAll(conn)
+	body, err := io.ReadAll(io.LimitReader(conn, maxResponseSize))
 	if err != nil {
 		return "", err
 	}

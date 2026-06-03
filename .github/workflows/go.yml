@@ -21,8 +21,14 @@ jobs:
       with:
         go-version-file: go.mod
 
+    - name: Check formatting
+      run: test -z "$(gofmt -l .)" || { echo "Run gofmt -w on:"; gofmt -l .; exit 1; }
+
+    - name: Vet
+      run: go vet ./...
+
     - name: Build
       run: go build -v ./...
 
     - name: Test
-      run: go test -v ./...
+      run: go test -v -coverpkg=./... -cover ./...

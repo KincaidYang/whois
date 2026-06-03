@@ -1,10 +1,10 @@
 package utils
 
 import (
+	"container/list"
 	"context"
 	"log/slog"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/KincaidYang/whois/metrics"
@@ -17,23 +17,31 @@ type Cache interface {
 	IsHealthy() bool
 }
 
-// cacheEntry represents a cached item with expiration
+// cacheEntry represents a cached item with expiration. It is stored as the
+// value of a list element so the entry can be reached from both the lookup
+// map and the LRU ordering list.
 type cacheEntry struct {
+	Key       string
 	Value     string
 	ExpiresAt time.Time
 }
 
-// MemoryCache implements Cache interface using in-memory storage
+// MemoryCache implements Cache interface using in-memory storage with LRU
+// eviction. A single mutex guards both the lookup map and the recency list,
+// so size accounting (len(items)) is always consistent.
 type MemoryCache struct {
-	data          sync.Map
+	mu            sync.Mutex
+	items         map[string]*list.Element // key -> element holding *cacheEntry
+	order         *list.List               // front = most recently used
 	maxSize       int
 	cleanInterval time.Duration
-	size          atomic.Int64
 }
 
 // NewMemoryCache creates a new memory cache instance
 func NewMemoryCache(maxSize int, cleanInterval time.Duration) *MemoryCache {
 	mc := &MemoryCache{
+		items:         make(map[string]*list.Element),
+		order:         list.New(),
 		maxSize:       maxSize,
 		cleanInterval: cleanInterval,
 	}
@@ -46,21 +54,26 @@ func NewMemoryCache(maxSize int, cleanInterval time.Duration) *MemoryCache {
 
 // Get retrieves a value from memory cache
 func (mc *MemoryCache) Get(ctx context.Context, key string) (CacheResult, error) {
-	value, ok := mc.data.Load(key)
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
+	elem, ok := mc.items[key]
 	if !ok {
 		metrics.CacheRequestsTotal.WithLabelValues("memory", "miss").Inc()
 		return CacheResult{Found: false}, nil
 	}
 
-	entry := value.(cacheEntry)
+	entry := elem.Value.(*cacheEntry)
 
 	// Check if expired
 	if time.Now().After(entry.ExpiresAt) {
-		mc.data.Delete(key)
-		mc.decrementSize()
+		mc.removeElement(elem)
 		metrics.CacheRequestsTotal.WithLabelValues("memory", "miss").Inc()
 		return CacheResult{Found: false}, nil
 	}
+
+	// Mark as most recently used
+	mc.order.MoveToFront(elem)
 
 	slog.Debug("cache hit", "backend", "memory", "key", key)
 	metrics.CacheRequestsTotal.WithLabelValues("memory", "hit").Inc()
@@ -69,31 +82,31 @@ func (mc *MemoryCache) Get(ctx context.Context, key string) (CacheResult, error)
 
 // Set stores a value in memory cache
 func (mc *MemoryCache) Set(ctx context.Context, key string, value string, expiration time.Duration) error {
-	// Check size limit only for new entries
-	if _, exists := mc.data.Load(key); !exists {
-		if mc.size.Load() >= int64(mc.maxSize) {
-			// Try to clean expired entries first
-			mc.cleanExpired()
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
 
-			// If still over limit, evict one arbitrary entry to make room
-			if mc.size.Load() >= int64(mc.maxSize) {
-				mc.evictOne()
-			}
-		}
+	expiresAt := time.Now().Add(expiration)
+
+	// Update existing entry in place and promote it.
+	if elem, ok := mc.items[key]; ok {
+		entry := elem.Value.(*cacheEntry)
+		entry.Value = value
+		entry.ExpiresAt = expiresAt
+		mc.order.MoveToFront(elem)
+		return nil
 	}
 
-	entry := cacheEntry{
+	// New entry: evict the least recently used item if at capacity.
+	if len(mc.items) >= mc.maxSize {
+		mc.evictOldest()
+	}
+
+	elem := mc.order.PushFront(&cacheEntry{
+		Key:       key,
 		Value:     value,
-		ExpiresAt: time.Now().Add(expiration),
-	}
-
-	// Check if this is a new entry
-	_, existed := mc.data.Load(key)
-	mc.data.Store(key, entry)
-
-	if !existed {
-		mc.incrementSize()
-	}
+		ExpiresAt: expiresAt,
+	})
+	mc.items[key] = elem
 
 	return nil
 }
@@ -103,25 +116,22 @@ func (mc *MemoryCache) IsHealthy() bool {
 	return true
 }
 
-// incrementSize atomically increments the size counter
-func (mc *MemoryCache) incrementSize() {
-	mc.size.Add(1)
+// removeElement deletes an element from both the map and the order list.
+// Callers must hold mc.mu.
+func (mc *MemoryCache) removeElement(elem *list.Element) {
+	entry := elem.Value.(*cacheEntry)
+	mc.order.Remove(elem)
+	delete(mc.items, entry.Key)
 }
 
-// decrementSize atomically decrements the size counter
-func (mc *MemoryCache) decrementSize() {
-	mc.size.Add(-1)
-}
-
-// evictOne removes the first entry encountered in the cache.
-// sync.Map iteration order is unspecified, giving effectively random eviction.
-func (mc *MemoryCache) evictOne() {
-	mc.data.Range(func(key, _ interface{}) bool {
-		mc.data.Delete(key)
-		mc.decrementSize()
-		metrics.CacheEvictionsTotal.WithLabelValues("memory").Inc()
-		return false // stop after first entry
-	})
+// evictOldest removes the least recently used entry. Callers must hold mc.mu.
+func (mc *MemoryCache) evictOldest() {
+	elem := mc.order.Back()
+	if elem == nil {
+		return
+	}
+	mc.removeElement(elem)
+	metrics.CacheEvictionsTotal.WithLabelValues("memory").Inc()
 }
 
 // startCleaner runs a periodic cleanup of expired entries
@@ -136,15 +146,17 @@ func (mc *MemoryCache) startCleaner() {
 
 // cleanExpired removes all expired entries in a single pass
 func (mc *MemoryCache) cleanExpired() {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+
 	now := time.Now()
-	mc.data.Range(func(key, value interface{}) bool {
-		entry := value.(cacheEntry)
-		if now.After(entry.ExpiresAt) {
-			mc.data.Delete(key)
-			mc.decrementSize()
+	for elem := mc.order.Back(); elem != nil; {
+		prev := elem.Prev()
+		if now.After(elem.Value.(*cacheEntry).ExpiresAt) {
+			mc.removeElement(elem)
 		}
-		return true
-	})
+		elem = prev
+	}
 }
 
 // FallbackCache implements Cache with primary and fallback caches

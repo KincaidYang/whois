@@ -181,9 +181,9 @@ func ParseRDAPResponseforIP(response string) (structs.IPInfo, error) {
 	}
 
 	info := structs.IPInfo{
-		IP:      rdap.Handle,
-		NetName: rdap.Name,
-		Country: rdap.Country,
+		IP:       rdap.Handle,
+		NetName:  rdap.Name,
+		Country:  rdap.Country,
 		IPStatus: rdap.Status,
 	}
 
