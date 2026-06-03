@@ -52,9 +52,14 @@ func Whois(ctx context.Context, domain, tld string) (result string, err error) {
 		return "", err
 	}
 
-	body, err := io.ReadAll(io.LimitReader(conn, maxResponseSize))
+	// Read one byte past the limit so an oversized response is detected and
+	// rejected rather than silently truncated and cached as if complete.
+	body, err := io.ReadAll(io.LimitReader(conn, maxResponseSize+1))
 	if err != nil {
 		return "", err
+	}
+	if len(body) > maxResponseSize {
+		return "", fmt.Errorf("WHOIS response from %s exceeds %d bytes", whoisServer, maxResponseSize)
 	}
 
 	return string(body), nil

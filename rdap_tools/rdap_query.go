@@ -77,9 +77,14 @@ func doRDAPRequest(ctx context.Context, client *http.Client, url string) (result
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+		// Read one byte past the limit so an oversized response is detected and
+		// rejected rather than silently truncated.
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize+1))
 		if err != nil {
 			return "", err
+		}
+		if len(body) > maxResponseSize {
+			return "", fmt.Errorf("RDAP response from %s exceeds %d bytes", url, maxResponseSize)
 		}
 		return string(body), nil
 	case http.StatusNotFound:

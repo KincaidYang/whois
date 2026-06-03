@@ -48,10 +48,12 @@ func TestIsDomain(t *testing.T) {
 		{"example..com", false},
 		{"example", false},
 		{"123.com", true},
-		{"example.c", false},    // TLD too short
-		{"exa_mple.com", false}, // Invalid character
-		{"müller.de", true},     // IDN (Latin with diacritics)
-		{"例子.cn", true},         // IDN (Chinese)
+		{"example.c", false},             // TLD too short
+		{"exa_mple.com", false},          // Invalid character
+		{"müller.de", true},              // IDN (Latin with diacritics)
+		{"例子.cn", true},                  // IDN (Chinese label, ASCII TLD)
+		{"例子.中国", true},                  // IDN with internationalized (punycode) TLD
+		{"xn--fsqu00a.xn--fiqs8s", true}, // already-punycode IDN + punycode TLD
 	}
 
 	for _, test := range tests {

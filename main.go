@@ -37,8 +37,11 @@ func (sw *statusWriter) WriteHeader(code int) {
 
 // Pre-compiled regular expressions for better performance
 var (
-	asnRegex    = regexp.MustCompile(`^(?i)(as|asn)?\d+$`)
-	domainRegex = regexp.MustCompile(`^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
+	asnRegex = regexp.MustCompile(`^(?i)(as|asn)?\d+$`)
+	// domainRegex is matched against the ASCII/punycode form (see isDomain), so
+	// the final label may be either an alphabetic TLD or a punycode TLD such as
+	// "xn--fiqs8s" (.中国), which contains digits and hyphens.
+	domainRegex = regexp.MustCompile(`^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:[a-zA-Z]{2,}|xn--[a-zA-Z0-9-]+)$`)
 )
 
 // requestTimeout bounds how long a single query may take, so a slow upstream
