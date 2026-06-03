@@ -37,35 +37,42 @@ go build
 ```bash
 vim config.yaml
 ```
+> ⚠️ 配置文件的 YAML 键名**区分大小写**，请全部使用小写（如 `cacheexpiration`、`requireredis`、`proxyserver`），否则该项不会被解析、回退到默认值。
+
 ```yaml
 redis:
   addr: "redis:6379"          # Redis服务器地址
   password: ""                 # Redis密码，如无密码则留空
   db: 0                        # Redis数据库编号
-cacheExpiration: 3600          # 缓存过期时间，单位：秒
+cacheexpiration: 3600          # 缓存过期时间，单位：秒
 
 # 高级缓存配置（可选，新版本功能）
 cache:
-  requireRedis: false          # false=允许Redis失败时降级到内存缓存，true=Redis必须可用否则程序退出
-  memoryMaxSize: 10000         # 内存缓存最大条目数，超过此数量将不再缓存新数据（默认: 10000）
-  memoryCleanInterval: 300     # 内存缓存过期数据清理间隔，单位：秒（默认: 300）
+  requireredis: false          # false=允许Redis失败时降级到内存缓存，true=Redis必须可用否则程序退出
+  memorymaxsize: 10000         # 内存缓存最大条目数，超过此数量按 LRU 淘汰最久未使用条目（默认: 10000）
+  memorycleaninterval: 300     # 内存缓存过期数据清理间隔，单位：秒（默认: 300）
+  negativecacheexpiration: 60  # “未找到/被拒”结果的缓存时间，单位：秒（默认: 60；设为负数则禁用）
 
 port: 8043                     # 服务监听端口
-rateLimit: 50                  # 并发限制，即程序向上游whois服务器发起的最大并发请求数
+ratelimit: 50                  # 并发限制，即程序向上游whois服务器发起的最大并发请求数
 
 # 代理配置（可选）
-ProxyServer: "http://127.0.0.1:8080"  # 代理服务器地址
-ProxySuffixes:                         # 需要使用代理的TLD后缀列表，留空表示不使用代理
-ProxyUsername: ""                      # 代理服务器用户名（如需认证）
-ProxyPassword: ""                      # 代理服务器密码（如需认证）
+proxyserver: "http://127.0.0.1:8080"  # 代理服务器地址
+proxysuffixes: []                      # 需要使用代理的TLD后缀列表，留空表示不使用代理；填 ["all"] 表示全部走代理
+proxyusername: ""                      # 代理服务器用户名（如需认证）
+proxypassword: ""                      # 代理服务器密码（如需认证）
 
-logLevel: "info"                       # 日志级别：debug、info、warn、error（默认：info）
-bootstrapInterval: 86400               # RDAP 服务器列表从 IANA 刷新间隔，单位：秒；0 或不填则禁用（推荐：86400）
+loglevel: "info"                       # 日志级别：debug、info、warn、error（默认：info）
+bootstrapinterval: 86400               # RDAP 服务器列表从 IANA 刷新间隔，单位：秒；0 或不填则禁用（推荐：86400）
 ```
+
+部分配置项可通过环境变量覆盖（优先级高于配置文件），如 `WHOIS_REDIS_ADDR`、`WHOIS_PORT`、`WHOIS_RATE_LIMIT`、`WHOIS_CACHE_EXPIRATION`、`WHOIS_NEGATIVE_CACHE_EXPIRATION`、`WHOIS_LOG_LEVEL` 等。
 
 **配置说明：**
 - **Redis配置**：建议使用Redis以获得更好的性能和多实例缓存共享能力
 - **缓存过期时间**：根据查询频率调整，建议3600秒
+- **内存缓存**：Redis 不可用时的兜底，达到上限后按 LRU（最近最少使用）淘汰
+- **负向缓存**：将“未找到/被拒”的查询结果短时间缓存，避免对不存在的资源反复请求上游；默认 60 秒
 - **并发限制**：控制向上游服务器的请求频率，避免被限流。
 - **代理配置**：某些TLD可能需要代理访问，可配置特定后缀使用代理
 - **日志级别**：`debug` 会输出每次缓存命中和上游查询，流量大时噪声较高；生产环境建议保持 `info`
@@ -133,6 +140,8 @@ GET 请求
 
 #### 浏览器访问
 部署后直接通过浏览器访问`http://ip:端口/你想查的域名或ip或asn`，默认端口`8043`，示例`http://1.2.3.4:8043/examlpe.com`,详细示例请参考下方
+
+> 支持直接查询国际化域名（IDN，含中文、带变音符号等 Unicode 域名），程序会自动转换为 Punycode 后查询，例如 `http://1.2.3.4:8043/例子.cn`。
 
 #### 查询域名 Whois 信息
 ```bash
@@ -299,9 +308,11 @@ curl http://localhost:8043/205794
 本项目还使用了以下第三方库：
 
 - [`github.com/redis/go-redis/v9`](https://github.com/go-redis/redis)：Go语言Redis客户端。
+- [`github.com/prometheus/client_golang`](https://github.com/prometheus/client_golang)：Prometheus 指标采集与暴露。
+- [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk)：MCP（Model Context Protocol）Go SDK。
 - [`golang.org/x/net/idna`](https://pkg.go.dev/golang.org/x/net/idna)：实现了IDNA（国际化域名在应用程序）规范。
 - [`golang.org/x/net/publicsuffix`](https://pkg.go.dev/golang.org/x/net/publicsuffix)：实现了公共后缀列表规范。
-- [`gopkg.in/yaml.v2`](https://gopkg.in/yaml.v2)：YAML 解析库。
+- [`gopkg.in/yaml.v3`](https://gopkg.in/yaml.v3)：YAML 解析库。
 
 WHOIS/RDAP 服务器列表来自于：
 - [IANA](https://www.iana.org/domains/root/db)

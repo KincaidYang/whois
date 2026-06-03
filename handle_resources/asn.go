@@ -36,6 +36,9 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 		return
 	}
 	if cacheResult.Found {
+		if utils.IsNegativeCacheHit(w, cacheResult.Data) {
+			return
+		}
 		utils.HandleCacheResponse(w, cacheResult.Data, "application/json")
 		return
 	}
@@ -47,6 +50,7 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	queryresult, err := rdap_tools.RDAPQueryASN(ctx, asn, serverURL)
 	if err != nil {
 		utils.HandleQueryError(w, err)
+		utils.CacheNegativeResult(ctx, config.CacheManager, key, err, config.NegativeCacheExpiration)
 		return
 	}
 

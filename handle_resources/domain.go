@@ -83,6 +83,9 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	}
 
 	if cacheResult.Found {
+		if utils.IsNegativeCacheHit(w, cacheResult.Data) {
+			return
+		}
 		contentType := "application/json"
 		if len(cacheResult.Data) == 0 || cacheResult.Data[0] != '{' {
 			contentType = "text/plain; charset=utf-8"
@@ -96,17 +99,17 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	// If the RDAP server for the TLD is known, query the RDAP information for the domain
 	if _, ok := server_lists.LookupRdapServer(tld); ok {
 		queryResult, err = handleRDAPQuery(ctx, w, domain, tld, key)
-		if err != nil {
-			return // Error already handled in function
-		}
 	} else if _, ok := server_lists.TLDToWhoisServer[tld]; ok {
 		// If the WHOIS server for the TLD is known, query the WHOIS information for the domain
 		queryResult, err = handleWhoisQuery(ctx, w, domain, tld, key)
-		if err != nil {
-			return // Error already handled in function
-		}
 	} else {
 		utils.HandleHTTPError(w, utils.ErrorTypeInternalServer, "No WHOIS or RDAP server known for TLD: "+tld)
+		return
+	}
+	if err != nil {
+		// Error response already written by the query helper. Cache a
+		// short-TTL negative marker for stable not-found / denied outcomes.
+		utils.CacheNegativeResult(ctx, config.CacheManager, key, err, config.NegativeCacheExpiration)
 		return
 	}
 

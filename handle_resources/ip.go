@@ -24,6 +24,9 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 		return
 	}
 	if cacheResult.Found {
+		if utils.IsNegativeCacheHit(w, cacheResult.Data) {
+			return
+		}
 		utils.HandleCacheResponse(w, cacheResult.Data, "application/json")
 		return
 	}
@@ -36,6 +39,7 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 	queryresult, err := rdap_tools.RDAPQueryIP(ctx, resource, serverURL)
 	if err != nil {
 		utils.HandleQueryError(w, err)
+		utils.CacheNegativeResult(ctx, config.CacheManager, key, err, config.NegativeCacheExpiration)
 		return
 	}
 

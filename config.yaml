@@ -7,6 +7,7 @@ cache:
   requireredis: false
   memorymaxsize: 10000
   memorycleaninterval: 300
+  negativecacheexpiration: 60
 port: 8043
 ratelimit: 60
 proxyserver: "http://127.0.0.1:8080"

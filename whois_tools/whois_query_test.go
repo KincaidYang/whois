@@ -3,6 +3,7 @@ package whois_tools
 import (
 	"context"
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/KincaidYang/whois/server_lists"
@@ -60,6 +61,23 @@ func TestWhois(t *testing.T) {
 
 	if result != mockResponse {
 		t.Errorf("Expected response %q, got %q", mockResponse, result)
+	}
+}
+
+func TestWhoisOversizeResponse(t *testing.T) {
+	// A response just over the cap must be rejected, not truncated and returned.
+	oversized := strings.Repeat("a", maxResponseSize+10)
+	mockServerAddr, cleanup := startMockWhoisServer(oversized)
+	defer cleanup()
+
+	server_lists.TLDToWhoisServer = map[string]string{"com": mockServerAddr}
+
+	_, err := Whois(context.Background(), "example.com", "com")
+	if err == nil {
+		t.Fatal("expected an error for oversized WHOIS response, got none")
+	}
+	if !strings.Contains(err.Error(), "exceeds") {
+		t.Errorf("expected size-limit error, got %q", err.Error())
 	}
 }
 
