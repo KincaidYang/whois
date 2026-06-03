@@ -41,6 +41,12 @@ var (
 	domainRegex = regexp.MustCompile(`^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
 )
 
+// requestTimeout bounds how long a single query may take, so a slow upstream
+// WHOIS/RDAP server cannot hold a concurrency slot indefinitely. It must stay
+// below the server's WriteTimeout (20s) so the handler returns first, and above
+// the per-upstream dial/read timeout (10s) to allow one full upstream attempt.
+const requestTimeout = 15 * time.Second
+
 // isASN function is used to check if the given resource is an Autonomous System Number (ASN).
 func isASN(resource string) bool {
 	return asnRegex.MatchString(resource)
@@ -76,7 +82,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		<-config.ConcurrencyLimiter
 	}()
 
-	ctx := r.Context()
+	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	defer cancel()
 	resource := strings.TrimPrefix(r.URL.Path, "/")
 	resource = strings.ToLower(resource)
 
