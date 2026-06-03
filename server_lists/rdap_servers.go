@@ -1620,5 +1620,4 @@ var compiledRdapServers = map[string]string{
 	"sr":                       "https://whois.sr/rdap/",
 	"tz":                       "https://whois.tznic.or.tz/rdap/",
 	"fj":                       "https://www.rdap.fj/",
-
 }

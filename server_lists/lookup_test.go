@@ -12,7 +12,7 @@ func TestLookupIPKey_IPv4(t *testing.T) {
 		wantURL   string // substring expected in the returned URL
 		wantFound bool
 	}{
-		{"1.1.1.1", "rdap.apnic.net", true},      // APNIC
+		{"1.1.1.1", "rdap.apnic.net", true},       // APNIC
 		{"1.255.255.255", "rdap.apnic.net", true}, // last addr in 1.0.0.0/8
 		{"41.0.0.1", "rdap.afrinic.net", true},    // AFRINIC
 		{"102.128.0.1", "rdap.afrinic.net", true}, // AFRINIC
@@ -41,11 +41,11 @@ func TestLookupIPKey_IPv6(t *testing.T) {
 		ip        string
 		wantFound bool
 	}{
-		{"2001:4200::1", true},  // AFRINIC 2001:4200::/23
-		{"2c00::1", true},       // AFRINIC 2c00::/12
-		{"2001:200::1", true},   // APNIC   2001:200::/23
-		{"::1", false},          // loopback
-		{"fe80::1", false},      // link-local
+		{"2001:4200::1", true}, // AFRINIC 2001:4200::/23
+		{"2c00::1", true},      // AFRINIC 2c00::/12
+		{"2001:200::1", true},  // APNIC   2001:200::/23
+		{"::1", false},         // loopback
+		{"fe80::1", false},     // link-local
 	}
 
 	for _, tt := range tests {

@@ -12,20 +12,20 @@ import (
 // 预编译正则表达式（所有解析器共享，避免每次调用重复编译）
 var (
 	// CN / xn--fiqs8s / xn--fiqz9s
-	reCNCreationDate  = regexp.MustCompile(`Registration Time: (.*)`)
-	reCNExpiryDate    = regexp.MustCompile(`Expiration Time: (.*)`)
-	reCNNameServer    = regexp.MustCompile(`Name Server: (.*)`)
-	reCNDNSSEC        = regexp.MustCompile(`DNSSEC: (.*)`)
-	reCNRegistrar     = regexp.MustCompile(`Sponsoring Registrar: (.*)`)
-	reCNDomainStatus  = regexp.MustCompile(`Domain Status: (.*)`)
+	reCNCreationDate = regexp.MustCompile(`Registration Time: (.*)`)
+	reCNExpiryDate   = regexp.MustCompile(`Expiration Time: (.*)`)
+	reCNNameServer   = regexp.MustCompile(`Name Server: (.*)`)
+	reCNDNSSEC       = regexp.MustCompile(`DNSSEC: (.*)`)
+	reCNRegistrar    = regexp.MustCompile(`Sponsoring Registrar: (.*)`)
+	reCNDomainStatus = regexp.MustCompile(`Domain Status: (.*)`)
 
 	// HK / xn--j6w193g
-	reHKCreationDate  = regexp.MustCompile(`Domain Name Commencement Date: (.*)`)
-	reHKExpiryDate    = regexp.MustCompile(`Expiry Date: (.*)`)
-	reHKNameServer    = regexp.MustCompile(`Name Servers Information:\s*\n\n((?:.+\n)+)`)
-	reHKDNSSEC        = regexp.MustCompile(`DNSSEC: (.*)`)
-	reHKRegistrar     = regexp.MustCompile(`Registrar Name: (.*)`)
-	reHKDomainStatus  = regexp.MustCompile(`Domain Status: (.*)`)
+	reHKCreationDate = regexp.MustCompile(`Domain Name Commencement Date: (.*)`)
+	reHKExpiryDate   = regexp.MustCompile(`Expiry Date: (.*)`)
+	reHKNameServer   = regexp.MustCompile(`Name Servers Information:\s*\n\n((?:.+\n)+)`)
+	reHKDNSSEC       = regexp.MustCompile(`DNSSEC: (.*)`)
+	reHKRegistrar    = regexp.MustCompile(`Registrar Name: (.*)`)
+	reHKDomainStatus = regexp.MustCompile(`Domain Status: (.*)`)
 
 	// TW
 	reTWRegistrar    = regexp.MustCompile(`Registration Service Provider: (.*)`)
@@ -85,13 +85,13 @@ var (
 	reAULastUpdateOfRDAPDB = regexp.MustCompile(`Last update of WHOIS database: ([0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z)`)
 
 	// SG
-	reSGCreationDate  = regexp.MustCompile(`Creation Date:\s+(.*)`)
-	reSGExpiryDate    = regexp.MustCompile(`Expiration Date:\s+(.*)`)
-	reSGNameServer    = regexp.MustCompile(`Name Servers?:\s+(.*)`)
-	reSGDNSSEC        = regexp.MustCompile(`DNSSEC:\s+(.*)`)
-	reSGRegistrar     = regexp.MustCompile(`Registrar:\s+(.*)`)
-	reSGDomainStatus  = regexp.MustCompile(`Domain Status:\s+(.*)`)
-	reSGUpdatedDate   = regexp.MustCompile(`Modified Date:\s+(.*)`)
+	reSGCreationDate = regexp.MustCompile(`Creation Date:\s+(.*)`)
+	reSGExpiryDate   = regexp.MustCompile(`Expiration Date:\s+(.*)`)
+	reSGNameServer   = regexp.MustCompile(`Name Servers?:\s+(.*)`)
+	reSGDNSSEC       = regexp.MustCompile(`DNSSEC:\s+(.*)`)
+	reSGRegistrar    = regexp.MustCompile(`Registrar:\s+(.*)`)
+	reSGDomainStatus = regexp.MustCompile(`Domain Status:\s+(.*)`)
+	reSGUpdatedDate  = regexp.MustCompile(`Modified Date:\s+(.*)`)
 
 	// LA
 	reLARegistrar          = regexp.MustCompile(`Registrar:\s+(.+)`)
@@ -455,7 +455,6 @@ func ParseWhoisResponseRU(response string, domain string) (structs.DomainInfo, e
 func ParseWhoisResponseSB(response string, domain string) (structs.DomainInfo, error) {
 	var domainInfo structs.DomainInfo
 	domainInfo.DomainName = domain
-
 
 	// 解析创建日期
 	matchCreationDate := reSBCreationDate.FindStringSubmatch(response)

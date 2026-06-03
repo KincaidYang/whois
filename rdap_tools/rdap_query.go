@@ -15,6 +15,10 @@ import (
 	"github.com/KincaidYang/whois/utils"
 )
 
+// maxResponseSize caps how much we read from an RDAP server to guard against
+// a misbehaving or malicious server exhausting memory.
+const maxResponseSize = 2 << 20 // 2 MiB
+
 // proxyClient is a pre-built HTTP client for proxied RDAP requests.
 // Initialized once at startup to enable connection pool reuse across requests.
 var proxyClient *http.Client
@@ -73,7 +77,7 @@ func doRDAPRequest(ctx context.Context, client *http.Client, url string) (result
 
 	switch resp.StatusCode {
 	case http.StatusOK:
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 		if err != nil {
 			return "", err
 		}

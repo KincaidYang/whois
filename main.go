@@ -21,6 +21,7 @@ import (
 	"github.com/KincaidYang/whois/server_lists"
 	"github.com/KincaidYang/whois/utils"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"golang.org/x/net/idna"
 )
 
 // statusWriter wraps http.ResponseWriter to capture the written status code.
@@ -46,8 +47,15 @@ func isASN(resource string) bool {
 }
 
 // isDomain function is used to check if the given resource is a valid domain name.
+// IDN (Unicode) domains such as "müller.de" or "例子.cn" are converted to their
+// ASCII/punycode form before validation, matching the conversion HandleDomain
+// performs, so they are accepted at the entry point.
 func isDomain(resource string) bool {
-	return domainRegex.MatchString(resource)
+	ascii, err := idna.ToASCII(resource)
+	if err != nil {
+		return false
+	}
+	return domainRegex.MatchString(ascii)
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +128,16 @@ func main() {
 	// Main query handler
 	http.HandleFunc("/", handler)
 
-	srv := &http.Server{Addr: fmt.Sprintf(":%d", config.Port)}
+	srv := &http.Server{
+		Addr: fmt.Sprintf(":%d", config.Port),
+		// WriteTimeout must exceed the upstream query timeout (WHOIS/RDAP
+		// each allow up to 10s), since the handler queries upstream
+		// synchronously before writing the response.
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      20 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
 
 	go func() {
 		slog.Info("server listening", "port", config.Port)
