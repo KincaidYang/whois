@@ -289,9 +289,8 @@ Error responses follow [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc
 ```json
 {
   "type": "https://github.com/KincaidYang/whois/blob/main/docs/errors.md#not-found",
-  "title": "Resource Not Found",
-  "status": 404,
-  "detail": "the queried resource was not found in the registry"
+  "title": "Resource not found",
+  "status": 404
 }
 ```
 
