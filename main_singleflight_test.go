@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KincaidYang/whois/server_lists"
+	"github.com/KincaidYang/whois/internal/serverlist"
 )
 
 // TestHandlerSingleflight verifies that concurrent cache misses for the same
@@ -28,7 +28,7 @@ func TestHandlerSingleflight(t *testing.T) {
 
 	// Inject a fake RDAP server for a TLD that exists nowhere else, so the
 	// query is guaranteed to be a cache miss routed to the fake upstream.
-	server_lists.UpdateFromIANA(map[string]string{"zzsfonly": fake.URL + "/"})
+	serverlist.UpdateFromIANA(map[string]string{"zzsfonly": fake.URL + "/"})
 
 	const concurrent = 5
 	codes := make([]int, concurrent)

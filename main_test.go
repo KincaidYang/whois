@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KincaidYang/whois/config"
-	"github.com/KincaidYang/whois/handle_resources"
+	"github.com/KincaidYang/whois/internal/config"
+	"github.com/KincaidYang/whois/internal/handlers"
 )
 
 func TestHandlerBadRequest(t *testing.T) {
@@ -64,7 +64,7 @@ func TestHandlerCacheHit(t *testing.T) {
 func TestHandleHealth(t *testing.T) {
 	req := httptest.NewRequest("GET", "/health", nil)
 	w := httptest.NewRecorder()
-	handle_resources.HandleHealth(w, req)
+	handlers.HandleHealth(w, req)
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}
@@ -76,7 +76,7 @@ func TestHandleHealth(t *testing.T) {
 func TestHandleReady(t *testing.T) {
 	req := httptest.NewRequest("GET", "/ready", nil)
 	w := httptest.NewRecorder()
-	handle_resources.HandleReady(w, req)
+	handlers.HandleReady(w, req)
 	// 200 or 503 are both valid depending on Redis availability
 	if w.Code != http.StatusOK && w.Code != http.StatusServiceUnavailable {
 		t.Errorf("expected 200 or 503, got %d", w.Code)
@@ -86,7 +86,7 @@ func TestHandleReady(t *testing.T) {
 func TestHandleInfo(t *testing.T) {
 	req := httptest.NewRequest("GET", "/info", nil)
 	w := httptest.NewRecorder()
-	handle_resources.HandleInfo(w, req)
+	handlers.HandleInfo(w, req)
 	if w.Code != http.StatusOK {
 		t.Errorf("expected 200, got %d", w.Code)
 	}

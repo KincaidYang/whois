@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KincaidYang/whois/config"
-	"github.com/KincaidYang/whois/utils"
+	"github.com/KincaidYang/whois/internal/config"
+	"github.com/KincaidYang/whois/internal/utils"
 )
 
 // TestRequestIDGenerated verifies the middleware generates an ID when the

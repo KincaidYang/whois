@@ -14,12 +14,12 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/KincaidYang/whois/config"
-	"github.com/KincaidYang/whois/handle_resources"
-	"github.com/KincaidYang/whois/mcp_server"
-	"github.com/KincaidYang/whois/metrics"
-	"github.com/KincaidYang/whois/server_lists"
-	"github.com/KincaidYang/whois/utils"
+	"github.com/KincaidYang/whois/internal/config"
+	"github.com/KincaidYang/whois/internal/handlers"
+	"github.com/KincaidYang/whois/internal/mcp"
+	"github.com/KincaidYang/whois/internal/metrics"
+	"github.com/KincaidYang/whois/internal/serverlist"
+	"github.com/KincaidYang/whois/internal/utils"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -87,18 +87,18 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		if raw {
 			utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Raw output is only supported for domain queries.")
 		} else {
-			handle_resources.HandleIP(ctx, sw, resource, cacheKeyPrefix)
+			handlers.HandleIP(ctx, sw, resource, cacheKeyPrefix)
 		}
 	} else if utils.IsASN(resource) {
 		resourceType = "asn"
 		if raw {
 			utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Raw output is only supported for domain queries.")
 		} else {
-			handle_resources.HandleASN(ctx, sw, resource, cacheKeyPrefix)
+			handlers.HandleASN(ctx, sw, resource, cacheKeyPrefix)
 		}
 	} else if utils.IsDomain(resource) {
 		resourceType = "domain"
-		handle_resources.HandleDomain(ctx, sw, resource, cacheKeyPrefix, raw)
+		handlers.HandleDomain(ctx, sw, resource, cacheKeyPrefix, raw)
 	} else {
 		resourceType = "unknown"
 		utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Invalid input. Please provide a valid domain, IP, or ASN.")
@@ -116,19 +116,19 @@ func main() {
 	if config.BootstrapInterval > 0 {
 		bootstrapCtx, bootstrapCancel := context.WithCancel(context.Background())
 		defer bootstrapCancel()
-		server_lists.StartBootstrapRefresh(bootstrapCtx, config.HttpClient, config.BootstrapInterval)
+		serverlist.StartBootstrapRefresh(bootstrapCtx, config.HttpClient, config.BootstrapInterval)
 	}
 
 	// Health check endpoints
-	http.HandleFunc("/health", handle_resources.HandleHealth)
-	http.HandleFunc("/ready", handle_resources.HandleReady)
-	http.HandleFunc("/info", handle_resources.HandleInfo)
+	http.HandleFunc("/health", handlers.HandleHealth)
+	http.HandleFunc("/ready", handlers.HandleReady)
+	http.HandleFunc("/info", handlers.HandleInfo)
 
 	// Prometheus metrics endpoint
 	http.Handle("/metrics", promhttp.Handler())
 
 	// MCP Streamable HTTP endpoint
-	http.Handle("/mcp", mcp_server.NewHandler(config.Version))
+	http.Handle("/mcp", mcp.NewHandler(config.Version))
 
 	// Main query handler
 	http.HandleFunc("/", handler)
