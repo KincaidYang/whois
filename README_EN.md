@@ -116,6 +116,7 @@ The service provides the following health check endpoints:
 | `GET /ready` | Readiness probe - checks cache and capacity status |
 | `GET /info` | Runtime information - version, uptime, Go version, etc. |
 | `GET /metrics` | Prometheus metrics - request count, latency, cache hit rate, upstream query duration |
+| `GET /openapi.json` | OpenAPI 3.1 specification - machine-readable description of all endpoints and response schemas |
 | `POST /mcp` | MCP Streamable HTTP endpoint - for AI assistant integration |
 
 ### Process Daemon (Optional)
@@ -160,6 +161,17 @@ curl http://localhost:8043/domain/example.com
 curl http://localhost:8043/ip/192.0.2.1
 curl http://localhost:8043/autnum/205794    # as205794 / AS205794 also accepted
 ```
+
+IP queries accept **CIDR prefixes** (on both the root path and `/ip/`):
+
+```bash
+curl http://localhost:8043/ip/192.0.2.0/24
+curl http://localhost:8043/2001:db8::/32
+```
+
+#### OpenAPI Specification
+
+An OpenAPI 3.1 description of the service is available at `/openapi.json`, covering every endpoint, the response schemas (RDAP vocabulary) and the error format. It can be imported directly into Postman, Swagger UI and similar tools.
 
 #### Caching and CORS
 
@@ -325,7 +337,7 @@ The service exposes an [MCP (Model Context Protocol)](https://modelcontextprotoc
 { "query": "example.com" }
 ```
 
-Accepts a domain name, IPv4/v6 address, or ASN (e.g. `AS12345`). Returns the same JSON as the REST API.
+Accepts a domain name, IPv4/v6 address or CIDR prefix, or ASN (e.g. `AS12345`). Returns the same JSON as the REST API.
 
 **MCP server URL:** `http://ip:port/mcp`
 

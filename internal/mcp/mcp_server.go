@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"log/slog"
-	"net"
 	"net/http"
 	"strings"
 
@@ -69,7 +68,7 @@ func whoisLookup(ctx context.Context, _ *mcp.CallToolRequest, input *WhoisInput)
 	rc := newResponseCapture()
 	const cacheKeyPrefix = handlers.CacheKeyPrefix
 
-	if net.ParseIP(query) != nil {
+	if utils.IsIP(query) || utils.IsCIDR(query) {
 		handlers.HandleIP(ctx, rc, query, cacheKeyPrefix)
 	} else if utils.IsASN(query) {
 		handlers.HandleASN(ctx, rc, query, cacheKeyPrefix)
@@ -101,7 +100,7 @@ func NewHandler(version string) http.Handler {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "whois_lookup",
-		Description: "Query WHOIS/RDAP information for a domain name, IP address (v4 or v6), or ASN",
+		Description: "Query WHOIS/RDAP information for a domain name, IP address or CIDR prefix (v4 or v6), or ASN",
 	}, whoisLookup)
 
 	return mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server {

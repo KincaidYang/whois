@@ -1,3 +1,17 @@
+server:
+  port: 8043
+  rateLimit: 60
+
+log:
+  level: "info"
+
+cache:
+  expiration: 3600
+  negativeExpiration: 60
+  requireRedis: false
+  memoryMaxSize: 10000
+  memoryCleanInterval: 300
+
 redis:
   addr: "redis:6379"
   password: ""
@@ -5,23 +19,19 @@ redis:
   # Enable TLS when Redis is reached over an untrusted network.
   tls: false
   # Skip server certificate verification (not recommended).
-  tlsskipverify: false
-cacheexpiration: 3600
-cache:
-  requireredis: false
-  memorymaxsize: 10000
-  memorycleaninterval: 300
-  negativecacheexpiration: 60
-port: 8043
-ratelimit: 60
-proxyserver: "http://127.0.0.1:8080"
-proxysuffixes: []
-proxyusername: ""
-proxypassword: ""
-loglevel: "info"
-bootstrapinterval: 86400
+  tlsSkipVerify: false
+
+proxy:
+  server: ""
+  username: ""
+  password: ""
+  suffixes: []
+
+bootstrap:
+  interval: 86400
+
 mcp:
   # DNS-rebinding protection for the /mcp endpoint: rejects requests whose
   # Host header is not localhost. Keep false behind a reverse proxy; set true
   # when the server is reached directly on localhost.
-  localhostprotection: false
+  localhostProtection: false

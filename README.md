@@ -105,6 +105,7 @@ mcp:
 | `GET /ready` | 就绪检查 - 检查缓存和并发容量状态 |
 | `GET /info` | 运行时信息 - 版本、运行时间、Go 版本等 |
 | `GET /metrics` | Prometheus 指标 - 请求计数、延迟、缓存命中率、上游查询耗时 |
+| `GET /openapi.json` | OpenAPI 3.1 规范 - 全部端点与响应 schema 的机器可读描述 |
 | `POST /mcp` | MCP Streamable HTTP 端点 - 供 AI 助手集成使用 |
 
 **示例：**
@@ -159,6 +160,16 @@ curl http://localhost:8043/domain/example.com
 curl http://localhost:8043/ip/192.0.2.1
 curl http://localhost:8043/autnum/205794    # 也接受 as205794 / AS205794
 ```
+
+IP 查询支持 **CIDR 前缀**（根路径和 `/ip/` 均可）：
+
+```bash
+curl http://localhost:8043/ip/192.0.2.0/24
+curl http://localhost:8043/2001:db8::/32
+```
+
+#### OpenAPI 规范
+服务在 `/openapi.json` 提供 OpenAPI 3.1 描述文档，包含全部端点、响应 schema（RDAP 词汇）和错误格式，可直接导入 Postman/Swagger UI 等工具。
 
 #### 缓存与跨域
 - 成功响应带 `X-Cache: HIT/MISS` 头标识是否命中服务端缓存，以及 `Cache-Control: public, max-age=<缓存秒数>` 供客户端/CDN 缓存。
@@ -335,7 +346,7 @@ curl http://localhost:8043/205794
 { "query": "example.com" }
 ```
 
-支持域名、IPv4/v6 地址或 ASN（如 `AS12345`），返回结果与 REST API 完全一致。
+支持域名、IPv4/v6 地址或 CIDR 前缀、ASN（如 `AS12345`），返回结果与 REST API 完全一致。
 
 **MCP 服务器地址：** `http://ip:端口/mcp`
 

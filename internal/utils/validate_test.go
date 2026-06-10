@@ -25,6 +25,49 @@ func TestIsASN(t *testing.T) {
 	}
 }
 
+func TestIsIP(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected bool
+	}{
+		{"192.0.2.1", true},
+		{"2001:db8::", true},
+		{"192.0.2.0/24", false}, // CIDR is not a bare IP
+		{"example.com", false},
+		{"", false},
+	}
+
+	for _, test := range tests {
+		result := IsIP(test.input)
+		if result != test.expected {
+			t.Errorf("IsIP(%q) = %v; want %v", test.input, result, test.expected)
+		}
+	}
+}
+
+func TestIsCIDR(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected bool
+	}{
+		{"192.0.2.0/24", true},
+		{"192.0.2.5/24", true}, // host bits set is still a valid prefix query
+		{"2001:db8::/32", true},
+		{"192.0.2.0/33", false}, // mask too long for IPv4
+		{"192.0.2.0/", false},
+		{"192.0.2.1", false}, // bare IP is not CIDR
+		{"example.com/24", false},
+		{"", false},
+	}
+
+	for _, test := range tests {
+		result := IsCIDR(test.input)
+		if result != test.expected {
+			t.Errorf("IsCIDR(%q) = %v; want %v", test.input, result, test.expected)
+		}
+	}
+}
+
 func TestIsDomain(t *testing.T) {
 	tests := []struct {
 		input    string

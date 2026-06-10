@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/KincaidYang/whois/internal/config"
 	"github.com/KincaidYang/whois/internal/rdap"
@@ -33,8 +34,13 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 		return
 	}
 
-	// Parse the IP and find the RDAP server URL
-	ip := net.ParseIP(resource)
+	// Parse the IP (for CIDR input, the prefix base address) and find the
+	// RDAP server URL
+	ipStr := resource
+	if i := strings.IndexByte(resource, '/'); i >= 0 {
+		ipStr = resource[:i]
+	}
+	ip := net.ParseIP(ipStr)
 	serverURL, _ := serverlist.LookupIPKey(ip)
 
 	// Query and parse the RDAP information, deduplicating concurrent misses

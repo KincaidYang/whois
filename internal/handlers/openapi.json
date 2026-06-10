@@ -1,0 +1,679 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "whois",
+    "description": "WHOIS/RDAP query service. Returns registration data for domain names, IP networks (including CIDR prefixes) and autonomous system numbers as JSON aligned with the RDAP vocabulary (RFC 9083). Errors follow RFC 9457 Problem Details.",
+    "version": "0.8.0",
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
+  },
+  "externalDocs": {
+    "description": "Project README",
+    "url": "https://github.com/KincaidYang/whois"
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "paths": {
+    "/{resource}": {
+      "get": {
+        "operationId": "query",
+        "summary": "Query a domain, IP address/CIDR prefix, or ASN (auto-detected)",
+        "description": "The resource type is detected automatically: an IP address or CIDR prefix is looked up as an IP network, a number with optional `as`/`asn` prefix as an autnum, anything else as a domain name. Unicode (IDN) domain names are accepted and converted to punycode. For explicit typing use /domain/, /ip/ or /autnum/.",
+        "parameters": [
+          {
+            "name": "resource",
+            "in": "path",
+            "required": true,
+            "description": "Domain name (`example.com`, `例子.cn`), IP address (`192.0.2.1`, `2001:db8::`), CIDR prefix (`192.0.2.0/24`), or ASN (`205794`, `as205794`).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/raw"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/QueryResult"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/QueryDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/domain/{name}": {
+      "get": {
+        "operationId": "queryDomain",
+        "summary": "Query a domain name (RFC 9082-style typed path)",
+        "description": "Returns 400 when the resource is not a valid domain name instead of auto-detecting another type.",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "description": "Domain name; Unicode (IDN) names are accepted.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/raw"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Domain registration data, or the raw WHOIS text when `raw` is set.",
+            "headers": {
+              "X-Cache": {
+                "$ref": "#/components/headers/X-Cache"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/Cache-Control"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Domain"
+                }
+              },
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "description": "Unparsed WHOIS response (only with `?raw=1`)."
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/QueryDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/ip/{address}": {
+      "get": {
+        "operationId": "queryIP",
+        "summary": "Query an IP network (RFC 9082-style typed path)",
+        "description": "Accepts a single IPv4/IPv6 address or a CIDR prefix whose slash is part of the path, e.g. `/ip/192.0.2.0/24` or `/ip/2001:db8::/32`. Returns 400 when the resource is not a valid IP or prefix.",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "description": "IP address (`192.0.2.1`) or CIDR prefix (`192.0.2.0/24`).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "IP network registration data.",
+            "headers": {
+              "X-Cache": {
+                "$ref": "#/components/headers/X-Cache"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/Cache-Control"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IPNetwork"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/QueryDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/autnum/{asn}": {
+      "get": {
+        "operationId": "queryAutnum",
+        "summary": "Query an autonomous system number (RFC 9082-style typed path)",
+        "description": "Returns 400 when the resource is not a valid AS number.",
+        "parameters": [
+          {
+            "name": "asn",
+            "in": "path",
+            "required": true,
+            "description": "AS number, with optional case-insensitive `as`/`asn` prefix (`205794`, `as205794`, `AS205794`).",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Autnum registration data.",
+            "headers": {
+              "X-Cache": {
+                "$ref": "#/components/headers/X-Cache"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/Cache-Control"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Autnum"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "403": {
+            "$ref": "#/components/responses/QueryDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "health",
+        "summary": "Liveness probe",
+        "responses": {
+          "200": {
+            "description": "Service is running.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "operationId": "ready",
+        "summary": "Readiness probe",
+        "responses": {
+          "200": {
+            "description": "Cache and concurrency capacity are available."
+          },
+          "503": {
+            "description": "A dependency is unavailable."
+          }
+        }
+      }
+    },
+    "/info": {
+      "get": {
+        "operationId": "info",
+        "summary": "Runtime information (version, uptime, Go version)",
+        "responses": {
+          "200": {
+            "description": "Runtime information.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/metrics": {
+      "get": {
+        "operationId": "metrics",
+        "summary": "Prometheus metrics",
+        "responses": {
+          "200": {
+            "description": "Metrics in Prometheus text exposition format.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "openapi",
+        "summary": "This OpenAPI document",
+        "responses": {
+          "200": {
+            "description": "OpenAPI 3.1 description of this service.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mcp": {
+      "post": {
+        "operationId": "mcp",
+        "summary": "MCP Streamable HTTP endpoint",
+        "description": "Model Context Protocol endpoint exposing the `whois_lookup` tool for AI assistants. The message format is defined by the MCP specification, not this document.",
+        "externalDocs": {
+          "description": "Model Context Protocol",
+          "url": "https://modelcontextprotocol.io"
+        },
+        "responses": {
+          "200": {
+            "description": "MCP protocol response."
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "raw": {
+        "name": "raw",
+        "in": "query",
+        "required": false,
+        "description": "Return the unparsed WHOIS response as text/plain (domains only; IP and ASN lookups use RDAP, which has no raw-text form). `raw=0` and `raw=false` opt out; any other presence of the parameter opts in.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "headers": {
+      "X-Cache": {
+        "description": "Whether the response was served from the server-side cache (HIT) or fetched from the upstream registry (MISS).",
+        "schema": {
+          "type": "string",
+          "enum": ["HIT", "MISS"]
+        }
+      },
+      "Cache-Control": {
+        "description": "Successful responses are cacheable for the server's configured cache expiration: `public, max-age=<seconds>`.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "QueryResult": {
+        "description": "Registration data for the detected resource type, or the raw WHOIS text when `raw` is set on a domain query.",
+        "headers": {
+          "X-Cache": {
+            "$ref": "#/components/headers/X-Cache"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/Cache-Control"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Domain"
+                },
+                {
+                  "$ref": "#/components/schemas/IPNetwork"
+                },
+                {
+                  "$ref": "#/components/schemas/Autnum"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "objectClassName",
+                "mapping": {
+                  "domain": "#/components/schemas/Domain",
+                  "ip network": "#/components/schemas/IPNetwork",
+                  "autnum": "#/components/schemas/Autnum"
+                }
+              }
+            }
+          },
+          "text/plain": {
+            "schema": {
+              "type": "string",
+              "description": "Unparsed WHOIS response (only with `?raw=1` on a domain query)."
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "The input is not a valid domain, IP, CIDR prefix, or ASN — or the parameter combination is unsupported.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "The resource is not registered or the registry returned no data.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "QueryDenied": {
+        "description": "The upstream registry refused to answer the query.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "The server's concurrent-request limit was reached; retry after a short delay.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ServerError": {
+        "description": "The upstream query failed or an unexpected server-side error occurred.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "description": "RFC 9457 Problem Details. `type` and `title` are stable identifiers; `detail` is human-readable and may change between releases. See https://github.com/KincaidYang/whois/blob/main/docs/errors.md",
+        "required": ["type", "title", "status"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri",
+            "description": "URI of the problem type's documentation anchor."
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      },
+      "Domain": {
+        "type": "object",
+        "description": "Domain registration data; field names follow the RDAP domain object (RFC 9083 section 5.3). Dates are RFC 3339 UTC, or `YYYY-MM-DD` when the registry publishes only a date.",
+        "required": ["objectClassName", "status", "nameservers"],
+        "properties": {
+          "objectClassName": {
+            "type": "string",
+            "const": "domain"
+          },
+          "ldhName": {
+            "type": "string",
+            "description": "Lowercase ASCII (punycode) domain name."
+          },
+          "unicodeName": {
+            "type": "string",
+            "description": "Unicode form of the name; present for IDN domains."
+          },
+          "registrar": {
+            "type": "string"
+          },
+          "registrarIanaId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Status values with ICANN EPP reference URLs stripped and duplicates removed."
+          },
+          "registrationDate": {
+            "type": "string"
+          },
+          "expirationDate": {
+            "type": "string"
+          },
+          "lastChangedDate": {
+            "type": "string"
+          },
+          "nameservers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Lowercase nameserver host names."
+          },
+          "secureDNS": {
+            "$ref": "#/components/schemas/SecureDNS"
+          },
+          "lastUpdateOfRdapDb": {
+            "type": "string"
+          },
+          "unparsed": {
+            "type": "boolean",
+            "description": "True when no parser exists for the TLD; the response carries the raw WHOIS text in rawText instead of parsed fields."
+          },
+          "rawText": {
+            "type": "string",
+            "description": "Raw WHOIS response (only when unparsed is true)."
+          }
+        }
+      },
+      "SecureDNS": {
+        "type": "object",
+        "description": "DNSSEC information (RFC 9083 section 5.3).",
+        "required": ["delegationSigned"],
+        "properties": {
+          "delegationSigned": {
+            "type": "boolean"
+          },
+          "dsData": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DSData"
+            }
+          }
+        }
+      },
+      "DSData": {
+        "type": "object",
+        "description": "Delegation signer record.",
+        "required": ["keyTag", "algorithm", "digestType", "digest"],
+        "properties": {
+          "keyTag": {
+            "type": "integer"
+          },
+          "algorithm": {
+            "type": "integer"
+          },
+          "digestType": {
+            "type": "integer"
+          },
+          "digest": {
+            "type": "string"
+          }
+        }
+      },
+      "IPNetwork": {
+        "type": "object",
+        "description": "IP network registration data; field names follow the RDAP ip network object (RFC 9083 section 5.4).",
+        "required": ["objectClassName", "handle", "status"],
+        "properties": {
+          "objectClassName": {
+            "type": "string",
+            "const": "ip network"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "startAddress": {
+            "type": "string"
+          },
+          "endAddress": {
+            "type": "string"
+          },
+          "cidr": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "country": {
+            "type": "string"
+          },
+          "status": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "registrationDate": {
+            "type": "string"
+          },
+          "lastChangedDate": {
+            "type": "string"
+          },
+          "remarks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Remark"
+            }
+          }
+        }
+      },
+      "Autnum": {
+        "type": "object",
+        "description": "Autonomous system registration data; field names follow the RDAP autnum object (RFC 9083 section 5.5).",
+        "required": ["objectClassName", "handle", "status"],
+        "properties": {
+          "objectClassName": {
+            "type": "string",
+            "const": "autnum"
+          },
+          "handle": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "registrationDate": {
+            "type": "string"
+          },
+          "lastChangedDate": {
+            "type": "string"
+          },
+          "remarks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Remark"
+            }
+          }
+        }
+      },
+      "Remark": {
+        "type": "object",
+        "description": "Registry-provided remark (RFC 9083 section 4.3).",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}
