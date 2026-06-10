@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/KincaidYang/whois/config"
+	"github.com/KincaidYang/whois/internal/config"
 	"golang.org/x/net/idna"
 )
 

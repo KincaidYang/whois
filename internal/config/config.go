@@ -1,0 +1,387 @@
+package config
+
+import (
+	"context"
+	"crypto/tls"
+	"encoding/json"
+	"log/slog"
+	"net/http"
+	"os"
+	"path/filepath"
+	"runtime/debug"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/KincaidYang/whois/internal/utils"
+	"github.com/redis/go-redis/v9"
+	"gopkg.in/yaml.v3"
+)
+
+// discardLogger is a logger that discards all log messages
+type discardLogger struct{}
+
+func (l *discardLogger) Printf(ctx context.Context, format string, v ...interface{}) {
+	// Discard all log messages
+}
+
+var (
+	// Version information - read from build info (Go 1.18+)
+	Version   string
+	BuildTime string
+	GitCommit string
+
+	// redisClient is the Redis client
+	RedisClient *redis.Client
+	// CacheManager is the unified cache interface with fallback support
+	CacheManager utils.Cache
+	// CacheExpiration is the cache duration
+	CacheExpiration time.Duration
+	// HttpClient is used to set the timeout for rdapQuery. RDAP queries hit
+	// the same small set of registry servers repeatedly, so the transport
+	// keeps idle connections around for reuse instead of redialing.
+	HttpClient = &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
+	// Wg is used to wait for all goroutines to finish
+	Wg sync.WaitGroup
+	// Port is used to set the port the server listens on
+	Port int
+	// RateLimit is used to set the number of concurrent requests
+	RateLimit          int
+	ConcurrencyLimiter chan struct{}
+	// ProxyServer is the proxy server
+	ProxyServer string
+	// ProxyUsername is the username for the proxy server
+	ProxyUsername string
+	// ProxyPassword is the password for the proxy server
+	ProxyPassword string
+	// ProxySuffixes is the list of TLDs that use a proxy server
+	ProxySuffixes []string
+	// Cache configuration
+	RequireRedis        bool
+	MemoryMaxSize       int
+	MemoryCleanInterval time.Duration
+	// NegativeCacheExpiration is how long not-found/denied results are cached.
+	NegativeCacheExpiration time.Duration
+	// BootstrapInterval is how often to refresh RDAP server lists from IANA.
+	BootstrapInterval time.Duration
+	// MCPLocalhostProtection enables DNS-rebinding protection on the /mcp
+	// endpoint. Defaults to false for reverse proxy deployments.
+	MCPLocalhostProtection bool
+)
+
+// RequestTimeout bounds how long a single query may take, so a slow upstream
+// WHOIS/RDAP server cannot hold a concurrency slot indefinitely. It must stay
+// below the HTTP server's WriteTimeout (20s) so the handler returns first, and
+// above the per-upstream dial/read timeout (10s) to allow one full upstream
+// attempt. Shared by the HTTP handler and the MCP tool handler.
+const RequestTimeout = 15 * time.Second
+
+// initLogger sets up the global slog JSON handler with the given level string.
+// Accepted values: "debug", "info", "warn", "error" (case-insensitive).
+// Defaults to Info for any unrecognised value.
+func initLogger(levelStr string) {
+	var level slog.Level
+	switch strings.ToLower(levelStr) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn", "warning":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+	slog.SetDefault(slog.New(utils.NewContextHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+		Level: level,
+	}))))
+}
+
+func init() {
+	// Initialize version info from build info (Go 1.18+)
+	initVersionInfo()
+
+	var config Config
+
+	// Load configuration from file
+	loadConfigFromFile(&config)
+
+	// Override configuration with environment variables if they exist
+	overrideConfigWithEnv(&config)
+
+	// Set up structured logger as early as possible so all subsequent
+	// init messages use the configured level and JSON format.
+	initLogger(config.LogLevel)
+
+	// Apply default values for cache configuration (backward compatibility)
+	applyDefaultCacheConfig(&config)
+
+	// Initialize the Redis client with custom options
+	options := &redis.Options{
+		Addr:            config.Redis.Addr,
+		Password:        config.Redis.Password,
+		DB:              config.Redis.DB,
+		PoolSize:        10,
+		MinIdleConns:    0,
+		MaxRetries:      1,
+		MinRetryBackoff: 8 * time.Millisecond,
+		MaxRetryBackoff: 512 * time.Millisecond,
+		DialTimeout:     2 * time.Second,
+		ReadTimeout:     2 * time.Second,
+		WriteTimeout:    2 * time.Second,
+		PoolTimeout:     2 * time.Second,
+	}
+	if config.Redis.TLS {
+		options.TLSConfig = &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: config.Redis.TLSSkipVerify,
+		}
+	}
+
+	RedisClient = redis.NewClient(options)
+
+	// Suppress Redis client's internal error logging by setting a discard logger
+	// The client will still work, but won't spam logs on connection failures
+	redis.SetLogger(&discardLogger{})
+
+	// Set the cache expiration time
+	CacheExpiration = time.Duration(config.CacheExpiration) * time.Second
+
+	// Set cache configuration
+	RequireRedis = config.Cache.RequireRedis
+	MemoryMaxSize = config.Cache.MemoryMaxSize
+	MemoryCleanInterval = time.Duration(config.Cache.MemoryCleanInterval) * time.Second
+	NegativeCacheExpiration = time.Duration(config.Cache.NegativeCacheExpiration) * time.Second
+
+	// Initialize cache manager with fallback
+	initializeCacheManager()
+
+	// Set the port the server listens on
+	Port = config.Port
+
+	// Set the number of concurrent requests
+	RateLimit = config.RateLimit
+	ConcurrencyLimiter = make(chan struct{}, RateLimit)
+
+	// Set the proxy server
+	ProxyServer = config.ProxyServer
+	ProxyUsername = config.ProxyUsername
+	ProxyPassword = config.ProxyPassword
+	ProxySuffixes = config.ProxySuffixes
+
+	// Set the bootstrap interval
+	BootstrapInterval = time.Duration(config.BootstrapInterval) * time.Second
+
+	// Set MCP endpoint options
+	MCPLocalhostProtection = config.MCP.LocalhostProtection
+}
+
+// applyDefaultCacheConfig sets default values for cache configuration if not specified
+func applyDefaultCacheConfig(config *Config) {
+	// RequireRedis defaults to false (allow fallback to memory) - no action needed as bool defaults to false
+
+	// Default: 10000 entries max in memory cache
+	if config.Cache.MemoryMaxSize == 0 {
+		config.Cache.MemoryMaxSize = 10000
+	}
+
+	// Default: clean every 5 minutes (300 seconds)
+	if config.Cache.MemoryCleanInterval == 0 {
+		config.Cache.MemoryCleanInterval = 300
+	}
+
+	// Default: cache not-found/denied results for 60 seconds.
+	// A negative value disables negative caching; only 0 (unset) gets the default.
+	if config.Cache.NegativeCacheExpiration == 0 {
+		config.Cache.NegativeCacheExpiration = 60
+	}
+
+	// Default port: 8043
+	if config.Port == 0 {
+		config.Port = 8043
+	}
+
+	// Default rate limit: 100 concurrent requests
+	if config.RateLimit == 0 {
+		config.RateLimit = 100
+	}
+
+}
+
+// initializeCacheManager sets up the cache with Redis primary and memory fallback
+func initializeCacheManager() {
+	// Create Redis cache
+	redisCache := utils.NewRedisCache(RedisClient)
+
+	// Create memory cache as fallback
+	memoryCache := utils.NewMemoryCache(MemoryMaxSize, MemoryCleanInterval)
+
+	// Create fallback cache that tries Redis first, then memory
+	CacheManager = utils.NewFallbackCache(redisCache, memoryCache)
+
+	// Log cache configuration
+	if redisCache.IsHealthy() {
+		slog.Info("Redis cache initialized")
+	} else {
+		slog.Warn("Redis unavailable, falling back to memory cache")
+		if RequireRedis {
+			slog.Error("Redis is required but unavailable; set cache.requireRedis to false to allow fallback")
+			os.Exit(1)
+		}
+	}
+
+	slog.Info("cache configuration", "memory_max_entries", MemoryMaxSize, "clean_interval", MemoryCleanInterval)
+}
+
+func loadConfigFromFile(config *Config) {
+	configFile, err := os.Open("config.yaml")
+	if err != nil {
+		configFile, err = os.Open("config.json")
+		if err != nil {
+			slog.Error("failed to open configuration file", "err", err)
+			os.Exit(1)
+		}
+	}
+	defer func() { _ = configFile.Close() }()
+
+	fileExt := strings.ToLower(filepath.Ext(configFile.Name()))
+	switch fileExt {
+	case ".yaml", ".yml":
+		decoder := yaml.NewDecoder(configFile)
+		err = decoder.Decode(config)
+		if err != nil {
+			slog.Error("failed to decode YAML configuration", "err", err)
+			os.Exit(1)
+		}
+	case ".json":
+		decoder := json.NewDecoder(configFile)
+		err = decoder.Decode(config)
+		if err != nil {
+			slog.Error("failed to decode JSON configuration", "err", err)
+			os.Exit(1)
+		}
+	default:
+		slog.Error("unsupported configuration file format", "ext", fileExt)
+		os.Exit(1)
+	}
+}
+
+func overrideConfigWithEnv(config *Config) {
+	// Override Redis configuration
+	if redisAddr := os.Getenv("WHOIS_REDIS_ADDR"); redisAddr != "" {
+		config.Redis.Addr = redisAddr
+	}
+	if redisPassword := os.Getenv("WHOIS_REDIS_PASSWORD"); redisPassword != "" {
+		config.Redis.Password = redisPassword
+	}
+	if redisDB := os.Getenv("WHOIS_REDIS_DB"); redisDB != "" {
+		if dbInt, err := strconv.Atoi(redisDB); err == nil {
+			config.Redis.DB = dbInt
+		}
+	}
+	if redisTLS := os.Getenv("WHOIS_REDIS_TLS"); redisTLS != "" {
+		config.Redis.TLS = redisTLS == "true" || redisTLS == "1"
+	}
+	if redisTLSSkipVerify := os.Getenv("WHOIS_REDIS_TLS_SKIP_VERIFY"); redisTLSSkipVerify != "" {
+		config.Redis.TLSSkipVerify = redisTLSSkipVerify == "true" || redisTLSSkipVerify == "1"
+	}
+
+	// Override general configuration
+	if cacheExpiration := os.Getenv("WHOIS_CACHE_EXPIRATION"); cacheExpiration != "" {
+		if cacheInt, err := strconv.Atoi(cacheExpiration); err == nil {
+			config.CacheExpiration = cacheInt
+		}
+	}
+
+	// Override cache configuration
+	if requireRedis := os.Getenv("WHOIS_REQUIRE_REDIS"); requireRedis != "" {
+		config.Cache.RequireRedis = requireRedis == "true" || requireRedis == "1"
+	}
+	if memoryMaxSize := os.Getenv("WHOIS_MEMORY_MAX_SIZE"); memoryMaxSize != "" {
+		if maxSize, err := strconv.Atoi(memoryMaxSize); err == nil {
+			config.Cache.MemoryMaxSize = maxSize
+		}
+	}
+	if memoryCleanInterval := os.Getenv("WHOIS_MEMORY_CLEAN_INTERVAL"); memoryCleanInterval != "" {
+		if interval, err := strconv.Atoi(memoryCleanInterval); err == nil {
+			config.Cache.MemoryCleanInterval = interval
+		}
+	}
+	if negativeCacheExpiration := os.Getenv("WHOIS_NEGATIVE_CACHE_EXPIRATION"); negativeCacheExpiration != "" {
+		if exp, err := strconv.Atoi(negativeCacheExpiration); err == nil {
+			config.Cache.NegativeCacheExpiration = exp
+		}
+	}
+
+	if port := os.Getenv("WHOIS_PORT"); port != "" {
+		if portInt, err := strconv.Atoi(port); err == nil {
+			config.Port = portInt
+		}
+	}
+	if rateLimit := os.Getenv("WHOIS_RATE_LIMIT"); rateLimit != "" {
+		if rateInt, err := strconv.Atoi(rateLimit); err == nil {
+			config.RateLimit = rateInt
+		}
+	}
+	if proxyServer := os.Getenv("WHOIS_PROXY_SERVER"); proxyServer != "" {
+		config.ProxyServer = proxyServer
+	}
+	if proxyUsername := os.Getenv("WHOIS_PROXY_USERNAME"); proxyUsername != "" {
+		config.ProxyUsername = proxyUsername
+	}
+	if proxyPassword := os.Getenv("WHOIS_PROXY_PASSWORD"); proxyPassword != "" {
+		config.ProxyPassword = proxyPassword
+	}
+	if proxySuffixes := os.Getenv("WHOIS_PROXY_SUFFIXES"); proxySuffixes != "" {
+		config.ProxySuffixes = strings.Split(proxySuffixes, ",")
+	}
+	if logLevel := os.Getenv("WHOIS_LOG_LEVEL"); logLevel != "" {
+		config.LogLevel = logLevel
+	}
+	if mcpProtection := os.Getenv("WHOIS_MCP_LOCALHOST_PROTECTION"); mcpProtection != "" {
+		config.MCP.LocalhostProtection = mcpProtection == "true" || mcpProtection == "1"
+	}
+}
+
+// initVersionInfo reads version information from Go build info
+// This works automatically with `go build` (Go 1.18+)
+func initVersionInfo() {
+	Version = "dev"
+	BuildTime = "unknown"
+	GitCommit = "unknown"
+
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return
+	}
+
+	// Get module version
+	if info.Main.Version != "" && info.Main.Version != "(devel)" {
+		Version = info.Main.Version
+	}
+
+	// Get VCS info from build settings
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			if len(setting.Value) >= 7 {
+				GitCommit = setting.Value[:7] // short commit hash
+			} else {
+				GitCommit = setting.Value
+			}
+		case "vcs.time":
+			BuildTime = setting.Value
+		case "vcs.modified":
+			if setting.Value == "true" {
+				GitCommit += "-dirty"
+			}
+		}
+	}
+}
