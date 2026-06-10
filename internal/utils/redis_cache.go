@@ -50,12 +50,12 @@ func (rc *RedisCache) Get(ctx context.Context, key string) (CacheResult, error) 
 	}
 
 	cacheResult, err := rc.client.Get(ctx, key).Result()
-	switch {
-	case err == nil:
+	switch err {
+	case nil:
 		slog.Debug("cache hit", "backend", "redis", "key", key)
 		metrics.CacheRequestsTotal.WithLabelValues("redis", "hit").Inc()
 		return CacheResult{Data: cacheResult, Found: true}, nil
-	case err == redis.Nil:
+	case redis.Nil:
 		metrics.CacheRequestsTotal.WithLabelValues("redis", "miss").Inc()
 		return CacheResult{Found: false}, nil
 	default:

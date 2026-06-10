@@ -38,7 +38,7 @@ func fetchBootstrap(ctx context.Context, client *http.Client, url string) (map[s
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status %d from %s", resp.StatusCode, url)

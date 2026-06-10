@@ -76,5 +76,5 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 
 	// Return the RDAP information
 	w.Header().Set("Content-Type", outcome.contentType)
-	fmt.Fprint(w, outcome.body)
+	_, _ = fmt.Fprint(w, outcome.body)
 }

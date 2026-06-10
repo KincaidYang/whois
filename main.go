@@ -172,9 +172,13 @@ func main() {
 	}
 
 	if c, ok := config.CacheManager.(io.Closer); ok {
-		c.Close()
+		if err := c.Close(); err != nil {
+			slog.Warn("cache close error", "err", err)
+		}
 	}
 	if config.RedisClient != nil {
-		config.RedisClient.Close()
+		if err := config.RedisClient.Close(); err != nil {
+			slog.Warn("redis client close error", "err", err)
+		}
 	}
 }

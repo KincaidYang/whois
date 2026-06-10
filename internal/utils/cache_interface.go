@@ -3,6 +3,7 @@ package utils
 import (
 	"container/list"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"sync"
@@ -234,11 +235,12 @@ func (fc *FallbackCache) IsPrimaryHealthy() bool {
 
 // Close stops background goroutines of the underlying caches that support it.
 func (fc *FallbackCache) Close() error {
+	var errs []error
 	if c, ok := fc.primary.(io.Closer); ok {
-		c.Close()
+		errs = append(errs, c.Close())
 	}
 	if c, ok := fc.fallback.(io.Closer); ok {
-		c.Close()
+		errs = append(errs, c.Close())
 	}
-	return nil
+	return errors.Join(errs...)
 }

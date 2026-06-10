@@ -44,5 +44,5 @@ func HandleCacheResponse(w http.ResponseWriter, data string, contentType string)
 		contentType = "application/json"
 	}
 	w.Header().Set("Content-Type", contentType)
-	fmt.Fprint(w, data)
+	_, _ = fmt.Fprint(w, data)
 }

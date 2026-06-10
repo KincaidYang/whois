@@ -43,10 +43,12 @@ func Whois(ctx context.Context, domain, tld string) (result string, err error) {
 	if err != nil {
 		return "", err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Set read/write deadline
-	conn.SetDeadline(time.Now().Add(whoisTimeout))
+	if err := conn.SetDeadline(time.Now().Add(whoisTimeout)); err != nil {
+		return "", err
+	}
 
 	if _, err := conn.Write([]byte(domain + "\r\n")); err != nil {
 		return "", err

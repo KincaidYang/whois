@@ -132,7 +132,7 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	}
 
 	w.Header().Set("Content-Type", outcome.contentType)
-	fmt.Fprint(w, outcome.body)
+	_, _ = fmt.Fprint(w, outcome.body)
 }
 
 // queryRDAPDomain queries RDAP for a domain, parses the response, and caches

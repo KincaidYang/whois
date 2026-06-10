@@ -249,7 +249,7 @@ func loadConfigFromFile(config *Config) {
 			os.Exit(1)
 		}
 	}
-	defer configFile.Close()
+	defer func() { _ = configFile.Close() }()
 
 	fileExt := strings.ToLower(filepath.Ext(configFile.Name()))
 	switch fileExt {
