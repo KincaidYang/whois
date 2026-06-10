@@ -91,6 +91,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - RFC 9082-style typed query paths: `/domain/{name}`, `/ip/{addr}`,
   `/autnum/{asn}` — return 400 when the resource is not of the path's type.
   The auto-detecting root path is unchanged.
+- CIDR prefix queries for IP networks, e.g. `/ip/192.0.2.0/24` or
+  `/2001:db8::/32` (also via MCP).
+- OpenAPI 3.1 description of the service at `/openapi.json`.
 - `X-Cache: HIT/MISS` on query responses and
   `Cache-Control: public, max-age=<cache.expiration>` on successful ones.
 - CORS: `Access-Control-Allow-Origin: *` on all responses, with preflight

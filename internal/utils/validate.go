@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"net"
 	"regexp"
 
 	"golang.org/x/net/idna"
@@ -19,6 +20,18 @@ var (
 // IsASN reports whether the given resource is an Autonomous System Number (ASN).
 func IsASN(resource string) bool {
 	return asnRegex.MatchString(resource)
+}
+
+// IsIP reports whether the given resource is a bare IPv4 or IPv6 address.
+func IsIP(resource string) bool {
+	return net.ParseIP(resource) != nil
+}
+
+// IsCIDR reports whether the given resource is an IP prefix in CIDR notation
+// (e.g. "192.0.2.0/24", "2001:db8::/32").
+func IsCIDR(resource string) bool {
+	_, _, err := net.ParseCIDR(resource)
+	return err == nil
 }
 
 // IsDomain reports whether the given resource is a valid domain name.

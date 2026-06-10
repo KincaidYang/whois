@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -92,6 +93,74 @@ func TestTypedPathAutnumCacheHit(t *testing.T) {
 		}
 		if !strings.Contains(w.Body.String(), "AS64511") {
 			t.Errorf("%s: response body missing cached data: %s", path, w.Body.String())
+		}
+	}
+}
+
+// TestCIDRCacheHit verifies CIDR prefixes resolve cache entries on both the
+// root path and the /ip/ typed path (whose rest wildcard keeps the slash).
+func TestCIDRCacheHit(t *testing.T) {
+	cidr := "192.0.2.0/24"
+	key := handlers.CacheKeyPrefix + cidr
+	cached := `{"objectClassName":"ip network","handle":"NET-192-0-2-0-1","cidr":"192.0.2.0/24"}`
+	if err := config.CacheManager.Set(context.Background(), key, cached, time.Minute); err != nil {
+		t.Fatalf("failed to seed cache: %v", err)
+	}
+
+	for _, path := range []string{"/" + cidr, "/ip/" + cidr} {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		newTestMux().ServeHTTP(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d", path, w.Code)
+			continue
+		}
+		if !strings.Contains(w.Body.String(), "NET-192-0-2-0-1") {
+			t.Errorf("%s: response body missing cached data: %s", path, w.Body.String())
+		}
+	}
+}
+
+// TestCIDRInvalid verifies malformed prefixes are rejected.
+func TestCIDRInvalid(t *testing.T) {
+	for _, path := range []string{"/ip/192.0.2.0/99", "/ip/192.0.2.0/", "/192.0.2.0/24/extra"} {
+		req := httptest.NewRequest("GET", path, nil)
+		w := httptest.NewRecorder()
+		newTestMux().ServeHTTP(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s: expected 400, got %d", path, w.Code)
+		}
+	}
+}
+
+// TestOpenAPIEndpoint verifies /openapi.json serves a parseable OpenAPI 3.1
+// document.
+func TestOpenAPIEndpoint(t *testing.T) {
+	req := httptest.NewRequest("GET", "/openapi.json", nil)
+	w := httptest.NewRecorder()
+	newTestMux().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+	if ct := w.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type: got %q", ct)
+	}
+	var doc struct {
+		OpenAPI string         `json:"openapi"`
+		Paths   map[string]any `json:"paths"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &doc); err != nil {
+		t.Fatalf("openapi.json is not valid JSON: %v", err)
+	}
+	if !strings.HasPrefix(doc.OpenAPI, "3.1") {
+		t.Errorf("openapi version: got %q, want 3.1.x", doc.OpenAPI)
+	}
+	for _, p := range []string{"/{resource}", "/domain/{name}", "/ip/{address}", "/autnum/{asn}", "/openapi.json"} {
+		if _, ok := doc.Paths[p]; !ok {
+			t.Errorf("openapi.json missing path %q", p)
 		}
 	}
 }

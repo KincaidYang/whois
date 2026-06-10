@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -137,7 +138,14 @@ func RDAPQueryIP(ctx context.Context, ip, serverURL string) (string, error) {
 	defer func() {
 		metrics.UpstreamDuration.WithLabelValues("rdap", "_ip").Observe(time.Since(start).Seconds())
 	}()
-	return doRDAPRequest(ctx, config.HttpClient, serverURL+"ip/"+url.PathEscape(ip))
+	// CIDR input ("192.0.2.0/24") maps to the RFC 9082 ip/<prefix>/<length>
+	// form, so the slash must survive as a path separator: escape each
+	// segment individually.
+	segments := strings.Split(ip, "/")
+	for i := range segments {
+		segments[i] = url.PathEscape(segments[i])
+	}
+	return doRDAPRequest(ctx, config.HttpClient, serverURL+"ip/"+strings.Join(segments, "/"))
 }
 
 // RDAPQueryASN queries the RDAP information for a given ASN.

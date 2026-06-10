@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -77,12 +76,16 @@ func registerRoutes(mux *http.ServeMux) {
 	// Prometheus metrics endpoint
 	mux.Handle("/metrics", promhttp.Handler())
 
+	// OpenAPI 3.1 service description
+	mux.HandleFunc("/openapi.json", handlers.HandleOpenAPI)
+
 	// MCP Streamable HTTP endpoint
 	mux.Handle("/mcp", mcp.NewHandler(config.Version))
 
-	// RFC 9082-style typed query paths
+	// RFC 9082-style typed query paths. The ip path uses a rest wildcard so
+	// CIDR prefixes ("/ip/192.0.2.0/24") keep their slash.
 	mux.HandleFunc("/domain/{resource}", typedHandler("domain"))
-	mux.HandleFunc("/ip/{resource}", typedHandler("ip"))
+	mux.HandleFunc("/ip/{resource...}", typedHandler("ip"))
 	mux.HandleFunc("/autnum/{resource}", typedHandler("asn"))
 
 	// Main query handler (auto-detects the resource type)
@@ -142,7 +145,7 @@ func serve(w http.ResponseWriter, r *http.Request, resource, want string) {
 	start := time.Now()
 
 	var resourceType string
-	if net.ParseIP(resource) != nil {
+	if utils.IsIP(resource) || utils.IsCIDR(resource) {
 		resourceType = "ip"
 	} else if utils.IsASN(resource) {
 		resourceType = "asn"
