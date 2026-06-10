@@ -18,7 +18,7 @@ present, is human-readable context that may change between releases.
 
 **Status: 404.** The domain, IP network, or ASN is not registered, or the
 registry returned no data for it. Not-found results are negatively cached for
-a short time (`cache.negativecacheexpiration`, default 60s).
+a short time (`cache.negativeExpiration`, default 60s).
 
 ## query-denied
 
@@ -34,7 +34,7 @@ which has no raw WHOIS form).
 
 ## rate-limited
 
-**Status: 429.** The server's concurrent-request limit (`ratelimit` in
+**Status: 429.** The server's concurrent-request limit (`server.rateLimit` in
 config) was reached. Retry after a short delay.
 
 ## query-failed

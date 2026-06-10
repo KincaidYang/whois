@@ -1,14 +1,17 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -104,24 +107,41 @@ func initLogger(levelStr string) {
 	}))))
 }
 
-func init() {
+var loadOnce sync.Once
+
+// Load reads the configuration file, applies environment overrides and
+// initializes all package state (logger, Redis client, cache manager).
+// It must be called once at startup before any other package is used;
+// repeated calls are no-ops. On configuration errors it logs and exits.
+func Load() {
+	loadOnce.Do(load)
+}
+
+func load() {
 	// Initialize version info from build info (Go 1.18+)
 	initVersionInfo()
 
-	var config Config
-
 	// Load configuration from file
-	loadConfigFromFile(&config)
+	data, ext, err := readConfigFile()
+	if err != nil {
+		slog.Error("failed to open configuration file", "err", err)
+		os.Exit(1)
+	}
+	config, err := parseConfig(data, ext)
+	if err != nil {
+		slog.Error("invalid configuration", "err", err)
+		os.Exit(1)
+	}
 
 	// Override configuration with environment variables if they exist
 	overrideConfigWithEnv(&config)
 
 	// Set up structured logger as early as possible so all subsequent
 	// init messages use the configured level and JSON format.
-	initLogger(config.LogLevel)
+	initLogger(config.Log.Level)
 
-	// Apply default values for cache configuration (backward compatibility)
-	applyDefaultCacheConfig(&config)
+	// Apply default values for anything left unset
+	applyDefaults(&config)
 
 	// Initialize the Redis client with custom options
 	options := &redis.Options{
@@ -152,40 +172,43 @@ func init() {
 	redis.SetLogger(&discardLogger{})
 
 	// Set the cache expiration time
-	CacheExpiration = time.Duration(config.CacheExpiration) * time.Second
+	CacheExpiration = time.Duration(config.Cache.Expiration) * time.Second
 
 	// Set cache configuration
 	RequireRedis = config.Cache.RequireRedis
 	MemoryMaxSize = config.Cache.MemoryMaxSize
 	MemoryCleanInterval = time.Duration(config.Cache.MemoryCleanInterval) * time.Second
-	NegativeCacheExpiration = time.Duration(config.Cache.NegativeCacheExpiration) * time.Second
+	NegativeCacheExpiration = time.Duration(config.Cache.NegativeExpiration) * time.Second
 
 	// Initialize cache manager with fallback
 	initializeCacheManager()
 
 	// Set the port the server listens on
-	Port = config.Port
+	Port = config.Server.Port
 
 	// Set the number of concurrent requests
-	RateLimit = config.RateLimit
+	RateLimit = config.Server.RateLimit
 	ConcurrencyLimiter = make(chan struct{}, RateLimit)
 
 	// Set the proxy server
-	ProxyServer = config.ProxyServer
-	ProxyUsername = config.ProxyUsername
-	ProxyPassword = config.ProxyPassword
-	ProxySuffixes = config.ProxySuffixes
+	ProxyServer = config.Proxy.Server
+	ProxyUsername = config.Proxy.Username
+	ProxyPassword = config.Proxy.Password
+	ProxySuffixes = config.Proxy.Suffixes
 
 	// Set the bootstrap interval
-	BootstrapInterval = time.Duration(config.BootstrapInterval) * time.Second
+	BootstrapInterval = time.Duration(config.Bootstrap.Interval) * time.Second
 
 	// Set MCP endpoint options
 	MCPLocalhostProtection = config.MCP.LocalhostProtection
 }
 
-// applyDefaultCacheConfig sets default values for cache configuration if not specified
-func applyDefaultCacheConfig(config *Config) {
-	// RequireRedis defaults to false (allow fallback to memory) - no action needed as bool defaults to false
+// applyDefaults sets default values for configuration left unset
+func applyDefaults(config *Config) {
+	// Default: cache successful results for one hour
+	if config.Cache.Expiration == 0 {
+		config.Cache.Expiration = 3600
+	}
 
 	// Default: 10000 entries max in memory cache
 	if config.Cache.MemoryMaxSize == 0 {
@@ -199,20 +222,19 @@ func applyDefaultCacheConfig(config *Config) {
 
 	// Default: cache not-found/denied results for 60 seconds.
 	// A negative value disables negative caching; only 0 (unset) gets the default.
-	if config.Cache.NegativeCacheExpiration == 0 {
-		config.Cache.NegativeCacheExpiration = 60
+	if config.Cache.NegativeExpiration == 0 {
+		config.Cache.NegativeExpiration = 60
 	}
 
 	// Default port: 8043
-	if config.Port == 0 {
-		config.Port = 8043
+	if config.Server.Port == 0 {
+		config.Server.Port = 8043
 	}
 
 	// Default rate limit: 100 concurrent requests
-	if config.RateLimit == 0 {
-		config.RateLimit = 100
+	if config.Server.RateLimit == 0 {
+		config.Server.RateLimit = 100
 	}
-
 }
 
 // initializeCacheManager sets up the cache with Redis primary and memory fallback
@@ -240,37 +262,127 @@ func initializeCacheManager() {
 	slog.Info("cache configuration", "memory_max_entries", MemoryMaxSize, "clean_interval", MemoryCleanInterval)
 }
 
-func loadConfigFromFile(config *Config) {
-	configFile, err := os.Open("config.yaml")
-	if err != nil {
-		configFile, err = os.Open("config.json")
-		if err != nil {
-			slog.Error("failed to open configuration file", "err", err)
-			os.Exit(1)
+// readConfigFile reads config.yaml (or config.json) and returns the raw bytes
+// together with the file extension that selects the parser.
+func readConfigFile() ([]byte, string, error) {
+	for _, name := range []string{"config.yaml", "config.yml", "config.json"} {
+		data, err := os.ReadFile(name)
+		if err == nil {
+			return data, strings.ToLower(filepath.Ext(name)), nil
+		}
+		if !os.IsNotExist(err) {
+			return nil, "", err
 		}
 	}
-	defer func() { _ = configFile.Close() }()
+	return nil, "", fmt.Errorf("no config.yaml or config.json found in the working directory")
+}
 
-	fileExt := strings.ToLower(filepath.Ext(configFile.Name()))
-	switch fileExt {
+// legacyKeys maps configuration keys from the pre-v0.9 layout (lowercased)
+// to their new dotted location, used to build migration error messages.
+var legacyKeys = map[string]string{
+	// old top-level keys, now grouped
+	"cacheexpiration":   "cache.expiration",
+	"port":              "server.port",
+	"ratelimit":         "server.rateLimit",
+	"proxyserver":       "proxy.server",
+	"proxyusername":     "proxy.username",
+	"proxypassword":     "proxy.password",
+	"proxysuffixes":     "proxy.suffixes",
+	"loglevel":          "log.level",
+	"bootstrapinterval": "bootstrap.interval",
+	// old nested keys whose spelling changed (the old YAML tags were
+	// all-lowercase; the new ones are camelCase)
+	"redis.tlsskipverify":           "redis.tlsSkipVerify",
+	"cache.requireredis":            "cache.requireRedis",
+	"cache.memorymaxsize":           "cache.memoryMaxSize",
+	"cache.memorycleaninterval":     "cache.memoryCleanInterval",
+	"cache.negativecacheexpiration": "cache.negativeExpiration",
+	"mcp.localhostprotection":       "mcp.localhostProtection",
+}
+
+// groupKeys are the only keys allowed at the top level of the configuration.
+var groupKeys = map[string]bool{
+	"server": true, "log": true, "cache": true, "redis": true,
+	"proxy": true, "bootstrap": true, "mcp": true,
+}
+
+// detectLegacyKeys returns an error describing every pre-v0.9 key found in
+// the raw configuration, so users get one complete migration list instead of
+// a bare "unknown field" decode error.
+func detectLegacyKeys(raw map[string]interface{}) error {
+	var found []string
+	appendLegacy := func(key string) {
+		if newKey, ok := legacyKeys[strings.ToLower(key)]; ok {
+			found = append(found, fmt.Sprintf("%q is now %q", key, newKey))
+		}
+	}
+	for key, value := range raw {
+		if !groupKeys[strings.ToLower(key)] {
+			appendLegacy(key)
+			continue
+		}
+		nested, ok := value.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for nestedKey := range nested {
+			// Exact match only: the legacy nested keys are all-lowercase
+			// forms of the new camelCase keys, so a case-insensitive match
+			// would flag the new spelling too.
+			if newKey, ok := legacyKeys[strings.ToLower(key)+"."+nestedKey]; ok {
+				found = append(found, fmt.Sprintf("%q is now %q", key+"."+nestedKey, newKey))
+			}
+		}
+	}
+	if len(found) == 0 {
+		return nil
+	}
+	sort.Strings(found)
+	return fmt.Errorf("configuration uses the pre-v0.9 layout; please migrate: %s (see CHANGELOG.md for the full mapping)",
+		strings.Join(found, "; "))
+}
+
+// parseConfig decodes the configuration, rejecting unknown fields and
+// pre-v0.9 keys with a migration hint. ext is ".yaml", ".yml" or ".json".
+func parseConfig(data []byte, ext string) (Config, error) {
+	var config Config
+
+	// First pass: decode generically to detect legacy keys with a helpful
+	// message before the strict decode rejects them as unknown fields.
+	raw := map[string]interface{}{}
+	switch ext {
 	case ".yaml", ".yml":
-		decoder := yaml.NewDecoder(configFile)
-		err = decoder.Decode(config)
-		if err != nil {
-			slog.Error("failed to decode YAML configuration", "err", err)
-			os.Exit(1)
+		if err := yaml.Unmarshal(data, &raw); err != nil {
+			return config, fmt.Errorf("failed to decode YAML configuration: %w", err)
 		}
 	case ".json":
-		decoder := json.NewDecoder(configFile)
-		err = decoder.Decode(config)
-		if err != nil {
-			slog.Error("failed to decode JSON configuration", "err", err)
-			os.Exit(1)
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return config, fmt.Errorf("failed to decode JSON configuration: %w", err)
 		}
 	default:
-		slog.Error("unsupported configuration file format", "ext", fileExt)
-		os.Exit(1)
+		return config, fmt.Errorf("unsupported configuration file format: %s", ext)
 	}
+	if err := detectLegacyKeys(raw); err != nil {
+		return config, err
+	}
+
+	// Second pass: strict decode, so typos and unknown keys fail loudly
+	// instead of being silently ignored.
+	switch ext {
+	case ".yaml", ".yml":
+		decoder := yaml.NewDecoder(bytes.NewReader(data))
+		decoder.KnownFields(true)
+		if err := decoder.Decode(&config); err != nil {
+			return config, fmt.Errorf("failed to decode YAML configuration: %w", err)
+		}
+	case ".json":
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&config); err != nil {
+			return config, fmt.Errorf("failed to decode JSON configuration: %w", err)
+		}
+	}
+	return config, nil
 }
 
 func overrideConfigWithEnv(config *Config) {
@@ -293,14 +405,12 @@ func overrideConfigWithEnv(config *Config) {
 		config.Redis.TLSSkipVerify = redisTLSSkipVerify == "true" || redisTLSSkipVerify == "1"
 	}
 
-	// Override general configuration
+	// Override cache configuration
 	if cacheExpiration := os.Getenv("WHOIS_CACHE_EXPIRATION"); cacheExpiration != "" {
 		if cacheInt, err := strconv.Atoi(cacheExpiration); err == nil {
-			config.CacheExpiration = cacheInt
+			config.Cache.Expiration = cacheInt
 		}
 	}
-
-	// Override cache configuration
 	if requireRedis := os.Getenv("WHOIS_REQUIRE_REDIS"); requireRedis != "" {
 		config.Cache.RequireRedis = requireRedis == "true" || requireRedis == "1"
 	}
@@ -316,34 +426,38 @@ func overrideConfigWithEnv(config *Config) {
 	}
 	if negativeCacheExpiration := os.Getenv("WHOIS_NEGATIVE_CACHE_EXPIRATION"); negativeCacheExpiration != "" {
 		if exp, err := strconv.Atoi(negativeCacheExpiration); err == nil {
-			config.Cache.NegativeCacheExpiration = exp
+			config.Cache.NegativeExpiration = exp
 		}
 	}
 
+	// Override server configuration
 	if port := os.Getenv("WHOIS_PORT"); port != "" {
 		if portInt, err := strconv.Atoi(port); err == nil {
-			config.Port = portInt
+			config.Server.Port = portInt
 		}
 	}
 	if rateLimit := os.Getenv("WHOIS_RATE_LIMIT"); rateLimit != "" {
 		if rateInt, err := strconv.Atoi(rateLimit); err == nil {
-			config.RateLimit = rateInt
+			config.Server.RateLimit = rateInt
 		}
 	}
+
+	// Override proxy configuration
 	if proxyServer := os.Getenv("WHOIS_PROXY_SERVER"); proxyServer != "" {
-		config.ProxyServer = proxyServer
+		config.Proxy.Server = proxyServer
 	}
 	if proxyUsername := os.Getenv("WHOIS_PROXY_USERNAME"); proxyUsername != "" {
-		config.ProxyUsername = proxyUsername
+		config.Proxy.Username = proxyUsername
 	}
 	if proxyPassword := os.Getenv("WHOIS_PROXY_PASSWORD"); proxyPassword != "" {
-		config.ProxyPassword = proxyPassword
+		config.Proxy.Password = proxyPassword
 	}
 	if proxySuffixes := os.Getenv("WHOIS_PROXY_SUFFIXES"); proxySuffixes != "" {
-		config.ProxySuffixes = strings.Split(proxySuffixes, ",")
+		config.Proxy.Suffixes = strings.Split(proxySuffixes, ",")
 	}
+
 	if logLevel := os.Getenv("WHOIS_LOG_LEVEL"); logLevel != "" {
-		config.LogLevel = logLevel
+		config.Log.Level = logLevel
 	}
 	if mcpProtection := os.Getenv("WHOIS_MCP_LOCALHOST_PROTECTION"); mcpProtection != "" {
 		config.MCP.LocalhostProtection = mcpProtection == "true" || mcpProtection == "1"

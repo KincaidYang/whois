@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,13 @@ import (
 	"github.com/KincaidYang/whois/internal/config"
 	"github.com/KincaidYang/whois/internal/handlers"
 )
+
+// TestMain loads the configuration once for the whole package, mirroring the
+// explicit config.Load() call in main().
+func TestMain(m *testing.M) {
+	config.Load()
+	os.Exit(m.Run())
+}
 
 func TestHandlerBadRequest(t *testing.T) {
 	req := httptest.NewRequest("GET", "/not_a_valid_input!!", nil)
@@ -58,6 +66,12 @@ func TestHandlerCacheHit(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), "cachehittest99999.cn") {
 		t.Errorf("response body missing cached domain: %s", w.Body.String())
+	}
+	if got := w.Header().Get("X-Cache"); got != "HIT" {
+		t.Errorf("X-Cache: got %q, want HIT", got)
+	}
+	if cc := w.Header().Get("Cache-Control"); !strings.HasPrefix(cc, "public, max-age=") {
+		t.Errorf("Cache-Control: got %q", cc)
 	}
 }
 

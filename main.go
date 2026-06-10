@@ -49,7 +49,70 @@ func withRequestID(next http.Handler) http.Handler {
 	})
 }
 
+// withCORS allows cross-origin browser access: every response carries
+// Access-Control-Allow-Origin and preflight OPTIONS requests are answered
+// directly.
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, X-Cache")
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Request-ID, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// registerRoutes attaches all endpoints to mux.
+func registerRoutes(mux *http.ServeMux) {
+	// Health check endpoints
+	mux.HandleFunc("/health", handlers.HandleHealth)
+	mux.HandleFunc("/ready", handlers.HandleReady)
+	mux.HandleFunc("/info", handlers.HandleInfo)
+
+	// Prometheus metrics endpoint
+	mux.Handle("/metrics", promhttp.Handler())
+
+	// MCP Streamable HTTP endpoint
+	mux.Handle("/mcp", mcp.NewHandler(config.Version))
+
+	// RFC 9082-style typed query paths
+	mux.HandleFunc("/domain/{resource}", typedHandler("domain"))
+	mux.HandleFunc("/ip/{resource}", typedHandler("ip"))
+	mux.HandleFunc("/autnum/{resource}", typedHandler("asn"))
+
+	// Main query handler (auto-detects the resource type)
+	mux.HandleFunc("/", handler)
+}
+
+// handler serves the root path, auto-detecting whether the resource is a
+// domain, IP address, or ASN.
 func handler(w http.ResponseWriter, r *http.Request) {
+	serve(w, r, strings.TrimPrefix(r.URL.Path, "/"), "")
+}
+
+// typedHandler serves the RFC 9082-style typed paths (/domain/{resource},
+// /ip/{resource}, /autnum/{resource}); want names the resource type the path
+// requires.
+func typedHandler(want string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		serve(w, r, r.PathValue("resource"), want)
+	}
+}
+
+// typedPathError maps a required resource type to the 400 message returned
+// when the supplied resource is not of that type.
+var typedPathError = map[string]string{
+	"domain": "The /domain/ path requires a valid domain name.",
+	"ip":     "The /ip/ path requires a valid IPv4 or IPv6 address.",
+	"asn":    "The /autnum/ path requires a valid AS number.",
+}
+
+func serve(w http.ResponseWriter, r *http.Request, resource, want string) {
 	config.Wg.Add(1)
 	select {
 	case config.ConcurrencyLimiter <- struct{}{}:
@@ -67,7 +130,6 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), config.RequestTimeout)
 	defer cancel()
-	resource := strings.TrimPrefix(r.URL.Path, "/")
 	resource = strings.ToLower(resource)
 
 	// ?raw requests the unparsed WHOIS text (domains only; RDAP-backed IP
@@ -82,23 +144,32 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	var resourceType string
 	if net.ParseIP(resource) != nil {
 		resourceType = "ip"
+	} else if utils.IsASN(resource) {
+		resourceType = "asn"
+	} else if utils.IsDomain(resource) {
+		resourceType = "domain"
+	} else {
+		resourceType = "unknown"
+	}
+
+	switch {
+	case want != "" && resourceType != want:
+		utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, typedPathError[want])
+	case resourceType == "ip":
 		if raw {
 			utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Raw output is only supported for domain queries.")
 		} else {
 			handlers.HandleIP(ctx, sw, resource, cacheKeyPrefix)
 		}
-	} else if utils.IsASN(resource) {
-		resourceType = "asn"
+	case resourceType == "asn":
 		if raw {
 			utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Raw output is only supported for domain queries.")
 		} else {
 			handlers.HandleASN(ctx, sw, resource, cacheKeyPrefix)
 		}
-	} else if utils.IsDomain(resource) {
-		resourceType = "domain"
+	case resourceType == "domain":
 		handlers.HandleDomain(ctx, sw, resource, cacheKeyPrefix, raw)
-	} else {
-		resourceType = "unknown"
+	default:
 		utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Invalid input. Please provide a valid domain, IP, or ASN.")
 	}
 
@@ -108,6 +179,8 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	// Load configuration and initialize logger, Redis client and cache.
+	config.Load()
 
 	// Start RDAP bootstrap refresh (initial fetch + periodic updates).
 	// Disabled when BootstrapInterval is 0 or unset.
@@ -117,23 +190,11 @@ func main() {
 		serverlist.StartBootstrapRefresh(bootstrapCtx, config.HttpClient, config.BootstrapInterval)
 	}
 
-	// Health check endpoints
-	http.HandleFunc("/health", handlers.HandleHealth)
-	http.HandleFunc("/ready", handlers.HandleReady)
-	http.HandleFunc("/info", handlers.HandleInfo)
-
-	// Prometheus metrics endpoint
-	http.Handle("/metrics", promhttp.Handler())
-
-	// MCP Streamable HTTP endpoint
-	http.Handle("/mcp", mcp.NewHandler(config.Version))
-
-	// Main query handler
-	http.HandleFunc("/", handler)
+	registerRoutes(http.DefaultServeMux)
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", config.Port),
-		Handler: withRequestID(http.DefaultServeMux),
+		Handler: withRequestID(withCORS(http.DefaultServeMux)),
 		// WriteTimeout must exceed the upstream query timeout (WHOIS/RDAP
 		// each allow up to 10s), since the handler queries upstream
 		// synchronously before writing the response.

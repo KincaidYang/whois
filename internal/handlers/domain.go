@@ -114,6 +114,7 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	}
 
 	if cacheResult.Found {
+		w.Header().Set("X-Cache", "HIT")
 		if utils.IsNegativeCacheHit(w, cacheResult.Data) {
 			return
 		}
@@ -121,6 +122,7 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 		if len(cacheResult.Data) == 0 || cacheResult.Data[0] != '{' {
 			contentType = "text/plain; charset=utf-8"
 		}
+		setCacheControl(w)
 		utils.HandleCacheResponse(w, cacheResult.Data, contentType)
 		return
 	}
@@ -156,6 +158,8 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 		return
 	}
 
+	w.Header().Set("X-Cache", "MISS")
+	setCacheControl(w)
 	w.Header().Set("Content-Type", outcome.contentType)
 	_, _ = fmt.Fprint(w, outcome.body)
 }

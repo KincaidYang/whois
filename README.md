@@ -37,38 +37,41 @@ go build
 ```bash
 vim config.yaml
 ```
-> ⚠️ 配置文件的 YAML 键名**区分大小写**，请全部使用小写（如 `cacheexpiration`、`requireredis`、`proxyserver`），否则该项不会被解析、回退到默认值。
+> ⚠️ 配置项按功能分组，键名为 **camelCase**（与 API 响应字段风格一致）。未知键或旧版（v0.9 之前）的扁平键会在启动时报错并给出迁移提示，不会再静默回退到默认值。
 
 ```yaml
+server:
+  port: 8043                   # 服务监听端口
+  rateLimit: 60                # 并发限制，即程序向上游whois服务器发起的最大并发请求数
+
+log:
+  level: "info"                # 日志级别：debug、info、warn、error（默认：info）
+
+cache:
+  expiration: 3600             # 缓存过期时间，单位：秒（默认：3600）
+  negativeExpiration: 60       # “未找到/被拒”结果的缓存时间，单位：秒（默认: 60；设为负数则禁用）
+  requireRedis: false          # false=允许Redis失败时降级到内存缓存，true=Redis必须可用否则程序退出
+  memoryMaxSize: 10000         # 内存缓存最大条目数，超过此数量按 LRU 淘汰最久未使用条目（默认: 10000）
+  memoryCleanInterval: 300     # 内存缓存过期数据清理间隔，单位：秒（默认: 300）
+
 redis:
-  addr: "redis:6379"          # Redis服务器地址
+  addr: "redis:6379"           # Redis服务器地址
   password: ""                 # Redis密码，如无密码则留空
   db: 0                        # Redis数据库编号
   tls: false                   # 通过不可信网络连接 Redis 时建议开启 TLS
-  tlsskipverify: false         # 跳过证书校验（不推荐，仅自签名证书场景使用）
-cacheexpiration: 3600          # 缓存过期时间，单位：秒
+  tlsSkipVerify: false         # 跳过证书校验（不推荐，仅自签名证书场景使用）
 
-# 高级缓存配置（可选，新版本功能）
-cache:
-  requireredis: false          # false=允许Redis失败时降级到内存缓存，true=Redis必须可用否则程序退出
-  memorymaxsize: 10000         # 内存缓存最大条目数，超过此数量按 LRU 淘汰最久未使用条目（默认: 10000）
-  memorycleaninterval: 300     # 内存缓存过期数据清理间隔，单位：秒（默认: 300）
-  negativecacheexpiration: 60  # “未找到/被拒”结果的缓存时间，单位：秒（默认: 60；设为负数则禁用）
+proxy:
+  server: ""                   # 代理服务器地址，留空表示不使用代理
+  username: ""                 # 代理服务器用户名（如需认证）
+  password: ""                 # 代理服务器密码（如需认证）
+  suffixes: []                 # 需要使用代理的TLD后缀列表；填 ["all"] 表示全部走代理
 
-port: 8043                     # 服务监听端口
-ratelimit: 50                  # 并发限制，即程序向上游whois服务器发起的最大并发请求数
-
-# 代理配置（可选）
-proxyserver: "http://127.0.0.1:8080"  # 代理服务器地址
-proxysuffixes: []                      # 需要使用代理的TLD后缀列表，留空表示不使用代理；填 ["all"] 表示全部走代理
-proxyusername: ""                      # 代理服务器用户名（如需认证）
-proxypassword: ""                      # 代理服务器密码（如需认证）
-
-loglevel: "info"                       # 日志级别：debug、info、warn、error（默认：info）
-bootstrapinterval: 86400               # RDAP 服务器列表从 IANA 刷新间隔，单位：秒；0 或不填则禁用（推荐：86400）
+bootstrap:
+  interval: 86400              # RDAP 服务器列表从 IANA 刷新间隔，单位：秒；0 则禁用（推荐：86400）
 
 mcp:
-  localhostprotection: false           # /mcp 端点的 DNS rebinding 保护：开启后只接受 Host 为 localhost 的请求。反向代理部署保持 false；本机直连部署建议设为 true
+  localhostProtection: false   # /mcp 端点的 DNS rebinding 保护：开启后只接受 Host 为 localhost 的请求。反向代理部署保持 false；本机直连部署建议设为 true
 ```
 
 部分配置项可通过环境变量覆盖（优先级高于配置文件），如 `WHOIS_REDIS_ADDR`、`WHOIS_REDIS_TLS`、`WHOIS_PORT`、`WHOIS_RATE_LIMIT`、`WHOIS_CACHE_EXPIRATION`、`WHOIS_NEGATIVE_CACHE_EXPIRATION`、`WHOIS_LOG_LEVEL`、`WHOIS_MCP_LOCALHOST_PROTECTION` 等。
@@ -147,6 +150,19 @@ GET 请求
 部署后直接通过浏览器访问`http://ip:端口/你想查的域名或ip或asn`，默认端口`8043`，示例`http://1.2.3.4:8043/examlpe.com`,详细示例请参考下方
 
 > 支持直接查询国际化域名（IDN，含中文、带变音符号等 Unicode 域名），程序会自动转换为 Punycode 后查询，例如 `http://1.2.3.4:8043/例子.cn`。
+
+#### 类型化查询路径
+除根路径自动识别外，还提供 [RFC 9082](https://www.rfc-editor.org/rfc/rfc9082) 风格的类型化路径，适合程序化调用——资源类型不匹配时直接返回 400，不会被识别成其他类型：
+
+```bash
+curl http://localhost:8043/domain/example.com
+curl http://localhost:8043/ip/192.0.2.1
+curl http://localhost:8043/autnum/205794    # 也接受 as205794 / AS205794
+```
+
+#### 缓存与跨域
+- 成功响应带 `X-Cache: HIT/MISS` 头标识是否命中服务端缓存，以及 `Cache-Control: public, max-age=<缓存秒数>` 供客户端/CDN 缓存。
+- 所有响应带 `Access-Control-Allow-Origin: *`，可直接在浏览器前端跨域调用。
 
 #### 查询域名 Whois 信息
 ```bash

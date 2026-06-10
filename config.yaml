@@ -1,3 +1,27 @@
+server:
+  # Port the HTTP server listens on.
+  port: 8043
+  # Maximum number of concurrent requests; further requests get 429.
+  rateLimit: 60
+
+log:
+  # Minimum log level: debug, info, warn, error.
+  level: "info"
+
+cache:
+  # How long successful results are cached, in seconds.
+  expiration: 3600
+  # How long not-found/denied results are cached, in seconds.
+  # Set to a negative value to disable negative caching.
+  negativeExpiration: 60
+  # Fail at startup when Redis is unavailable instead of falling back to the
+  # in-memory cache.
+  requireRedis: false
+  # Maximum number of entries in the in-memory fallback cache.
+  memoryMaxSize: 10000
+  # Interval for evicting expired in-memory entries, in seconds.
+  memoryCleanInterval: 300
+
 redis:
   addr: "127.0.0.1:6379"
   password: ""
@@ -5,23 +29,24 @@ redis:
   # Enable TLS when Redis is reached over an untrusted network.
   tls: false
   # Skip server certificate verification (not recommended).
-  tlsskipverify: false
-cacheexpiration: 3600
-cache:
-  requireredis: false
-  memorymaxsize: 10000
-  memorycleaninterval: 300
-  negativecacheexpiration: 60
-port: 8043
-ratelimit: 60
-proxyserver: "http://127.0.0.1:8080"
-proxysuffixes: []
-proxyusername: ""
-proxypassword: ""
-loglevel: "info"
-bootstrapinterval: 86400
+  tlsSkipVerify: false
+
+proxy:
+  # HTTP proxy for RDAP queries to the TLDs listed in suffixes.
+  # Leave server empty to disable proxying.
+  server: ""
+  username: ""
+  password: ""
+  # TLDs queried through the proxy; the special value "all" proxies every TLD.
+  suffixes: []
+
+bootstrap:
+  # How often to refresh RDAP server lists from IANA, in seconds.
+  # 0 disables refreshing.
+  interval: 86400
+
 mcp:
   # DNS-rebinding protection for the /mcp endpoint: rejects requests whose
   # Host header is not localhost. Keep false behind a reverse proxy; set true
   # when the server is reached directly on localhost.
-  localhostprotection: false
+  localhostProtection: false

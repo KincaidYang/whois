@@ -63,6 +63,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of `text/plain`. Only `?raw=1` returns plain text.
 - Cache keys moved from `whois:` to `whois:v2:`; existing cache entries are
   abandoned (no migration needed, they expire naturally).
+- **Configuration file restructured.** Keys are grouped by function and use
+  camelCase, matching the API field style. Unknown keys and pre-v0.9 keys now
+  fail at startup with a migration hint instead of being silently ignored.
+  Environment variable names (`WHOIS_*`) are unchanged. Key mapping:
+
+  | Old | New |
+  |---|---|
+  | `port` | `server.port` |
+  | `ratelimit` | `server.rateLimit` |
+  | `loglevel` | `log.level` |
+  | `cacheexpiration` | `cache.expiration` |
+  | `cache.negativecacheexpiration` | `cache.negativeExpiration` |
+  | `cache.requireredis` | `cache.requireRedis` |
+  | `cache.memorymaxsize` | `cache.memoryMaxSize` |
+  | `cache.memorycleaninterval` | `cache.memoryCleanInterval` |
+  | `redis.tlsskipverify` | `redis.tlsSkipVerify` |
+  | `proxyserver` | `proxy.server` |
+  | `proxyusername` | `proxy.username` |
+  | `proxypassword` | `proxy.password` |
+  | `proxysuffixes` | `proxy.suffixes` |
+  | `bootstrapinterval` | `bootstrap.interval` |
+  | `mcp.localhostprotection` | `mcp.localhostProtection` |
+
+### Added
+- RFC 9082-style typed query paths: `/domain/{name}`, `/ip/{addr}`,
+  `/autnum/{asn}` — return 400 when the resource is not of the path's type.
+  The auto-detecting root path is unchanged.
+- `X-Cache: HIT/MISS` on query responses and
+  `Cache-Control: public, max-age=<cache.expiration>` on successful ones.
+- CORS: `Access-Control-Allow-Origin: *` on all responses, with preflight
+  `OPTIONS` support.
+- `cache.expiration` now defaults to 3600 when unset.
+- `CHANGELOG.md` (this file) and `SECURITY.md`.
+- golangci-lint in CI.
 
 ### Changed
 - All Go packages moved under `internal/` and renamed to idiomatic Go names
@@ -70,10 +104,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `rdap_tools`→`rdap`, `rdap_tools/structs`→`model`, `whois_tools`→`whois`,
   `mcp_server`→`mcp`). No behavior change; the module no longer exposes any
   importable Go API.
-
-### Added
-- `CHANGELOG.md` (this file) and `SECURITY.md`.
-- golangci-lint in CI.
 
 ## [0.7.0] - 2026-06-10
 

@@ -24,9 +24,11 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 		return
 	}
 	if cacheResult.Found {
+		w.Header().Set("X-Cache", "HIT")
 		if utils.IsNegativeCacheHit(w, cacheResult.Data) {
 			return
 		}
+		setCacheControl(w)
 		utils.HandleCacheResponse(w, cacheResult.Data, "application/json")
 		return
 	}
@@ -64,6 +66,8 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 	}
 
 	// Return the RDAP information
+	w.Header().Set("X-Cache", "MISS")
+	setCacheControl(w)
 	w.Header().Set("Content-Type", outcome.contentType)
 	_, _ = fmt.Fprint(w, outcome.body)
 }

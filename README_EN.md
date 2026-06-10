@@ -47,38 +47,41 @@ This program requires Redis service support. You can refer to https://redis.io/d
 vim config.yaml
 ```
 
-> ⚠️ YAML keys in the config file are **case-sensitive** — use all lowercase (e.g. `cacheexpiration`, `requireredis`, `proxyserver`), otherwise the key is ignored and falls back to its default.
+> ⚠️ Configuration keys are grouped by function and use **camelCase** (matching the API response field style). Unknown keys and the pre-v0.9 flat keys fail at startup with a migration hint instead of being silently ignored.
 
 ```yaml
+server:
+  port: 8043                   # Server listening port
+  rateLimit: 60                # Concurrency limit for upstream WHOIS server requests
+
+log:
+  level: "info"                # Log level: debug, info, warn, error (default: info)
+
+cache:
+  expiration: 3600             # Cache expiration time in seconds (default: 3600)
+  negativeExpiration: 60       # How long "not found / denied" results are cached, in seconds (default: 60; set negative to disable)
+  requireRedis: false          # false=allow fallback to memory cache when Redis fails, true=Redis must be available or program exits
+  memoryMaxSize: 10000         # Maximum entries in memory cache; least-recently-used entries are evicted past this (default: 10000)
+  memoryCleanInterval: 300     # Memory cache cleanup interval in seconds (default: 300)
+
 redis:
   addr: "redis:6379"           # Redis server address
   password: ""                 # Redis password, leave empty if none
   db: 0                        # Redis database number
   tls: false                   # Enable TLS when Redis is reached over an untrusted network
-  tlsskipverify: false         # Skip certificate verification (not recommended; self-signed certs only)
-cacheexpiration: 3600          # Cache expiration time in seconds
+  tlsSkipVerify: false         # Skip certificate verification (not recommended; self-signed certs only)
 
-# Advanced cache configuration (optional, new feature)
-cache:
-  requireredis: false          # false=allow fallback to memory cache when Redis fails, true=Redis must be available or program exits
-  memorymaxsize: 10000         # Maximum entries in memory cache; least-recently-used entries are evicted past this (default: 10000)
-  memorycleaninterval: 300     # Memory cache cleanup interval in seconds (default: 300)
-  negativecacheexpiration: 60  # How long "not found / denied" results are cached, in seconds (default: 60; set negative to disable)
+proxy:
+  server: ""                   # Proxy server address; empty disables proxying
+  username: ""                 # Proxy server username (if authentication required)
+  password: ""                 # Proxy server password (if authentication required)
+  suffixes: []                 # TLD suffixes that use the proxy; ["all"] routes everything through the proxy
 
-port: 8043                     # Server listening port
-ratelimit: 50                  # Concurrency limit for upstream WHOIS server requests
-
-# Proxy configuration (optional)
-proxyserver: "http://127.0.0.1:8080"  # Proxy server address
-proxysuffixes: []                      # TLD suffixes that use the proxy; empty to disable; ["all"] routes everything through the proxy
-proxyusername: ""                      # Proxy server username (if authentication required)
-proxypassword: ""                      # Proxy server password (if authentication required)
-
-loglevel: "info"                       # Log level: debug, info, warn, error (default: info)
-bootstrapinterval: 86400               # RDAP server list refresh interval in seconds; 0 or unset disables fetching (recommended: 86400)
+bootstrap:
+  interval: 86400              # RDAP server list refresh interval in seconds; 0 disables fetching (recommended: 86400)
 
 mcp:
-  localhostprotection: false           # DNS-rebinding protection for /mcp: only accept requests whose Host header is localhost. Keep false behind a reverse proxy; set true for direct localhost deployments
+  localhostProtection: false   # DNS-rebinding protection for /mcp: only accept requests whose Host header is localhost. Keep false behind a reverse proxy; set true for direct localhost deployments
 ```
 
 Selected options can be overridden via environment variables (which take precedence over the config file), e.g. `WHOIS_REDIS_ADDR`, `WHOIS_REDIS_TLS`, `WHOIS_PORT`, `WHOIS_RATE_LIMIT`, `WHOIS_CACHE_EXPIRATION`, `WHOIS_NEGATIVE_CACHE_EXPIRATION`, `WHOIS_LOG_LEVEL`, `WHOIS_MCP_LOCALHOST_PROTECTION`.
@@ -147,6 +150,21 @@ GET requests
 #### Browser Access
 
 After deployment, access `http://ip:port/domain-or-ip-or-asn` via browser. Default port is `8043`, e.g., `http://1.2.3.4:8043/example.com`
+
+#### Typed Query Paths
+
+Besides the auto-detecting root path, [RFC 9082](https://www.rfc-editor.org/rfc/rfc9082)-style typed paths are available, suited to programmatic use — a resource of the wrong type returns 400 instead of being interpreted as another type:
+
+```bash
+curl http://localhost:8043/domain/example.com
+curl http://localhost:8043/ip/192.0.2.1
+curl http://localhost:8043/autnum/205794    # as205794 / AS205794 also accepted
+```
+
+#### Caching and CORS
+
+- Successful responses carry `X-Cache: HIT/MISS` indicating whether the server cache was hit, plus `Cache-Control: public, max-age=<cache seconds>` for client/CDN caching.
+- Every response carries `Access-Control-Allow-Origin: *`, so the API can be called cross-origin from browser frontends directly.
 
 > Internationalized domain names (IDN, including Unicode domains with non-ASCII characters) can be queried directly; the program converts them to Punycode automatically, e.g. `http://1.2.3.4:8043/例子.cn`.
 
