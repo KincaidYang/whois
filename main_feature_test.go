@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/KincaidYang/whois/internal/config"
+	"github.com/KincaidYang/whois/internal/handlers"
 	"github.com/KincaidYang/whois/internal/utils"
 )
 
@@ -71,12 +72,12 @@ func TestHandlerRawCacheHit(t *testing.T) {
 	domain := "rawcachetest99999.cn"
 	rawText := "Domain Name: rawcachetest99999.cn\nRegistrar: Example Registrar\n"
 	ctx := context.Background()
-	if err := config.CacheManager.Set(ctx, "whois:raw:"+domain, rawText, time.Minute); err != nil {
+	if err := config.CacheManager.Set(ctx, handlers.CacheKeyPrefix+"raw:"+domain, rawText, time.Minute); err != nil {
 		t.Fatalf("failed to seed raw cache: %v", err)
 	}
 	// Seed a parsed result under the normal key to prove the raw path does
 	// not read it.
-	if err := config.CacheManager.Set(ctx, "whois:"+domain, `{"domainName":"parsed"}`, time.Minute); err != nil {
+	if err := config.CacheManager.Set(ctx, handlers.CacheKeyPrefix+domain, `{"ldhName":"parsed"}`, time.Minute); err != nil {
 		t.Fatalf("failed to seed parsed cache: %v", err)
 	}
 

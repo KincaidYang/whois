@@ -155,26 +155,38 @@ curl http://localhost:8043/example.com
 返回结果
 ```json
 {
-    "Domain Name": "EXAMPLE.COM",
-    "Registrar": "RESERVED-Internet Assigned Numbers Authority",
-    "Registrar IANA ID": "376",
-    "Domain Status": [
-        "client delete prohibited",
-        "client transfer prohibited",
-        "client update prohibited"
-    ],
-    "Creation Date": "1995-08-14T04:00:00Z",
-    "Registry Expiry Date": "2024-08-13T04:00:00Z",
-    "Updated Date": "2023-08-14T07:01:38Z",
-    "Name Server": [
-        "A.IANA-SERVERS.NET",
-        "B.IANA-SERVERS.NET"
-    ],
-    "DNSSEC": "signedDelegation",
-    "DNSSEC DS Data": "370 13 2 BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A86764247C",
-    "Last Update of Database": "2024-01-16T10:26:40Z"
+  "objectClassName": "domain",
+  "ldhName": "example.com",
+  "registrar": "RESERVED-Internet Assigned Numbers Authority",
+  "registrarIanaId": "376",
+  "status": [
+    "client delete prohibited",
+    "client transfer prohibited",
+    "client update prohibited"
+  ],
+  "registrationDate": "1995-08-14T04:00:00Z",
+  "expirationDate": "2026-08-13T04:00:00Z",
+  "lastChangedDate": "2025-08-14T07:01:34Z",
+  "nameservers": [
+    "a.iana-servers.net",
+    "b.iana-servers.net"
+  ],
+  "secureDNS": {
+    "delegationSigned": true,
+    "dsData": [
+      {
+        "keyTag": 370,
+        "algorithm": 13,
+        "digestType": 2,
+        "digest": "BE74359954660069D5C63D200C39F5603827D7DD02B56F120EE9F3A86764247C"
+      }
+    ]
+  },
+  "lastUpdateOfRdapDb": "2026-01-16T10:26:40Z"
 }
 ```
+
+字段名与词汇遵循 [RDAP（RFC 9083）](https://www.rfc-editor.org/rfc/rfc9083)规范：`objectClassName` 标识对象类型（`domain` / `ip network` / `autnum`），日期统一为 RFC 3339 UTC 格式。查询 IDN 域名时会额外返回 `unicodeName` 字段。对于无法解析的 ccTLD，返回 `{"objectClassName": "domain", "unparsed": true, "rawText": "..."}`。
 
 #### 查询域名原始 WHOIS 文本
 添加 `?raw=1` 参数可获取未解析的 WHOIS 原文（`text/plain`），仅支持域名查询（IP/ASN 走 RDAP，无原文形式）。原文查询直接访问 WHOIS 服务器（跳过 RDAP），若该 TLD 没有已知 WHOIS 服务器则返回 404。
@@ -193,18 +205,20 @@ curl http://localhost:8043/1.12.34.56
 返回结果
 ```json
 {
-  "IP Network": "1.12.0.0 - 1.15.255.255",
-  "Address Range": "1.12.0.0 - 1.15.255.255",
-  "Network Name": "TencentCloud",
-  "CIDR": "1.12.0.0/14",
-  "Network Type": "ALLOCATED PORTABLE",
-  "Country": "CN",
-  "Status": [
+  "objectClassName": "ip network",
+  "handle": "1.12.0.0 - 1.15.255.255",
+  "startAddress": "1.12.0.0",
+  "endAddress": "1.15.255.255",
+  "cidr": "1.12.0.0/14",
+  "name": "TencentCloud",
+  "type": "ALLOCATED PORTABLE",
+  "country": "CN",
+  "status": [
     "active"
   ],
-  "Creation Date": "2010-05-10T22:46:58Z",
-  "Updated Date": "2023-11-28T00:51:33Z",
-  "Remarks": [
+  "registrationDate": "2010-05-10T22:46:58Z",
+  "lastChangedDate": "2023-11-28T00:51:33Z",
+  "remarks": [
     {
       "title": "description",
       "description": [
@@ -224,18 +238,20 @@ curl http://localhost:8043/2402:4e00::
 返回结果
 ```json
 {
-  "IP Network": "2402:4e00::/32",
-  "Address Range": "2402:4e00:: - 2402:4e00:ffff:ffff:ffff:ffff:ffff:ffff",
-  "Network Name": "TencentCloud",
-  "CIDR": "2402:4e00::/32",
-  "Network Type": "ALLOCATED PORTABLE",
-  "Country": "CN",
-  "Status": [
+  "objectClassName": "ip network",
+  "handle": "2402:4e00::/32",
+  "startAddress": "2402:4e00::",
+  "endAddress": "2402:4e00:ffff:ffff:ffff:ffff:ffff:ffff",
+  "cidr": "2402:4e00::/32",
+  "name": "TencentCloud",
+  "type": "ALLOCATED PORTABLE",
+  "country": "CN",
+  "status": [
     "active"
   ],
-  "Creation Date": "2010-05-12T23:13:32Z",
-  "Updated Date": "2024-01-31T06:27:10Z",
-  "Remarks": [
+  "registrationDate": "2010-05-12T23:13:32Z",
+  "lastChangedDate": "2024-01-31T06:27:10Z",
+  "remarks": [
     {
       "title": "description",
       "description": [
@@ -258,13 +274,14 @@ curl http://localhost:8043/205794
 返回结果
 ```json
 {
-  "AS Number": "AS205794",
-  "Network Name": "RTTW-AS",
-  "Status": [
+  "objectClassName": "autnum",
+  "handle": "AS205794",
+  "name": "RTTW-AS",
+  "status": [
     "active"
   ],
-  "Creation Date": "2022-04-14T12:24:55Z",
-  "Updated Date": "2024-03-21T07:27:44Z",
+  "registrationDate": "2022-04-14T12:24:55Z",
+  "lastChangedDate": "2024-03-21T07:27:44Z",
   "remarks": [
     {
       "title": "",
@@ -277,6 +294,20 @@ curl http://localhost:8043/205794
   ]
 }
 ```
+
+#### 错误响应
+错误响应遵循 [RFC 9457 Problem Details](https://www.rfc-editor.org/rfc/rfc9457) 规范，`Content-Type` 为 `application/problem+json`：
+
+```json
+{
+  "type": "https://github.com/KincaidYang/whois/blob/main/docs/errors.md#not-found",
+  "title": "Resource Not Found",
+  "status": 404,
+  "detail": "the queried resource was not found in the registry"
+}
+```
+
+全部错误类型见 [docs/errors.md](docs/errors.md)。
 
 ### MCP 集成
 
@@ -294,9 +325,7 @@ curl http://localhost:8043/205794
 **MCP 服务器地址：** `http://ip:端口/mcp`
 
 ## 已知问题
-程序向注册局查询 Whois 信息主要依靠 RDAP 协议查询，但由于大部分 ccTLD 不支持 RDAP 协议，程序会对其原始的 Whois 信息格式化后返回 JSON 数据，但由于本人精力有限，未对所有的 ccTLD 后缀进行适配，程序可能会直接返回 `text` 数据，如您常用的后缀没用被覆盖，可以提交 Issue 或者贡献匹配规则至 `whois_parsers.go` 文件中，在此表示感谢！
-
-您可根据`content-type`来判断返回数据格式。
+程序向注册局查询 Whois 信息主要依靠 RDAP 协议查询，但由于大部分 ccTLD 不支持 RDAP 协议，程序会对其原始的 Whois 信息格式化后返回 JSON 数据。由于本人精力有限，未对所有的 ccTLD 后缀进行适配，未适配的后缀会返回 `{"objectClassName": "domain", "unparsed": true, "rawText": "..."}`，如您常用的后缀没有被覆盖，可以提交 Issue 或者贡献匹配规则至 `internal/whois/whois_parsers.go` 文件中，在此表示感谢！
 
 ## 项目依赖
 

@@ -21,13 +21,14 @@ Domain Status: active`
 
 	domain := "example.cn"
 	expected := model.DomainInfo{
-		DomainName:         domain,
-		CreationDate:       "2025-03-01T04:00:00Z", // Converted to UTC
-		RegistryExpiryDate: "2026-03-01T04:00:00Z",
-		NameServer:         []string{"ns1.example.com", "ns2.example.com"},
-		DNSSec:             "unsigned",
-		Registrar:          "Example Registrar",
-		DomainStatus:       []string{"active"},
+		ObjectClassName:  model.ObjectClassDomain,
+		LdhName:          domain,
+		RegistrationDate: "2025-03-01T04:00:00Z", // Converted from CST to UTC
+		ExpirationDate:   "2026-03-01T04:00:00Z",
+		Nameservers:      []string{"ns1.example.com", "ns2.example.com"},
+		SecureDNS:        &model.SecureDNS{DelegationSigned: false},
+		Registrar:        "Example Registrar",
+		Status:           []string{"active"},
 	}
 
 	domainInfo, err := ParseWhoisResponseCN(response, domain)
@@ -35,13 +36,13 @@ Domain Status: active`
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Validate that LastUpdateOfRDAPDB is a valid RFC3339 timestamp
-	if _, err := time.Parse(time.RFC3339, domainInfo.LastUpdateOfRDAPDB); err != nil {
-		t.Errorf("LastUpdateOfRDAPDB is not a valid RFC3339 timestamp: %v", domainInfo.LastUpdateOfRDAPDB)
+	// Validate that LastUpdateOfRdapDb is a valid RFC3339 timestamp
+	if _, err := time.Parse(time.RFC3339, domainInfo.LastUpdateOfRdapDb); err != nil {
+		t.Errorf("LastUpdateOfRdapDb is not a valid RFC3339 timestamp: %v", domainInfo.LastUpdateOfRdapDb)
 	}
 
-	// Ignore LastUpdateOfRDAPDB field for comparison
-	domainInfo.LastUpdateOfRDAPDB = ""
+	// Ignore LastUpdateOfRdapDb field for comparison
+	domainInfo.LastUpdateOfRdapDb = ""
 	if !reflect.DeepEqual(domainInfo, expected) {
 		t.Errorf("expected %+v, got %+v", expected, domainInfo)
 	}
@@ -86,8 +87,8 @@ URL of the ICANN Whois Inaccuracy Complaint Form: https://www.icann.org/wicf/
 	}
 
 	// 验证域名
-	if domainInfo.DomainName != domain {
-		t.Errorf("Expected domain name %s, got %s", domain, domainInfo.DomainName)
+	if domainInfo.LdhName != domain {
+		t.Errorf("Expected ldhName %s, got %s", domain, domainInfo.LdhName)
 	}
 
 	// 验证注册商
@@ -96,69 +97,58 @@ URL of the ICANN Whois Inaccuracy Complaint Form: https://www.icann.org/wicf/
 		t.Errorf("Expected registrar %s, got %s", expectedRegistrar, domainInfo.Registrar)
 	}
 
-	// 验证创建日期
-	expectedCreationDate := "2000-11-20T01:00:00.0Z"
-	if domainInfo.CreationDate != expectedCreationDate {
-		t.Errorf("Expected creation date %s, got %s", expectedCreationDate, domainInfo.CreationDate)
+	// 验证创建日期（归一化为 RFC 3339 UTC，小数秒被丢弃）
+	expectedCreationDate := "2000-11-20T01:00:00Z"
+	if domainInfo.RegistrationDate != expectedCreationDate {
+		t.Errorf("Expected registration date %s, got %s", expectedCreationDate, domainInfo.RegistrationDate)
 	}
 
 	// 验证过期日期
-	expectedExpiryDate := "2026-11-20T23:59:59.0Z"
-	if domainInfo.RegistryExpiryDate != expectedExpiryDate {
-		t.Errorf("Expected expiry date %s, got %s", expectedExpiryDate, domainInfo.RegistryExpiryDate)
+	expectedExpiryDate := "2026-11-20T23:59:59Z"
+	if domainInfo.ExpirationDate != expectedExpiryDate {
+		t.Errorf("Expected expiration date %s, got %s", expectedExpiryDate, domainInfo.ExpirationDate)
 	}
 
 	// 验证更新日期
-	expectedUpdatedDate := "2016-10-17T04:13:14.0Z"
-	if domainInfo.UpdatedDate != expectedUpdatedDate {
-		t.Errorf("Expected updated date %s, got %s", expectedUpdatedDate, domainInfo.UpdatedDate)
+	expectedUpdatedDate := "2016-10-17T04:13:14Z"
+	if domainInfo.LastChangedDate != expectedUpdatedDate {
+		t.Errorf("Expected lastChanged date %s, got %s", expectedUpdatedDate, domainInfo.LastChangedDate)
 	}
 
-	// 验证名称服务器
-	if len(domainInfo.NameServer) != 6 {
-		t.Errorf("Expected 6 name servers, got %d", len(domainInfo.NameServer))
-	}
+	// 验证名称服务器（统一小写）
 	expectedNameServers := []string{
-		"NS0.CENTRALNIC-DNS.COM",
-		"NS1.CENTRALNIC-DNS.COM",
-		"NS2.CENTRALNIC-DNS.COM",
-		"NS3.CENTRALNIC-DNS.COM",
-		"NS4.CENTRALNIC-DNS.COM",
-		"NS5.CENTRALNIC-DNS.COM",
+		"ns0.centralnic-dns.com",
+		"ns1.centralnic-dns.com",
+		"ns2.centralnic-dns.com",
+		"ns3.centralnic-dns.com",
+		"ns4.centralnic-dns.com",
+		"ns5.centralnic-dns.com",
 	}
-	for i, expectedNS := range expectedNameServers {
-		if i < len(domainInfo.NameServer) && domainInfo.NameServer[i] != expectedNS {
-			t.Errorf("Expected name server[%d] %s, got %s", i, expectedNS, domainInfo.NameServer[i])
-		}
+	if !reflect.DeepEqual(domainInfo.Nameservers, expectedNameServers) {
+		t.Errorf("Nameservers: got %v, want %v", domainInfo.Nameservers, expectedNameServers)
 	}
 
 	// 验证 DNSSEC
-	expectedDNSSEC := "unsigned"
-	if domainInfo.DNSSec != expectedDNSSEC {
-		t.Errorf("Expected DNSSEC %s, got %s", expectedDNSSEC, domainInfo.DNSSec)
+	if domainInfo.SecureDNS == nil || domainInfo.SecureDNS.DelegationSigned {
+		t.Errorf("SecureDNS: got %+v, want unsigned", domainInfo.SecureDNS)
 	}
 
-	// 验证域名状态
-	if len(domainInfo.DomainStatus) != 5 {
-		t.Errorf("Expected 5 domain statuses, got %d", len(domainInfo.DomainStatus))
-	}
+	// 验证域名状态（EPP 引用 URL 被剥离）
 	expectedStatuses := []string{
-		"serverTransferProhibited https://icann.org/epp#serverTransferProhibited",
-		"serverUpdateProhibited https://icann.org/epp#serverUpdateProhibited",
-		"serverDeleteProhibited https://icann.org/epp#serverDeleteProhibited",
-		"serverRenewProhibited https://icann.org/epp#serverRenewProhibited",
-		"clientTransferProhibited https://icann.org/epp#clientTransferProhibited",
+		"serverTransferProhibited",
+		"serverUpdateProhibited",
+		"serverDeleteProhibited",
+		"serverRenewProhibited",
+		"clientTransferProhibited",
 	}
-	for i, expectedStatus := range expectedStatuses {
-		if i < len(domainInfo.DomainStatus) && domainInfo.DomainStatus[i] != expectedStatus {
-			t.Errorf("Expected domain status[%d] %s, got %s", i, expectedStatus, domainInfo.DomainStatus[i])
-		}
+	if !reflect.DeepEqual(domainInfo.Status, expectedStatuses) {
+		t.Errorf("Status: got %v, want %v", domainInfo.Status, expectedStatuses)
 	}
 
-	// 验证数据库最后更新时间
-	expectedDBUpdate := "2025-10-12T05:44:20.0Z"
-	if domainInfo.LastUpdateOfRDAPDB != expectedDBUpdate {
-		t.Errorf("Expected last update of DB %s, got %s", expectedDBUpdate, domainInfo.LastUpdateOfRDAPDB)
+	// 验证数据库最后更新时间（归一化为 RFC 3339 UTC）
+	expectedDBUpdate := "2025-10-12T05:44:20Z"
+	if domainInfo.LastUpdateOfRdapDb != expectedDBUpdate {
+		t.Errorf("Expected last update of DB %s, got %s", expectedDBUpdate, domainInfo.LastUpdateOfRdapDb)
 	}
 
 	// 验证 Registrar IANA ID 为空（因为原始数据中是空的）
@@ -209,20 +199,20 @@ func TestParseWhoisResponseHK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if info.DomainName != domain {
-		t.Errorf("DomainName: got %q, want %q", info.DomainName, domain)
+	if info.LdhName != domain {
+		t.Errorf("LdhName: got %q, want %q", info.LdhName, domain)
 	}
 	if info.Registrar != "Example HK Registrar" {
 		t.Errorf("Registrar: got %q", info.Registrar)
 	}
-	if info.CreationDate != "2010-03-01" {
-		t.Errorf("CreationDate: got %q, want 2010-03-01", info.CreationDate)
+	if info.RegistrationDate != "2010-03-01" {
+		t.Errorf("RegistrationDate: got %q, want 2010-03-01", info.RegistrationDate)
 	}
-	if info.RegistryExpiryDate != "2026-03-01" {
-		t.Errorf("RegistryExpiryDate: got %q, want 2026-03-01", info.RegistryExpiryDate)
+	if info.ExpirationDate != "2026-03-01" {
+		t.Errorf("ExpirationDate: got %q, want 2026-03-01", info.ExpirationDate)
 	}
-	if info.DNSSec != "unsigned" {
-		t.Errorf("DNSSec: got %q", info.DNSSec)
+	if info.SecureDNS == nil || info.SecureDNS.DelegationSigned {
+		t.Errorf("SecureDNS: got %+v, want unsigned", info.SecureDNS)
 	}
 }
 
@@ -254,17 +244,17 @@ Domain servers in listed order:
 		t.Errorf("Registrar: got %q", info.Registrar)
 	}
 	// Dates converted from CST (UTC+8) to UTC: 08:00:00 CST = 00:00:00 UTC
-	if info.CreationDate == "" {
-		t.Error("CreationDate is empty")
+	if info.RegistrationDate != "2010-03-01T00:00:00Z" {
+		t.Errorf("RegistrationDate: got %q, want 2010-03-01T00:00:00Z", info.RegistrationDate)
 	}
-	if info.RegistryExpiryDate == "" {
-		t.Error("RegistryExpiryDate is empty")
+	if info.ExpirationDate != "2026-03-01T00:00:00Z" {
+		t.Errorf("ExpirationDate: got %q, want 2026-03-01T00:00:00Z", info.ExpirationDate)
 	}
-	if len(info.DomainStatus) == 0 || info.DomainStatus[0] != "active" {
-		t.Errorf("DomainStatus: got %v", info.DomainStatus)
+	if len(info.Status) == 0 || info.Status[0] != "active" {
+		t.Errorf("Status: got %v", info.Status)
 	}
-	if len(info.NameServer) != 2 {
-		t.Errorf("NameServer count: got %d, want 2", len(info.NameServer))
+	if len(info.Nameservers) != 2 {
+		t.Errorf("Nameservers count: got %d, want 2", len(info.Nameservers))
 	}
 }
 
@@ -296,17 +286,17 @@ Last update of WHOIS database: 2025-10-12T05:44:20Z <<<`
 	if info.Registrar != "Example SO Registrar" {
 		t.Errorf("Registrar: got %q", info.Registrar)
 	}
-	if info.CreationDate != "2010-03-01T00:00:00Z" {
-		t.Errorf("CreationDate: got %q", info.CreationDate)
+	if info.RegistrationDate != "2010-03-01T00:00:00Z" {
+		t.Errorf("RegistrationDate: got %q", info.RegistrationDate)
 	}
-	if info.RegistryExpiryDate != "2026-03-01T00:00:00Z" {
-		t.Errorf("RegistryExpiryDate: got %q", info.RegistryExpiryDate)
+	if info.ExpirationDate != "2026-03-01T00:00:00Z" {
+		t.Errorf("ExpirationDate: got %q", info.ExpirationDate)
 	}
 	if info.RegistrarIANAID != "1234" {
 		t.Errorf("RegistrarIANAID: got %q", info.RegistrarIANAID)
 	}
-	if len(info.NameServer) != 2 {
-		t.Errorf("NameServer count: got %d, want 2", len(info.NameServer))
+	if len(info.Nameservers) != 2 {
+		t.Errorf("Nameservers count: got %d, want 2", len(info.Nameservers))
 	}
 }
 
@@ -338,17 +328,17 @@ Last updated on 2025-10-12T05:44:20Z`
 	if info.Registrar != "Example RU Registrar" {
 		t.Errorf("Registrar: got %q", info.Registrar)
 	}
-	if info.CreationDate != "2010-03-01T00:00:00Z" {
-		t.Errorf("CreationDate: got %q", info.CreationDate)
+	if info.RegistrationDate != "2010-03-01T00:00:00Z" {
+		t.Errorf("RegistrationDate: got %q", info.RegistrationDate)
 	}
-	if info.RegistryExpiryDate != "2026-03-01T00:00:00Z" {
-		t.Errorf("RegistryExpiryDate: got %q", info.RegistryExpiryDate)
+	if info.ExpirationDate != "2026-03-01T00:00:00Z" {
+		t.Errorf("ExpirationDate: got %q", info.ExpirationDate)
 	}
-	if len(info.NameServer) != 2 {
-		t.Errorf("NameServer count: got %d, want 2", len(info.NameServer))
+	if len(info.Nameservers) != 2 {
+		t.Errorf("Nameservers count: got %d, want 2", len(info.Nameservers))
 	}
-	if len(info.DomainStatus) == 0 {
-		t.Error("DomainStatus is empty")
+	if len(info.Status) == 0 {
+		t.Error("Status is empty")
 	}
 }
 
@@ -379,11 +369,11 @@ Last update of WHOIS database: 2025-10-12T05:44:20Z <<<`
 	if info.Registrar != "Example SB Registrar" {
 		t.Errorf("Registrar: got %q", info.Registrar)
 	}
-	if info.CreationDate != "2010-03-01T00:00:00Z" {
-		t.Errorf("CreationDate: got %q", info.CreationDate)
+	if info.RegistrationDate != "2010-03-01T00:00:00Z" {
+		t.Errorf("RegistrationDate: got %q", info.RegistrationDate)
 	}
-	if info.RegistryExpiryDate != "2026-03-01T00:00:00Z" {
-		t.Errorf("RegistryExpiryDate: got %q", info.RegistryExpiryDate)
+	if info.ExpirationDate != "2026-03-01T00:00:00Z" {
+		t.Errorf("ExpirationDate: got %q", info.ExpirationDate)
 	}
 }
 
@@ -411,17 +401,17 @@ Domain name servers:
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if info.DomainName != domain {
-		t.Errorf("DomainName: got %q", info.DomainName)
+	if info.LdhName != domain {
+		t.Errorf("LdhName: got %q", info.LdhName)
 	}
-	if info.CreationDate != "2010-03-01" {
-		t.Errorf("CreationDate: got %q", info.CreationDate)
+	if info.RegistrationDate != "2010-03-01" {
+		t.Errorf("RegistrationDate: got %q", info.RegistrationDate)
 	}
-	if info.RegistryExpiryDate != "2026-03-01" {
-		t.Errorf("RegistryExpiryDate: got %q", info.RegistryExpiryDate)
+	if info.ExpirationDate != "2026-03-01" {
+		t.Errorf("ExpirationDate: got %q", info.ExpirationDate)
 	}
-	if len(info.NameServer) != 2 {
-		t.Errorf("NameServer count: got %d, want 2", len(info.NameServer))
+	if len(info.Nameservers) != 2 {
+		t.Errorf("Nameservers count: got %d, want 2", len(info.Nameservers))
 	}
 }
 
@@ -453,17 +443,17 @@ func TestParseWhoisResponseAU(t *testing.T) {
 	if info.Registrar != "Example AU Registrar" {
 		t.Errorf("Registrar: got %q", info.Registrar)
 	}
-	if info.CreationDate != "2010-03-01T00:00:00Z" {
-		t.Errorf("CreationDate: got %q", info.CreationDate)
+	if info.RegistrationDate != "2010-03-01T00:00:00Z" {
+		t.Errorf("RegistrationDate: got %q", info.RegistrationDate)
 	}
-	if info.RegistryExpiryDate != "2026-03-01T00:00:00Z" {
-		t.Errorf("RegistryExpiryDate: got %q", info.RegistryExpiryDate)
+	if info.ExpirationDate != "2026-03-01T00:00:00Z" {
+		t.Errorf("ExpirationDate: got %q", info.ExpirationDate)
 	}
-	if len(info.NameServer) != 2 {
-		t.Errorf("NameServer count: got %d, want 2", len(info.NameServer))
+	if len(info.Nameservers) != 2 {
+		t.Errorf("Nameservers count: got %d, want 2", len(info.Nameservers))
 	}
-	if len(info.DomainStatus) == 0 || info.DomainStatus[0] != "serverHold" {
-		t.Errorf("DomainStatus: got %v", info.DomainStatus)
+	if len(info.Status) == 0 || info.Status[0] != "serverHold" {
+		t.Errorf("Status: got %v", info.Status)
 	}
 }
 
@@ -493,14 +483,14 @@ func TestParseWhoisResponseSG(t *testing.T) {
 	if info.Registrar != "Example SG Registrar" {
 		t.Errorf("Registrar: got %q", info.Registrar)
 	}
-	if info.CreationDate != "2010-03-01T00:00:00Z" {
-		t.Errorf("CreationDate: got %q", info.CreationDate)
+	if info.RegistrationDate != "2010-03-01T00:00:00Z" {
+		t.Errorf("RegistrationDate: got %q", info.RegistrationDate)
 	}
-	if info.RegistryExpiryDate != "2026-03-01T00:00:00Z" {
-		t.Errorf("RegistryExpiryDate: got %q", info.RegistryExpiryDate)
+	if info.ExpirationDate != "2026-03-01T00:00:00Z" {
+		t.Errorf("ExpirationDate: got %q", info.ExpirationDate)
 	}
-	if len(info.NameServer) != 2 {
-		t.Errorf("NameServer count: got %d, want 2", len(info.NameServer))
+	if len(info.Nameservers) != 2 {
+		t.Errorf("Nameservers count: got %d, want 2", len(info.Nameservers))
 	}
 }
 
@@ -527,20 +517,27 @@ func TestParseWhoisResponseJP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if info.LdhName != "example.jp" {
+		t.Errorf("LdhName: got %q, want example.jp (lowercased from response)", info.LdhName)
+	}
 	if info.Registrar != "Example JP Corp" {
 		t.Errorf("Registrar: got %q", info.Registrar)
 	}
-	if info.CreationDate != "2010-03-01" {
-		t.Errorf("CreationDate: got %q", info.CreationDate)
+	if info.RegistrationDate != "2010-03-01" {
+		t.Errorf("RegistrationDate: got %q", info.RegistrationDate)
 	}
-	if info.RegistryExpiryDate != "2026-03-01" {
-		t.Errorf("RegistryExpiryDate: got %q", info.RegistryExpiryDate)
+	if info.ExpirationDate != "2026-03-01" {
+		t.Errorf("ExpirationDate: got %q", info.ExpirationDate)
 	}
-	if len(info.NameServer) != 2 {
-		t.Errorf("NameServer count: got %d, want 2", len(info.NameServer))
+	// 2025/01/01 09:00:00 JST = 2025-01-01T00:00:00Z
+	if info.LastChangedDate != "2025-01-01T00:00:00Z" {
+		t.Errorf("LastChangedDate: got %q, want 2025-01-01T00:00:00Z", info.LastChangedDate)
 	}
-	if info.DNSSec != "unsigned" {
-		t.Errorf("DNSSec: got %q, want unsigned", info.DNSSec)
+	if len(info.Nameservers) != 2 {
+		t.Errorf("Nameservers count: got %d, want 2", len(info.Nameservers))
+	}
+	if info.SecureDNS == nil || info.SecureDNS.DelegationSigned {
+		t.Errorf("SecureDNS: got %+v, want unsigned", info.SecureDNS)
 	}
 }
 
@@ -560,8 +557,8 @@ p. [ネームサーバ] ns1.example.co.jp
 	if info.Registrar != "Example CO JP Corp" {
 		t.Errorf("Registrar: got %q", info.Registrar)
 	}
-	if info.RegistryExpiryDate != "2026-03-01" {
-		t.Errorf("RegistryExpiryDate from status: got %q", info.RegistryExpiryDate)
+	if info.ExpirationDate != "2026-03-01" {
+		t.Errorf("ExpirationDate from status: got %q", info.ExpirationDate)
 	}
 }
 

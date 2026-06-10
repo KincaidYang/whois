@@ -12,6 +12,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+- **API response format rewritten to align with RDAP (RFC 9083).** All field
+  names are now camelCase and follow RDAP vocabulary. Every successful
+  response carries an `objectClassName` discriminator (`domain` /
+  `ip network` / `autnum`). Field mapping:
+
+  | Old (domain) | New |
+  |---|---|
+  | `Domain Name` | `ldhName` (lowercase; `unicodeName` added for IDNs) |
+  | `Registrar` | `registrar` |
+  | `Registrar IANA ID` | `registrarIanaId` |
+  | `Domain Status` | `status` (ICANN EPP reference URLs stripped, deduped) |
+  | `Creation Date` | `registrationDate` |
+  | `Registry Expiry Date` | `expirationDate` |
+  | `Updated Date` | `lastChangedDate` |
+  | `Name Server` | `nameservers` (lowercase) |
+  | `DNSSEC` + `DNSSEC DS Data` | `secureDNS` object: `{delegationSigned, dsData: [{keyTag, algorithm, digestType, digest}]}` |
+  | `Last Update of Database` | `lastUpdateOfRdapDb` |
+
+  | Old (IP network) | New |
+  |---|---|
+  | `IP Network` | `handle` |
+  | `Address Range` | `startAddress` + `endAddress` (split) |
+  | `Network Name` | `name` |
+  | `CIDR` | `cidr` |
+  | `Network Type` | `type` (empty instead of `"Unknown"` filler) |
+  | `Country` | `country` |
+  | `Status` | `status` |
+  | `Creation Date` | `registrationDate` |
+  | `Updated Date` | `lastChangedDate` |
+  | `Remarks` | `remarks` |
+
+  | Old (ASN) | New |
+  |---|---|
+  | `AS Number` | `handle` |
+  | `Network Name` | `name` |
+  | `Status` | `status` |
+  | `Creation Date` | `registrationDate` |
+  | `Updated Date` | `lastChangedDate` |
+
+- **Dates normalized to RFC 3339 UTC** across all sources (RDAP and the
+  built-in ccTLD WHOIS parsers). Registry-local timestamps (.cn/.tw/.mo/.sg
+  UTC+8, .jp UTC+9) are converted to UTC. Date-only values stay `YYYY-MM-DD`.
+- **Errors are now RFC 9457 Problem Details** (`application/problem+json`)
+  with `{type, title, status, detail}`; the `type` URI points to an anchor in
+  [docs/errors.md](docs/errors.md). The old `{"error": ...}` shape is gone.
+- **Domains whose TLD has no parser now return JSON**
+  (`{"objectClassName": "domain", "unparsed": true, "rawText": "..."}`)
+  instead of `text/plain`. Only `?raw=1` returns plain text.
+- Cache keys moved from `whois:` to `whois:v2:`; existing cache entries are
+  abandoned (no migration needed, they expire naturally).
+
 ### Changed
 - All Go packages moved under `internal/` and renamed to idiomatic Go names
   (`handle_resources`→`handlers`, `server_lists`→`serverlist`,
