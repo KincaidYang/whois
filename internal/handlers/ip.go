@@ -65,5 +65,5 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 
 	// Return the RDAP information
 	w.Header().Set("Content-Type", outcome.contentType)
-	fmt.Fprint(w, outcome.body)
+	_, _ = fmt.Fprint(w, outcome.body)
 }

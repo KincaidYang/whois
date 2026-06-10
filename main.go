@@ -58,7 +58,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		slog.WarnContext(r.Context(), "rate limit reached", "path", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
-		fmt.Fprint(w, `{"error":"too many concurrent requests"}`)
+		_, _ = fmt.Fprint(w, `{"error":"too many concurrent requests"}`)
 		metrics.HTTPRequestsTotal.WithLabelValues("unknown", "429").Inc()
 		return
 	}

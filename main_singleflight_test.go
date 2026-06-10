@@ -22,7 +22,7 @@ func TestHandlerSingleflight(t *testing.T) {
 		// Hold the flight open long enough for all concurrent requests to join it.
 		time.Sleep(100 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/rdap+json")
-		fmt.Fprint(w, `{"ldhName":"sftest.zzsfonly"}`)
+		_, _ = fmt.Fprint(w, `{"ldhName":"sftest.zzsfonly"}`)
 	}))
 	defer fake.Close()
 
