@@ -2,8 +2,10 @@ package utils
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -69,6 +71,42 @@ func TestHandleInternalError(t *testing.T) {
 	HandleInternalError(w, ErrResourceNotFound)
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status=%d, want 500", w.Code)
+	}
+}
+
+// TestHandleQueryErrorSanitizesUnexpectedErrors verifies that unexpected
+// errors (network failures, upstream hostnames) are not leaked to the client.
+func TestHandleQueryErrorSanitizesUnexpectedErrors(t *testing.T) {
+	w := httptest.NewRecorder()
+	HandleQueryError(w, errors.New("dial tcp whois.internal.example:43: connection refused"))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status=%d, want 500", w.Code)
+	}
+	var body ErrorResponse
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("response body is not valid JSON: %v", err)
+	}
+	if strings.Contains(body.Error, "whois.internal.example") {
+		t.Errorf("error message leaks upstream host: %q", body.Error)
+	}
+	if body.Error != "Query failed. Please try again later." {
+		t.Errorf("body.Error=%q, want generic message", body.Error)
+	}
+}
+
+// TestHandleInternalErrorSanitizes verifies the client sees a generic message
+// rather than the raw error text.
+func TestHandleInternalErrorSanitizes(t *testing.T) {
+	w := httptest.NewRecorder()
+	HandleInternalError(w, errors.New("redis: connection pool timeout at 10.0.0.5:6379"))
+
+	var body ErrorResponse
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("response body is not valid JSON: %v", err)
+	}
+	if body.Error != "Internal server error" {
+		t.Errorf("body.Error=%q, want %q", body.Error, "Internal server error")
 	}
 }
 

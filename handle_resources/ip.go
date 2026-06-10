@@ -35,35 +35,35 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 	ip := net.ParseIP(resource)
 	serverURL, _ := server_lists.LookupIPKey(ip)
 
-	// Query the RDAP information for the IP
-	queryresult, err := rdap_tools.RDAPQueryIP(ctx, resource, serverURL)
+	// Query and parse the RDAP information, deduplicating concurrent misses
+	outcome, err := dedupedQuery(ctx, key, func(qctx context.Context) (queryOutcome, error) {
+		queryResult, err := rdap_tools.RDAPQueryIP(qctx, resource, serverURL)
+		if err != nil {
+			return queryOutcome{}, err
+		}
+
+		ipInfo, err := rdap_tools.ParseRDAPResponseforIP(queryResult)
+		if err != nil {
+			return queryOutcome{}, err
+		}
+
+		resultBytes, err := json.Marshal(ipInfo)
+		if err != nil {
+			return queryOutcome{}, err
+		}
+
+		result := string(resultBytes)
+		if err := utils.SetToCache(qctx, config.CacheManager, key, result, config.CacheExpiration); err != nil {
+			slog.Warn("cache write error", "key", key, "err", err)
+		}
+		return queryOutcome{body: result, contentType: "application/json"}, nil
+	})
 	if err != nil {
 		utils.HandleQueryError(w, err)
-		utils.CacheNegativeResult(ctx, config.CacheManager, key, err, config.NegativeCacheExpiration)
 		return
-	}
-
-	// Parse the RDAP response
-	ipInfo, err := rdap_tools.ParseRDAPResponseforIP(queryresult)
-	if err != nil {
-		utils.HandleInternalError(w, err)
-		return
-	}
-
-	// Marshal the result to JSON
-	resultBytes, err := json.Marshal(ipInfo)
-	if err != nil {
-		utils.HandleInternalError(w, err)
-		return
-	}
-
-	// Cache the RDAP information
-	err = utils.SetToCache(ctx, config.CacheManager, key, string(resultBytes), config.CacheExpiration)
-	if err != nil {
-		slog.Warn("cache write error", "key", key, "err", err)
 	}
 
 	// Return the RDAP information
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(resultBytes)
+	w.Header().Set("Content-Type", outcome.contentType)
+	fmt.Fprint(w, outcome.body)
 }

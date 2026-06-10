@@ -3,6 +3,7 @@ package utils
 import (
 	"container/list"
 	"context"
+	"io"
 	"log/slog"
 	"sync"
 	"time"
@@ -35,6 +36,8 @@ type MemoryCache struct {
 	order         *list.List               // front = most recently used
 	maxSize       int
 	cleanInterval time.Duration
+	done          chan struct{}
+	closeOnce     sync.Once
 }
 
 // NewMemoryCache creates a new memory cache instance
@@ -44,12 +47,19 @@ func NewMemoryCache(maxSize int, cleanInterval time.Duration) *MemoryCache {
 		order:         list.New(),
 		maxSize:       maxSize,
 		cleanInterval: cleanInterval,
+		done:          make(chan struct{}),
 	}
 
 	// Start background cleaner
 	go mc.startCleaner()
 
 	return mc
+}
+
+// Close stops the background cleaner goroutine. Safe to call multiple times.
+func (mc *MemoryCache) Close() error {
+	mc.closeOnce.Do(func() { close(mc.done) })
+	return nil
 }
 
 // Get retrieves a value from memory cache
@@ -134,13 +144,18 @@ func (mc *MemoryCache) evictOldest() {
 	metrics.CacheEvictionsTotal.WithLabelValues("memory").Inc()
 }
 
-// startCleaner runs a periodic cleanup of expired entries
+// startCleaner runs a periodic cleanup of expired entries until Close is called
 func (mc *MemoryCache) startCleaner() {
 	ticker := time.NewTicker(mc.cleanInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		mc.cleanExpired()
+	for {
+		select {
+		case <-ticker.C:
+			mc.cleanExpired()
+		case <-mc.done:
+			return
+		}
 	}
 }
 
@@ -215,4 +230,15 @@ func (fc *FallbackCache) IsHealthy() bool {
 // IsPrimaryHealthy returns true if the primary cache (Redis) is healthy
 func (fc *FallbackCache) IsPrimaryHealthy() bool {
 	return fc.primary.IsHealthy()
+}
+
+// Close stops background goroutines of the underlying caches that support it.
+func (fc *FallbackCache) Close() error {
+	if c, ok := fc.primary.(io.Closer); ok {
+		c.Close()
+	}
+	if c, ok := fc.fallback.(io.Closer); ok {
+		c.Close()
+	}
+	return nil
 }

@@ -46,35 +46,35 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	// Find the RDAP server URL via pre-built sorted ASN range index
 	serverURL, _ := server_lists.LookupASNKey(asnInt)
 
-	// Query the RDAP information for the ASN
-	queryresult, err := rdap_tools.RDAPQueryASN(ctx, asn, serverURL)
+	// Query and parse the RDAP information, deduplicating concurrent misses
+	outcome, err := dedupedQuery(ctx, key, func(qctx context.Context) (queryOutcome, error) {
+		queryResult, err := rdap_tools.RDAPQueryASN(qctx, asn, serverURL)
+		if err != nil {
+			return queryOutcome{}, err
+		}
+
+		asnInfo, err := rdap_tools.ParseRDAPResponseforASN(queryResult)
+		if err != nil {
+			return queryOutcome{}, err
+		}
+
+		resultBytes, err := json.Marshal(asnInfo)
+		if err != nil {
+			return queryOutcome{}, err
+		}
+
+		result := string(resultBytes)
+		if err := utils.SetToCache(qctx, config.CacheManager, key, result, config.CacheExpiration); err != nil {
+			slog.Warn("cache write error", "key", key, "err", err)
+		}
+		return queryOutcome{body: result, contentType: "application/json"}, nil
+	})
 	if err != nil {
 		utils.HandleQueryError(w, err)
-		utils.CacheNegativeResult(ctx, config.CacheManager, key, err, config.NegativeCacheExpiration)
 		return
-	}
-
-	// Parse the RDAP response
-	asnInfo, err := rdap_tools.ParseRDAPResponseforASN(queryresult)
-	if err != nil {
-		utils.HandleInternalError(w, err)
-		return
-	}
-
-	// Marshal the result to JSON
-	resultBytes, err := json.Marshal(asnInfo)
-	if err != nil {
-		utils.HandleInternalError(w, err)
-		return
-	}
-
-	// Cache the RDAP information
-	err = utils.SetToCache(ctx, config.CacheManager, key, string(resultBytes), config.CacheExpiration)
-	if err != nil {
-		slog.Warn("cache write error", "key", key, "err", err)
 	}
 
 	// Return the RDAP information
-	w.Header().Set("Content-Type", "application/json")
-	w.Write(resultBytes)
+	w.Header().Set("Content-Type", outcome.contentType)
+	fmt.Fprint(w, outcome.body)
 }

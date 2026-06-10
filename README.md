@@ -44,6 +44,8 @@ redis:
   addr: "redis:6379"          # Redis服务器地址
   password: ""                 # Redis密码，如无密码则留空
   db: 0                        # Redis数据库编号
+  tls: false                   # 通过不可信网络连接 Redis 时建议开启 TLS
+  tlsskipverify: false         # 跳过证书校验（不推荐，仅自签名证书场景使用）
 cacheexpiration: 3600          # 缓存过期时间，单位：秒
 
 # 高级缓存配置（可选，新版本功能）
@@ -64,9 +66,12 @@ proxypassword: ""                      # 代理服务器密码（如需认证）
 
 loglevel: "info"                       # 日志级别：debug、info、warn、error（默认：info）
 bootstrapinterval: 86400               # RDAP 服务器列表从 IANA 刷新间隔，单位：秒；0 或不填则禁用（推荐：86400）
+
+mcp:
+  localhostprotection: false           # /mcp 端点的 DNS rebinding 保护：开启后只接受 Host 为 localhost 的请求。反向代理部署保持 false；本机直连部署建议设为 true
 ```
 
-部分配置项可通过环境变量覆盖（优先级高于配置文件），如 `WHOIS_REDIS_ADDR`、`WHOIS_PORT`、`WHOIS_RATE_LIMIT`、`WHOIS_CACHE_EXPIRATION`、`WHOIS_NEGATIVE_CACHE_EXPIRATION`、`WHOIS_LOG_LEVEL` 等。
+部分配置项可通过环境变量覆盖（优先级高于配置文件），如 `WHOIS_REDIS_ADDR`、`WHOIS_REDIS_TLS`、`WHOIS_PORT`、`WHOIS_RATE_LIMIT`、`WHOIS_CACHE_EXPIRATION`、`WHOIS_NEGATIVE_CACHE_EXPIRATION`、`WHOIS_LOG_LEVEL`、`WHOIS_MCP_LOCALHOST_PROTECTION` 等。
 
 **配置说明：**
 - **Redis配置**：建议使用Redis以获得更好的性能和多实例缓存共享能力

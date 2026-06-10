@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 )
 
@@ -28,7 +29,10 @@ func writeJSONError(w http.ResponseWriter, statusCode int, message string) {
 	json.NewEncoder(w).Encode(ErrorResponse{Error: message})
 }
 
-// HandleQueryError handles common query errors with appropriate HTTP responses
+// HandleQueryError handles common query errors with appropriate HTTP responses.
+// Unexpected errors are logged in full but reported to the client with a
+// generic message, so internal details such as upstream server addresses and
+// network error strings do not leak.
 func HandleQueryError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrResourceNotFound), errors.Is(err, ErrDomainNotFound):
@@ -36,7 +40,8 @@ func HandleQueryError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrQueryDenied):
 		writeJSONError(w, http.StatusForbidden, "The registry denied the query")
 	default:
-		writeJSONError(w, http.StatusInternalServerError, err.Error())
+		slog.Error("query failed", "err", err)
+		writeJSONError(w, http.StatusInternalServerError, "Query failed. Please try again later.")
 	}
 }
 
@@ -75,7 +80,9 @@ func HandleHTTPError(w http.ResponseWriter, errorType ErrorType, message string)
 	writeJSONError(w, statusCode, message)
 }
 
-// HandleInternalError handles internal server errors
+// HandleInternalError handles internal server errors. The error is logged in
+// full; the client only sees a generic message.
 func HandleInternalError(w http.ResponseWriter, err error) {
-	writeJSONError(w, http.StatusInternalServerError, err.Error())
+	slog.Error("internal error", "err", err)
+	writeJSONError(w, http.StatusInternalServerError, "Internal server error")
 }

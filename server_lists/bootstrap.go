@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/KincaidYang/whois/metrics"
@@ -72,7 +73,7 @@ func fetchBootstrap(ctx context.Context, client *http.Client, url string) (map[s
 		// Prefer HTTPS; fall back to first URL.
 		serverURL := urls[0]
 		for _, u := range urls {
-			if len(u) >= 5 && u[:5] == "https" {
+			if strings.HasPrefix(u, "https") {
 				serverURL = u
 				break
 			}

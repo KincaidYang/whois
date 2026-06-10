@@ -94,101 +94,92 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 		return
 	}
 
-	var queryResult string
-
-	// If the RDAP server for the TLD is known, query the RDAP information for the domain
+	// Select the query path: RDAP preferred, WHOIS as fallback. The query
+	// itself runs deduplicated, so concurrent misses on the same domain
+	// share one upstream request.
+	var query func(context.Context) (queryOutcome, error)
 	if _, ok := server_lists.LookupRdapServer(tld); ok {
-		queryResult, err = handleRDAPQuery(ctx, w, domain, tld, key)
+		query = func(qctx context.Context) (queryOutcome, error) {
+			return queryRDAPDomain(qctx, domain, tld, key)
+		}
 	} else if _, ok := server_lists.TLDToWhoisServer[tld]; ok {
-		// If the WHOIS server for the TLD is known, query the WHOIS information for the domain
-		queryResult, err = handleWhoisQuery(ctx, w, domain, tld, key)
+		query = func(qctx context.Context) (queryOutcome, error) {
+			return queryWhoisDomain(qctx, domain, tld, key)
+		}
 	} else {
 		utils.HandleHTTPError(w, utils.ErrorTypeInternalServer, "No WHOIS or RDAP server known for TLD: "+tld)
 		return
 	}
+
+	outcome, err := dedupedQuery(ctx, key, query)
 	if err != nil {
-		// Error response already written by the query helper. Cache a
-		// short-TTL negative marker for stable not-found / denied outcomes.
-		utils.CacheNegativeResult(ctx, config.CacheManager, key, err, config.NegativeCacheExpiration)
+		utils.HandleQueryError(w, err)
 		return
 	}
 
-	fmt.Fprint(w, queryResult)
+	w.Header().Set("Content-Type", outcome.contentType)
+	fmt.Fprint(w, outcome.body)
 }
 
-// handleRDAPQuery handles RDAP queries for domains
-func handleRDAPQuery(ctx context.Context, w http.ResponseWriter, domain, tld, key string) (string, error) {
+// queryRDAPDomain queries RDAP for a domain, parses the response, and caches
+// the result.
+func queryRDAPDomain(ctx context.Context, domain, tld, key string) (queryOutcome, error) {
 	queryResult, err := rdap_tools.RDAPQuery(ctx, domain, tld)
 	if err != nil {
-		utils.HandleQueryError(w, err)
-		return "", err
+		return queryOutcome{}, err
 	}
 
 	domainInfo, err := rdap_tools.ParseRDAPResponseforDomain(queryResult)
 	if err != nil {
-		utils.HandleInternalError(w, err)
-		return "", err
+		return queryOutcome{}, err
 	}
 
 	resultBytes, err := json.Marshal(domainInfo)
 	if err != nil {
-		utils.HandleInternalError(w, err)
-		return "", err
+		return queryOutcome{}, err
 	}
 
-	queryResult = string(resultBytes)
-
-	// Cache the result
-	err = utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration)
-	if err != nil {
+	result := string(resultBytes)
+	if err := utils.SetToCache(ctx, config.CacheManager, key, result, config.CacheExpiration); err != nil {
 		slog.Warn("cache write error", "key", key, "err", err)
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	return queryResult, nil
+	return queryOutcome{body: result, contentType: "application/json"}, nil
 }
 
-// handleWhoisQuery handles WHOIS queries for domains
-func handleWhoisQuery(ctx context.Context, w http.ResponseWriter, domain, tld, key string) (string, error) {
+// queryWhoisDomain queries WHOIS for a domain, parses the response when a
+// parser exists for the TLD (raw text otherwise), and caches the result.
+func queryWhoisDomain(ctx context.Context, domain, tld, key string) (queryOutcome, error) {
 	queryResult, err := whois_tools.Whois(ctx, domain, tld)
 	if err != nil {
-		// If there's a network or other error during the WHOIS query
-		utils.HandleHTTPError(w, utils.ErrorTypeInternalServer, err.Error())
-		return "", err
+		return queryOutcome{}, err
 	}
 
-	// Use the parsing function corresponding to the TLD to parse the WHOIS data
+	parseFunc, ok := whoisParsers[tld]
+	if !ok {
+		// If there's no available parsing rule, return the original WHOIS data as text/plain
+		if err := utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration); err != nil {
+			slog.Warn("cache write error", "key", key, "err", err)
+		}
+		return queryOutcome{body: queryResult, contentType: "text/plain; charset=utf-8"}, nil
+	}
+
 	var domainInfo structs.DomainInfo
-	if parseFunc, ok := whoisParsers[tld]; ok {
-		domainInfo, err = parseFunc(queryResult, domain)
-		if err != nil {
-			// If there's a "resource not found" or other parsing error during the WHOIS parsing
-			utils.HandleQueryError(w, err)
-			return "", err
-		}
-
-		resultBytes, err := json.Marshal(domainInfo)
-		if err != nil {
-			utils.HandleInternalError(w, err)
-			return "", err
-		}
-		queryResult = string(resultBytes)
-
-		// Cache the result
-		err = utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration)
-		if err != nil {
-			slog.Warn("cache write error", "key", key, "err", err)
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-	} else {
-		// If there's no available parsing rule, return the original WHOIS data and set the response type to text/plain
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		err = utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration)
-		if err != nil {
-			slog.Warn("cache write error", "key", key, "err", err)
-		}
+	domainInfo, err = parseFunc(queryResult, domain)
+	if err != nil {
+		// "resource not found" or other parsing error during the WHOIS parsing
+		return queryOutcome{}, err
 	}
 
-	return queryResult, nil
+	resultBytes, err := json.Marshal(domainInfo)
+	if err != nil {
+		return queryOutcome{}, err
+	}
+
+	result := string(resultBytes)
+	if err := utils.SetToCache(ctx, config.CacheManager, key, result, config.CacheExpiration); err != nil {
+		slog.Warn("cache write error", "key", key, "err", err)
+	}
+
+	return queryOutcome{body: result, contentType: "application/json"}, nil
 }

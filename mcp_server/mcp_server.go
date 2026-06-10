@@ -3,18 +3,15 @@ package mcp_server
 import (
 	"bytes"
 	"context"
+	"log/slog"
 	"net"
 	"net/http"
-	"regexp"
 	"strings"
 
+	"github.com/KincaidYang/whois/config"
 	"github.com/KincaidYang/whois/handle_resources"
+	"github.com/KincaidYang/whois/utils"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-)
-
-var (
-	asnRegex    = regexp.MustCompile(`^(?i)(as|asn)?\d+$`)
-	domainRegex = regexp.MustCompile(`^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
 )
 
 // responseCapture is a minimal http.ResponseWriter that captures the response body and status code.
@@ -37,7 +34,36 @@ type WhoisInput struct {
 	Query string `json:"query" jsonschema:"Domain name, IP address (v4/v6), or ASN (e.g. AS12345) to look up"`
 }
 
+// errorResult builds a tool result carrying an error message.
+func errorResult(msg string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		IsError: true,
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: msg},
+		},
+	}
+}
+
 func whoisLookup(ctx context.Context, _ *mcp.CallToolRequest, input *WhoisInput) (*mcp.CallToolResult, any, error) {
+	// MCP requests consume the same upstream resources as plain HTTP queries,
+	// so they share the concurrency limiter, the per-request timeout, and the
+	// graceful-shutdown wait group used by the main handler.
+	config.Wg.Add(1)
+	select {
+	case config.ConcurrencyLimiter <- struct{}{}:
+	default:
+		config.Wg.Done()
+		slog.Warn("rate limit reached", "path", "/mcp")
+		return errorResult("too many concurrent requests"), nil, nil
+	}
+	defer func() {
+		config.Wg.Done()
+		<-config.ConcurrencyLimiter
+	}()
+
+	ctx, cancel := context.WithTimeout(ctx, config.RequestTimeout)
+	defer cancel()
+
 	query := strings.TrimSpace(strings.ToLower(input.Query))
 
 	rc := newResponseCapture()
@@ -45,17 +71,12 @@ func whoisLookup(ctx context.Context, _ *mcp.CallToolRequest, input *WhoisInput)
 
 	if net.ParseIP(query) != nil {
 		handle_resources.HandleIP(ctx, rc, query, cacheKeyPrefix)
-	} else if asnRegex.MatchString(query) {
+	} else if utils.IsASN(query) {
 		handle_resources.HandleASN(ctx, rc, query, cacheKeyPrefix)
-	} else if domainRegex.MatchString(query) {
+	} else if utils.IsDomain(query) {
 		handle_resources.HandleDomain(ctx, rc, query, cacheKeyPrefix)
 	} else {
-		return &mcp.CallToolResult{
-			IsError: true,
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: "Invalid input: please provide a valid domain, IP address, or ASN"},
-			},
-		}, nil, nil
+		return errorResult("Invalid input: please provide a valid domain, IP address, or ASN"), nil, nil
 	}
 
 	statusCode := rc.statusCode
@@ -86,8 +107,9 @@ func NewHandler(version string) http.Handler {
 	return mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server {
 		return server
 	}, &mcp.StreamableHTTPOptions{
-		// Server runs behind a reverse proxy; the Host header will be the public
-		// domain, not localhost, so DNS rebinding protection must be disabled.
-		DisableLocalhostProtection: true,
+		// DNS-rebinding protection rejects requests whose Host header is not
+		// localhost. Behind a reverse proxy the Host header is the public
+		// domain, so protection is off unless mcp.localhostprotection is set.
+		DisableLocalhostProtection: !config.MCPLocalhostProtection,
 	})
 }

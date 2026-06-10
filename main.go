@@ -3,12 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
-	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,7 +21,6 @@ import (
 	"github.com/KincaidYang/whois/server_lists"
 	"github.com/KincaidYang/whois/utils"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"golang.org/x/net/idna"
 )
 
 // statusWriter wraps http.ResponseWriter to capture the written status code.
@@ -33,38 +32,6 @@ type statusWriter struct {
 func (sw *statusWriter) WriteHeader(code int) {
 	sw.code = code
 	sw.ResponseWriter.WriteHeader(code)
-}
-
-// Pre-compiled regular expressions for better performance
-var (
-	asnRegex = regexp.MustCompile(`^(?i)(as|asn)?\d+$`)
-	// domainRegex is matched against the ASCII/punycode form (see isDomain), so
-	// the final label may be either an alphabetic TLD or a punycode TLD such as
-	// "xn--fiqs8s" (.中国), which contains digits and hyphens.
-	domainRegex = regexp.MustCompile(`^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:[a-zA-Z]{2,}|xn--[a-zA-Z0-9-]+)$`)
-)
-
-// requestTimeout bounds how long a single query may take, so a slow upstream
-// WHOIS/RDAP server cannot hold a concurrency slot indefinitely. It must stay
-// below the server's WriteTimeout (20s) so the handler returns first, and above
-// the per-upstream dial/read timeout (10s) to allow one full upstream attempt.
-const requestTimeout = 15 * time.Second
-
-// isASN function is used to check if the given resource is an Autonomous System Number (ASN).
-func isASN(resource string) bool {
-	return asnRegex.MatchString(resource)
-}
-
-// isDomain function is used to check if the given resource is a valid domain name.
-// IDN (Unicode) domains such as "müller.de" or "例子.cn" are converted to their
-// ASCII/punycode form before validation, matching the conversion HandleDomain
-// performs, so they are accepted at the entry point.
-func isDomain(resource string) bool {
-	ascii, err := idna.ToASCII(resource)
-	if err != nil {
-		return false
-	}
-	return domainRegex.MatchString(ascii)
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -85,7 +52,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		<-config.ConcurrencyLimiter
 	}()
 
-	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), config.RequestTimeout)
 	defer cancel()
 	resource := strings.TrimPrefix(r.URL.Path, "/")
 	resource = strings.ToLower(resource)
@@ -98,10 +65,10 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	if net.ParseIP(resource) != nil {
 		resourceType = "ip"
 		handle_resources.HandleIP(ctx, sw, resource, cacheKeyPrefix)
-	} else if isASN(resource) {
+	} else if utils.IsASN(resource) {
 		resourceType = "asn"
 		handle_resources.HandleASN(ctx, sw, resource, cacheKeyPrefix)
-	} else if isDomain(resource) {
+	} else if utils.IsDomain(resource) {
 		resourceType = "domain"
 		handle_resources.HandleDomain(ctx, sw, resource, cacheKeyPrefix)
 	} else {
@@ -147,6 +114,9 @@ func main() {
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      20 * time.Second,
 		IdleTimeout:       120 * time.Second,
+		// Queries arrive as URL paths with no cookies or auth headers, so
+		// anything beyond a few KB of headers is abuse, not a real client.
+		MaxHeaderBytes: 16 << 10, // 16 KiB
 	}
 
 	go func() {
@@ -172,6 +142,9 @@ func main() {
 		slog.Error("server shutdown error", "err", err)
 	}
 
+	if c, ok := config.CacheManager.(io.Closer); ok {
+		c.Close()
+	}
 	if config.RedisClient != nil {
 		config.RedisClient.Close()
 	}

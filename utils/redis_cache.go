@@ -12,9 +12,11 @@ import (
 
 // RedisCache implements Cache interface using Redis
 type RedisCache struct {
-	client  *redis.Client
-	healthy bool
-	mu      sync.RWMutex
+	client    *redis.Client
+	healthy   bool
+	mu        sync.RWMutex
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // NewRedisCache creates a new Redis cache instance
@@ -22,6 +24,7 @@ func NewRedisCache(client *redis.Client) *RedisCache {
 	rc := &RedisCache{
 		client:  client,
 		healthy: false,
+		done:    make(chan struct{}),
 	}
 
 	// Check initial health
@@ -31,6 +34,13 @@ func NewRedisCache(client *redis.Client) *RedisCache {
 	go rc.startHealthChecker()
 
 	return rc
+}
+
+// Close stops the background health checker goroutine. It does not close the
+// underlying Redis client, which is owned by the caller. Safe to call multiple times.
+func (rc *RedisCache) Close() error {
+	rc.closeOnce.Do(func() { close(rc.done) })
+	return nil
 }
 
 // Get retrieves a value from Redis cache
@@ -108,12 +118,17 @@ func (rc *RedisCache) checkHealth(isInitial bool) {
 
 }
 
-// startHealthChecker runs periodic health checks
+// startHealthChecker runs periodic health checks until Close is called
 func (rc *RedisCache) startHealthChecker() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		rc.checkHealth(false)
+	for {
+		select {
+		case <-ticker.C:
+			rc.checkHealth(false)
+		case <-rc.done:
+			return
+		}
 	}
 }

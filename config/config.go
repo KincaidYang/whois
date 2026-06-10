@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -37,9 +38,16 @@ var (
 	CacheManager utils.Cache
 	// CacheExpiration is the cache duration
 	CacheExpiration time.Duration
-	// HttpClient is used to set the timeout for rdapQuery
+	// HttpClient is used to set the timeout for rdapQuery. RDAP queries hit
+	// the same small set of registry servers repeatedly, so the transport
+	// keeps idle connections around for reuse instead of redialing.
 	HttpClient = &http.Client{
 		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			MaxIdleConns:        100,
+			MaxIdleConnsPerHost: 10,
+			IdleConnTimeout:     90 * time.Second,
+		},
 	}
 	// Wg is used to wait for all goroutines to finish
 	Wg sync.WaitGroup
@@ -64,7 +72,17 @@ var (
 	NegativeCacheExpiration time.Duration
 	// BootstrapInterval is how often to refresh RDAP server lists from IANA.
 	BootstrapInterval time.Duration
+	// MCPLocalhostProtection enables DNS-rebinding protection on the /mcp
+	// endpoint. Defaults to false for reverse proxy deployments.
+	MCPLocalhostProtection bool
 )
+
+// RequestTimeout bounds how long a single query may take, so a slow upstream
+// WHOIS/RDAP server cannot hold a concurrency slot indefinitely. It must stay
+// below the HTTP server's WriteTimeout (20s) so the handler returns first, and
+// above the per-upstream dial/read timeout (10s) to allow one full upstream
+// attempt. Shared by the HTTP handler and the MCP tool handler.
+const RequestTimeout = 15 * time.Second
 
 // initLogger sets up the global slog JSON handler with the given level string.
 // Accepted values: "debug", "info", "warn", "error" (case-insensitive).
@@ -120,6 +138,12 @@ func init() {
 		WriteTimeout:    2 * time.Second,
 		PoolTimeout:     2 * time.Second,
 	}
+	if config.Redis.TLS {
+		options.TLSConfig = &tls.Config{
+			MinVersion:         tls.VersionTLS12,
+			InsecureSkipVerify: config.Redis.TLSSkipVerify,
+		}
+	}
 
 	RedisClient = redis.NewClient(options)
 
@@ -154,6 +178,9 @@ func init() {
 
 	// Set the bootstrap interval
 	BootstrapInterval = time.Duration(config.BootstrapInterval) * time.Second
+
+	// Set MCP endpoint options
+	MCPLocalhostProtection = config.MCP.LocalhostProtection
 }
 
 // applyDefaultCacheConfig sets default values for cache configuration if not specified
@@ -259,6 +286,12 @@ func overrideConfigWithEnv(config *Config) {
 			config.Redis.DB = dbInt
 		}
 	}
+	if redisTLS := os.Getenv("WHOIS_REDIS_TLS"); redisTLS != "" {
+		config.Redis.TLS = redisTLS == "true" || redisTLS == "1"
+	}
+	if redisTLSSkipVerify := os.Getenv("WHOIS_REDIS_TLS_SKIP_VERIFY"); redisTLSSkipVerify != "" {
+		config.Redis.TLSSkipVerify = redisTLSSkipVerify == "true" || redisTLSSkipVerify == "1"
+	}
 
 	// Override general configuration
 	if cacheExpiration := os.Getenv("WHOIS_CACHE_EXPIRATION"); cacheExpiration != "" {
@@ -311,6 +344,9 @@ func overrideConfigWithEnv(config *Config) {
 	}
 	if logLevel := os.Getenv("WHOIS_LOG_LEVEL"); logLevel != "" {
 		config.LogLevel = logLevel
+	}
+	if mcpProtection := os.Getenv("WHOIS_MCP_LOCALHOST_PROTECTION"); mcpProtection != "" {
+		config.MCP.LocalhostProtection = mcpProtection == "true" || mcpProtection == "1"
 	}
 }
 

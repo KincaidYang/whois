@@ -54,6 +54,8 @@ redis:
   addr: "redis:6379"           # Redis server address
   password: ""                 # Redis password, leave empty if none
   db: 0                        # Redis database number
+  tls: false                   # Enable TLS when Redis is reached over an untrusted network
+  tlsskipverify: false         # Skip certificate verification (not recommended; self-signed certs only)
 cacheexpiration: 3600          # Cache expiration time in seconds
 
 # Advanced cache configuration (optional, new feature)
@@ -74,9 +76,12 @@ proxypassword: ""                      # Proxy server password (if authenticatio
 
 loglevel: "info"                       # Log level: debug, info, warn, error (default: info)
 bootstrapinterval: 86400               # RDAP server list refresh interval in seconds; 0 or unset disables fetching (recommended: 86400)
+
+mcp:
+  localhostprotection: false           # DNS-rebinding protection for /mcp: only accept requests whose Host header is localhost. Keep false behind a reverse proxy; set true for direct localhost deployments
 ```
 
-Selected options can be overridden via environment variables (which take precedence over the config file), e.g. `WHOIS_REDIS_ADDR`, `WHOIS_PORT`, `WHOIS_RATE_LIMIT`, `WHOIS_CACHE_EXPIRATION`, `WHOIS_NEGATIVE_CACHE_EXPIRATION`, `WHOIS_LOG_LEVEL`.
+Selected options can be overridden via environment variables (which take precedence over the config file), e.g. `WHOIS_REDIS_ADDR`, `WHOIS_REDIS_TLS`, `WHOIS_PORT`, `WHOIS_RATE_LIMIT`, `WHOIS_CACHE_EXPIRATION`, `WHOIS_NEGATIVE_CACHE_EXPIRATION`, `WHOIS_LOG_LEVEL`, `WHOIS_MCP_LOCALHOST_PROTECTION`.
 
 **Configuration Notes:**
 - **Redis Configuration**: Redis is recommended for better performance and multi-instance cache sharing

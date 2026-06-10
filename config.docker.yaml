@@ -2,6 +2,10 @@ redis:
   addr: "redis:6379"
   password: ""
   db: 0
+  # Enable TLS when Redis is reached over an untrusted network.
+  tls: false
+  # Skip server certificate verification (not recommended).
+  tlsskipverify: false
 cacheexpiration: 3600
 cache:
   requireredis: false
@@ -16,3 +20,8 @@ proxyusername: ""
 proxypassword: ""
 loglevel: "info"
 bootstrapinterval: 86400
+mcp:
+  # DNS-rebinding protection for the /mcp endpoint: rejects requests whose
+  # Host header is not localhost. Keep false behind a reverse proxy; set true
+  # when the server is reached directly on localhost.
+  localhostprotection: false

@@ -8,6 +8,12 @@ type Config struct {
 		Addr     string `json:"addr" yaml:"addr"`         // Addr is the address of the Redis server.
 		Password string `json:"password" yaml:"password"` // Password is the password for the Redis server.
 		DB       int    `json:"db" yaml:"db"`             // DB is the database number for the Redis server.
+		// TLS enables TLS for the Redis connection. Use when Redis is reached
+		// over an untrusted network so the password is not sent in cleartext.
+		TLS bool `json:"tls" yaml:"tls"`
+		// TLSSkipVerify disables server certificate verification (not
+		// recommended; only for self-signed certificates in trusted networks).
+		TLSSkipVerify bool `json:"tlsSkipVerify" yaml:"tlsskipverify"`
 	} `json:"redis" yaml:"redis"`
 	// CacheExpiration is the expiration time for the cache, in seconds.
 	CacheExpiration int `json:"cacheExpiration" yaml:"cacheexpiration"`
@@ -39,4 +45,12 @@ type Config struct {
 	// from IANA bootstrap data. 0 or unset disables all fetching; set to 86400
 	// in the default config.yaml to enable 24-hour refresh.
 	BootstrapInterval int `json:"bootstrapInterval" yaml:"bootstrapinterval"`
+	// MCP holds settings for the MCP Streamable HTTP endpoint (/mcp).
+	MCP struct {
+		// LocalhostProtection enables DNS-rebinding protection, which rejects
+		// requests whose Host header is not localhost. Keep false (default)
+		// behind a reverse proxy, where the Host header is the public domain;
+		// set true when the server is reached directly on localhost.
+		LocalhostProtection bool `json:"localhostProtection" yaml:"localhostprotection"`
+	} `json:"mcp" yaml:"mcp"`
 }

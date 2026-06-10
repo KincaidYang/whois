@@ -36,7 +36,10 @@ func init() {
 			proxyClient = &http.Client{
 				Timeout: config.HttpClient.Timeout,
 				Transport: &http.Transport{
-					Proxy: http.ProxyURL(proxyURL),
+					Proxy:               http.ProxyURL(proxyURL),
+					MaxIdleConns:        100,
+					MaxIdleConnsPerHost: 10,
+					IdleConnTimeout:     90 * time.Second,
 				},
 			}
 		}
@@ -110,7 +113,9 @@ func RDAPQuery(ctx context.Context, domain, tld string) (string, error) {
 		metrics.UpstreamDuration.WithLabelValues("rdap", tld).Observe(time.Since(start).Seconds())
 	}()
 	client := getHTTPClient(tld)
-	return doRDAPRequest(ctx, client, rdapServer+"domain/"+domain)
+	// PathEscape is defence in depth: entry-point validation already rejects
+	// URL metacharacters, but the query value must never rewrite the URL path.
+	return doRDAPRequest(ctx, client, rdapServer+"domain/"+url.PathEscape(domain))
 }
 
 // RDAPQueryIP queries the RDAP information for a given IP address.
@@ -124,7 +129,7 @@ func RDAPQueryIP(ctx context.Context, ip, serverURL string) (string, error) {
 	defer func() {
 		metrics.UpstreamDuration.WithLabelValues("rdap", "_ip").Observe(time.Since(start).Seconds())
 	}()
-	return doRDAPRequest(ctx, config.HttpClient, serverURL+"ip/"+ip)
+	return doRDAPRequest(ctx, config.HttpClient, serverURL+"ip/"+url.PathEscape(ip))
 }
 
 // RDAPQueryASN queries the RDAP information for a given ASN.
@@ -138,5 +143,5 @@ func RDAPQueryASN(ctx context.Context, as, serverURL string) (string, error) {
 	defer func() {
 		metrics.UpstreamDuration.WithLabelValues("rdap", "_asn").Observe(time.Since(start).Seconds())
 	}()
-	return doRDAPRequest(ctx, config.HttpClient, serverURL+"autnum/"+as)
+	return doRDAPRequest(ctx, config.HttpClient, serverURL+"autnum/"+url.PathEscape(as))
 }
