@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Each breaking change is listed under a **Breaking** heading below. After
 > v1.0.0 the API and configuration format will remain stable.
 
-## [Unreleased]
+## [0.8.0] - 2026-06-10
 
 ### Breaking
 - **API response format rewritten to align with RDAP (RFC 9083).** All field
@@ -148,6 +148,6 @@ See the [release notes](https://github.com/KincaidYang/whois/releases/tag/v0.6.0
 See the [GitHub releases page](https://github.com/KincaidYang/whois/releases)
 for 0.5.x and earlier.
 
-[Unreleased]: https://github.com/KincaidYang/whois/compare/v0.7.0...HEAD
+[0.8.0]: https://github.com/KincaidYang/whois/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/KincaidYang/whois/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/KincaidYang/whois/compare/v0.5.4...v0.6.0
