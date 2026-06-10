@@ -67,7 +67,7 @@ func whoisLookup(ctx context.Context, _ *mcp.CallToolRequest, input *WhoisInput)
 	query := strings.TrimSpace(strings.ToLower(input.Query))
 
 	rc := newResponseCapture()
-	const cacheKeyPrefix = "whois:"
+	const cacheKeyPrefix = handlers.CacheKeyPrefix
 
 	if net.ParseIP(query) != nil {
 		handlers.HandleIP(ctx, rc, query, cacheKeyPrefix)

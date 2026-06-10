@@ -42,8 +42,8 @@ func TestHandlerRateLimit(t *testing.T) {
 
 func TestHandlerCacheHit(t *testing.T) {
 	domain := "cachehittest99999.cn"
-	key := "whois:" + domain
-	cached := `{"domainName":"cachehittest99999.cn","creationDate":"2020-01-01T00:00:00Z"}`
+	key := handlers.CacheKeyPrefix + domain
+	cached := `{"objectClassName":"domain","ldhName":"cachehittest99999.cn","registrationDate":"2020-01-01T00:00:00Z"}`
 	ctx := context.Background()
 	if err := config.CacheManager.Set(ctx, key, cached, time.Minute); err != nil {
 		t.Fatalf("failed to seed cache: %v", err)

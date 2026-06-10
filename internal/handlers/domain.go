@@ -18,6 +18,31 @@ import (
 	"golang.org/x/net/publicsuffix"
 )
 
+// CacheKeyPrefix namespaces all cache entries. The version segment is bumped
+// whenever the response format changes, so entries cached by an older release
+// are never served in the old format after an upgrade.
+const CacheKeyPrefix = "whois:v2:"
+
+// finalizeDomainInfo fills the fields shared by every domain response that
+// the parsers cannot know themselves: the Unicode form of the name (IDN) and
+// non-nil slices so the JSON contains [] instead of null.
+func finalizeDomainInfo(info *model.DomainInfo, domain string) {
+	if info.LdhName == "" {
+		info.LdhName = domain
+	}
+	if info.UnicodeName == "" {
+		if u, err := idna.ToUnicode(info.LdhName); err == nil {
+			info.UnicodeName = u
+		}
+	}
+	if info.Status == nil {
+		info.Status = []string{}
+	}
+	if info.Nameservers == nil {
+		info.Nameservers = []string{}
+	}
+}
+
 // whoisParsers is a map from top-level domain (TLD) to a function that can parse
 // the WHOIS response for that TLD into a DomainInfo structure.
 // Currently, it includes parsers for the following TLDs: cn, xn--fiqs8s, xn--fiqz9s,
@@ -147,6 +172,7 @@ func queryRDAPDomain(ctx context.Context, domain, tld, key string) (queryOutcome
 	if err != nil {
 		return queryOutcome{}, err
 	}
+	finalizeDomainInfo(&domainInfo, domain)
 
 	resultBytes, err := json.Marshal(domainInfo)
 	if err != nil {
@@ -185,11 +211,24 @@ func queryWhoisDomain(ctx context.Context, domain, tld, key string) (queryOutcom
 
 	parseFunc, ok := whoisParsers[tld]
 	if !ok {
-		// If there's no available parsing rule, return the original WHOIS data as text/plain
-		if err := utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration); err != nil {
+		// No parser for this TLD: wrap the raw WHOIS text in the regular JSON
+		// object (unparsed=true) so the endpoint's content type stays stable.
+		// Clients that want the bare text use ?raw=1.
+		info := model.DomainInfo{
+			ObjectClassName: model.ObjectClassDomain,
+			Unparsed:        true,
+			RawText:         queryResult,
+		}
+		finalizeDomainInfo(&info, domain)
+		resultBytes, err := json.Marshal(info)
+		if err != nil {
+			return queryOutcome{}, err
+		}
+		result := string(resultBytes)
+		if err := utils.SetToCache(ctx, config.CacheManager, key, result, config.CacheExpiration); err != nil {
 			slog.WarnContext(ctx, "cache write error", "key", key, "err", err)
 		}
-		return queryOutcome{body: queryResult, contentType: "text/plain; charset=utf-8"}, nil
+		return queryOutcome{body: result, contentType: "application/json"}, nil
 	}
 
 	var domainInfo model.DomainInfo
@@ -198,6 +237,7 @@ func queryWhoisDomain(ctx context.Context, domain, tld, key string) (queryOutcom
 		// "resource not found" or other parsing error during the WHOIS parsing
 		return queryOutcome{}, err
 	}
+	finalizeDomainInfo(&domainInfo, domain)
 
 	resultBytes, err := json.Marshal(domainInfo)
 	if err != nil {

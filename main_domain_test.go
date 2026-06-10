@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/KincaidYang/whois/internal/config"
+	"github.com/KincaidYang/whois/internal/handlers"
 	"golang.org/x/net/idna"
 )
 
@@ -32,7 +33,7 @@ func TestHandlerUnknownTLD(t *testing.T) {
 // as text/plain, covering the content-type sniffing branch in HandleDomain.
 func TestHandlerTextPlainCacheHit(t *testing.T) {
 	domain := "textplaintest99999.cn"
-	key := "whois:" + domain
+	key := handlers.CacheKeyPrefix + domain
 	cached := "Domain Name: textplaintest99999.cn\nRaw WHOIS text, not JSON\n"
 	ctx := context.Background()
 	if err := config.CacheManager.Set(ctx, key, cached, time.Minute); err != nil {
@@ -62,8 +63,8 @@ func TestHandlerIDNCacheHit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("idna.ToASCII: %v", err)
 	}
-	key := "whois:" + punycode
-	cached := `{"domainName":"` + punycode + `"}`
+	key := handlers.CacheKeyPrefix + punycode
+	cached := `{"ldhName":"` + punycode + `"}`
 	ctx := context.Background()
 	if err := config.CacheManager.Set(ctx, key, cached, time.Minute); err != nil {
 		t.Fatalf("failed to seed cache: %v", err)
@@ -85,7 +86,7 @@ func TestHandlerIDNCacheHit(t *testing.T) {
 // 404 rather than as a normal payload, exercising the read-side interception.
 func TestHandlerNegativeCacheHit(t *testing.T) {
 	domain := "negativecachetest99999.cn"
-	key := "whois:" + domain
+	key := handlers.CacheKeyPrefix + domain
 	ctx := context.Background()
 	// Seed a not-found negative marker (same encoding CacheNegativeResult writes).
 	if err := config.CacheManager.Set(ctx, key, "\x00neg:notfound", time.Minute); err != nil {
@@ -104,8 +105,8 @@ func TestHandlerNegativeCacheHit(t *testing.T) {
 // TestHandlerIPCacheHit confirms the IP branch resolves and serves cached data.
 func TestHandlerIPCacheHit(t *testing.T) {
 	ip := "192.0.2.1"
-	key := "whois:" + ip
-	cached := `{"ipNetwork":"192.0.2.0/24"}`
+	key := handlers.CacheKeyPrefix + ip
+	cached := `{"objectClassName":"ip network","handle":"192.0.2.0/24"}`
 	ctx := context.Background()
 	if err := config.CacheManager.Set(ctx, key, cached, time.Minute); err != nil {
 		t.Fatalf("failed to seed cache: %v", err)

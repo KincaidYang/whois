@@ -1,21 +1,24 @@
 package model
 
-// IPInfo represents the information about an IP network.
+// IPInfo is the API representation of an IP network. Field names follow the
+// RDAP ip network object (RFC 9083 section 5.4).
 type IPInfo struct {
-	IP           string   `json:"IP Network"`    // IP is the IP network.
-	Range        string   `json:"Address Range"` // Range is the address range of the IP network.
-	NetName      string   `json:"Network Name"`  // NetName is the name of the network.
-	CIDR         string   `json:"CIDR"`          // CIDR is the CIDR of the IP network.
-	Networktype  string   `json:"Network Type"`  // Networktype is the type of the network.
-	Country      string   `json:"Country"`       // Country is the country of the IP network.
-	IPStatus     []string `json:"Status"`        // IPStatus is the status of the IP network.
-	CreationDate string   `json:"Creation Date"` // CreationDate is the creation date of the IP network.
-	UpdatedDate  string   `json:"Updated Date"`  // UpdatedDate is the updated date of the IP network.
-	Remarks      []Remark `json:"Remarks"`       // Remarks contains additional information about the IP network.
+	ObjectClassName  string   `json:"objectClassName"` // always ObjectClassIPNetwork
+	Handle           string   `json:"handle"`
+	StartAddress     string   `json:"startAddress,omitempty"`
+	EndAddress       string   `json:"endAddress,omitempty"`
+	CIDR             string   `json:"cidr,omitempty"`
+	Name             string   `json:"name,omitempty"`
+	Type             string   `json:"type,omitempty"`
+	Country          string   `json:"country,omitempty"`
+	Status           []string `json:"status"`
+	RegistrationDate string   `json:"registrationDate,omitempty"`
+	LastChangedDate  string   `json:"lastChangedDate,omitempty"`
+	Remarks          []Remark `json:"remarks,omitempty"`
 }
 
-// Remark represents a single remark entry.
+// Remark is additional registry-provided information (RFC 9083 section 4.3).
 type Remark struct {
-	Title       string   `json:"title"`       // Title is the title of the remark.
-	Description []string `json:"description"` // Description contains the details of the remark.
+	Title       string   `json:"title"`
+	Description []string `json:"description"`
 }

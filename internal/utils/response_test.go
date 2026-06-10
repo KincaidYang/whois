@@ -15,16 +15,13 @@ func TestHandleHTTPError(t *testing.T) {
 		errorType  ErrorType
 		message    string
 		wantStatus int
-		wantMsg    string
+		wantTitle  string
 	}{
-		{ErrorTypeNotFound, "not here", http.StatusNotFound, "not here"},
+		{ErrorTypeNotFound, "not here", http.StatusNotFound, "Resource not found"},
 		{ErrorTypeNotFound, "", http.StatusNotFound, "Resource not found"},
-		{ErrorTypeForbidden, "denied", http.StatusForbidden, "denied"},
-		{ErrorTypeForbidden, "", http.StatusForbidden, "Access forbidden"},
-		{ErrorTypeInternalServer, "oops", http.StatusInternalServerError, "oops"},
-		{ErrorTypeInternalServer, "", http.StatusInternalServerError, "Internal server error"},
-		{ErrorTypeBadRequest, "bad input", http.StatusBadRequest, "bad input"},
-		{ErrorTypeBadRequest, "", http.StatusBadRequest, "Bad request"},
+		{ErrorTypeForbidden, "denied", http.StatusForbidden, "Access forbidden"},
+		{ErrorTypeInternalServer, "oops", http.StatusInternalServerError, "Internal server error"},
+		{ErrorTypeBadRequest, "bad input", http.StatusBadRequest, "Bad request"},
 	}
 
 	for _, tt := range tests {
@@ -34,16 +31,25 @@ func TestHandleHTTPError(t *testing.T) {
 		if w.Code != tt.wantStatus {
 			t.Errorf("HandleHTTPError(%v, %q): status=%d, want %d", tt.errorType, tt.message, w.Code, tt.wantStatus)
 		}
-		if ct := w.Header().Get("Content-Type"); ct != "application/json" {
-			t.Errorf("Content-Type=%q, want application/json", ct)
+		if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+			t.Errorf("Content-Type=%q, want application/problem+json", ct)
 		}
-		var body ErrorResponse
+		var body Problem
 		if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 			t.Errorf("response body is not valid JSON: %v", err)
 			continue
 		}
-		if body.Error != tt.wantMsg {
-			t.Errorf("body.Error=%q, want %q", body.Error, tt.wantMsg)
+		if body.Title != tt.wantTitle {
+			t.Errorf("body.Title=%q, want %q", body.Title, tt.wantTitle)
+		}
+		if body.Status != tt.wantStatus {
+			t.Errorf("body.Status=%d, want %d", body.Status, tt.wantStatus)
+		}
+		if body.Detail != tt.message {
+			t.Errorf("body.Detail=%q, want %q", body.Detail, tt.message)
+		}
+		if !strings.Contains(body.Type, "docs/errors.md#") {
+			t.Errorf("body.Type=%q, want a docs/errors.md anchor URI", body.Type)
 		}
 	}
 }
@@ -64,6 +70,9 @@ func TestHandleQueryError(t *testing.T) {
 		if w.Code != tt.wantStatus {
 			t.Errorf("HandleQueryError(%v): status=%d, want %d", tt.err, w.Code, tt.wantStatus)
 		}
+		if ct := w.Header().Get("Content-Type"); ct != "application/problem+json" {
+			t.Errorf("Content-Type=%q, want application/problem+json", ct)
+		}
 	}
 }
 
@@ -72,6 +81,21 @@ func TestHandleInternalError(t *testing.T) {
 	HandleInternalError(context.Background(), w, ErrResourceNotFound)
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status=%d, want 500", w.Code)
+	}
+}
+
+func TestWriteRateLimited(t *testing.T) {
+	w := httptest.NewRecorder()
+	WriteRateLimited(w)
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("status=%d, want 429", w.Code)
+	}
+	var body Problem
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("response body is not valid JSON: %v", err)
+	}
+	if body.Title != "Too many concurrent requests" {
+		t.Errorf("body.Title=%q", body.Title)
 	}
 }
 
@@ -84,15 +108,15 @@ func TestHandleQueryErrorSanitizesUnexpectedErrors(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status=%d, want 500", w.Code)
 	}
-	var body ErrorResponse
+	var body Problem
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 		t.Fatalf("response body is not valid JSON: %v", err)
 	}
-	if strings.Contains(body.Error, "whois.internal.example") {
-		t.Errorf("error message leaks upstream host: %q", body.Error)
+	if strings.Contains(body.Title+body.Detail, "whois.internal.example") {
+		t.Errorf("error message leaks upstream host: %+v", body)
 	}
-	if body.Error != "Query failed. Please try again later." {
-		t.Errorf("body.Error=%q, want generic message", body.Error)
+	if body.Title != "Query failed" {
+		t.Errorf("body.Title=%q, want generic message", body.Title)
 	}
 }
 
@@ -102,12 +126,12 @@ func TestHandleInternalErrorSanitizes(t *testing.T) {
 	w := httptest.NewRecorder()
 	HandleInternalError(context.Background(), w, errors.New("redis: connection pool timeout at 10.0.0.5:6379"))
 
-	var body ErrorResponse
+	var body Problem
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
 		t.Fatalf("response body is not valid JSON: %v", err)
 	}
-	if body.Error != "Internal server error" {
-		t.Errorf("body.Error=%q, want %q", body.Error, "Internal server error")
+	if body.Title != "Internal server error" || strings.Contains(body.Detail, "10.0.0.5") {
+		t.Errorf("unexpected body: %+v", body)
 	}
 }
 

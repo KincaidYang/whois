@@ -56,9 +56,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	default:
 		config.Wg.Done()
 		slog.WarnContext(r.Context(), "rate limit reached", "path", r.URL.Path)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = fmt.Fprint(w, `{"error":"too many concurrent requests"}`)
+		utils.WriteRateLimited(w)
 		metrics.HTTPRequestsTotal.WithLabelValues("unknown", "429").Inc()
 		return
 	}
@@ -77,7 +75,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	rawValue := r.URL.Query().Get("raw")
 	raw := r.URL.Query().Has("raw") && rawValue != "0" && rawValue != "false"
 
-	cacheKeyPrefix := "whois:"
+	cacheKeyPrefix := handlers.CacheKeyPrefix
 	sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
 	start := time.Now()
 

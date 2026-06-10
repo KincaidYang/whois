@@ -2,11 +2,19 @@ package whois
 
 import (
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/KincaidYang/whois/internal/model"
 	"github.com/KincaidYang/whois/internal/utils"
+)
+
+// Registry-local zones for WHOIS responses whose timestamps carry no offset.
+var (
+	zoneCST = time.FixedZone("CST", 8*3600) // .cn .tw .mo (China Standard Time)
+	zoneSGT = time.FixedZone("SGT", 8*3600) // .sg
+	zoneJST = time.FixedZone("JST", 9*3600) // .jp
 )
 
 // 预编译正则表达式（所有解析器共享，避免每次调用重复编译）
@@ -121,51 +129,109 @@ var (
 	reJPUpdatedDate  = regexp.MustCompile(`\[最終更新\]\s+(.*)`)
 	// 工具正则
 	reJPExpiryInStatus = regexp.MustCompile(`\((\d{4}/\d{2}/\d{2})\)`)
-	reJPTimezone       = regexp.MustCompile(`\s*\([A-Z]+\)\s*$`)
+	reTZSuffix         = regexp.MustCompile(`\s*\([A-Z]+\)\s*$`)
 	reMultiSpace       = regexp.MustCompile(`\s+`)
 )
 
-func ParseWhoisResponseCN(response string, domain string) (model.DomainInfo, error) {
-	var domainInfo model.DomainInfo
-	domainInfo.DomainName = domain
+// newDomainInfo seeds a DomainInfo with the v2 invariants shared by every
+// WHOIS parser: the object class discriminator and the queried name (already
+// punycode-lowercased by the handler).
+func newDomainInfo(domain string) model.DomainInfo {
+	return model.DomainInfo{
+		ObjectClassName: model.ObjectClassDomain,
+		LdhName:         strings.ToLower(domain),
+	}
+}
 
-	// 解析创建日期
+// normDate converts a registry date to RFC 3339 UTC (or RFC 3339 full-date
+// when no time of day is present), interpreting zone-less timestamps in loc.
+// Unrecognized formats are passed through unchanged rather than dropped.
+func normDate(s string, loc *time.Location) string {
+	s = strings.TrimSpace(reTZSuffix.ReplaceAllString(s, ""))
+	out, _ := model.NormalizeDate(s, loc)
+	return out
+}
+
+// secureDNSFromString maps a registry's DNSSEC field text to the structured
+// secureDNS object. Registries phrase the signed state in several ways.
+func secureDNSFromString(s string) *model.SecureDNS {
+	v := strings.ToLower(strings.TrimSpace(s))
+	signed := strings.HasPrefix(v, "signed") || v == "yes" || v == "active" || v == "valid"
+	return &model.SecureDNS{DelegationSigned: signed}
+}
+
+// parseDSRecord parses a textual DS record ("keyTag algorithm digestType
+// digest...") into a structured DSData. Returns false when the text does not
+// follow that shape.
+func parseDSRecord(raw string) (model.DSData, bool) {
+	fields := strings.Fields(raw)
+	if len(fields) < 4 {
+		return model.DSData{}, false
+	}
+	keyTag, err1 := strconv.Atoi(fields[0])
+	alg, err2 := strconv.Atoi(fields[1])
+	digestType, err3 := strconv.Atoi(fields[2])
+	if err1 != nil || err2 != nil || err3 != nil {
+		return model.DSData{}, false
+	}
+	return model.DSData{
+		KeyTag:     keyTag,
+		Algorithm:  alg,
+		DigestType: digestType,
+		Digest:     strings.Join(fields[3:], ""),
+	}, true
+}
+
+// attachDSData parses raw DS text into info.SecureDNS.DSData; the signed flag
+// is forced on since a DS record implies a signed delegation.
+func attachDSData(info *model.DomainInfo, raw string) {
+	if info.SecureDNS == nil {
+		info.SecureDNS = &model.SecureDNS{}
+	}
+	info.SecureDNS.DelegationSigned = true
+	if ds, ok := parseDSRecord(raw); ok {
+		info.SecureDNS.DSData = append(info.SecureDNS.DSData, ds)
+	}
+}
+
+// lowerAll lowercases every entry (nameserver hostnames are normalized to
+// lowercase, matching the RDAP path).
+func lowerAll(in []string) []string {
+	for i, s := range in {
+		in[i] = strings.ToLower(strings.TrimSpace(s))
+	}
+	return in
+}
+
+func ParseWhoisResponseCN(response string, domain string) (model.DomainInfo, error) {
+	domainInfo := newDomainInfo(domain)
+
+	// 解析创建日期（CNNIC 时间为北京时间，转换为 UTC）
 	matchCreationDate := reCNCreationDate.FindStringSubmatch(response)
 	if len(matchCreationDate) > 1 {
-		// 解析原始时间字符串
-		t, err := time.Parse("2006-01-02 15:04:05", matchCreationDate[1])
-		if err != nil {
-			return model.DomainInfo{}, err
-		}
-		// 将时间转换为 UTC，并格式化为新的字符串
-		domainInfo.CreationDate = t.Add(-8 * time.Hour).Format(time.RFC3339Nano)
+		domainInfo.RegistrationDate = normDate(matchCreationDate[1], zoneCST)
 	}
 
 	// 解析过期日期
 	matchExpiryDate := reCNExpiryDate.FindStringSubmatch(response)
 	if len(matchExpiryDate) > 1 {
-		// 解析原始时间字符串
-		t, err := time.Parse("2006-01-02 15:04:05", matchExpiryDate[1])
-		if err != nil {
-			return model.DomainInfo{}, err
-		}
-		// 将时间转换为 UTC，并格式化为新的字符串
-		domainInfo.RegistryExpiryDate = t.Add(-8 * time.Hour).Format(time.RFC3339Nano)
+		domainInfo.ExpirationDate = normDate(matchExpiryDate[1], zoneCST)
 	}
 
 	// 解析名称服务器
 	matchNameServers := reCNNameServer.FindAllStringSubmatch(response, -1)
 	if len(matchNameServers) > 0 {
-		domainInfo.NameServer = make([]string, len(matchNameServers))
+		domainInfo.Nameservers = make([]string, len(matchNameServers))
 		for i, match := range matchNameServers {
-			domainInfo.NameServer[i] = match[1]
+			domainInfo.Nameservers[i] = match[1]
 		}
+		domainInfo.Nameservers = lowerAll(domainInfo.Nameservers)
 	}
 
 	// 解析 DNSSEC
 	matchDNSSEC := reCNDNSSEC.FindStringSubmatch(response)
 	if len(matchDNSSEC) > 1 {
-		domainInfo.DNSSec = matchDNSSEC[1]
+		domainInfo.SecureDNS = secureDNSFromString(matchDNSSEC[1])
 	}
 
 	// 解析注册商
@@ -177,60 +243,49 @@ func ParseWhoisResponseCN(response string, domain string) (model.DomainInfo, err
 	// 解析域名状态
 	matchDomainStatuses := reCNDomainStatus.FindAllStringSubmatch(response, -1)
 	if len(matchDomainStatuses) > 0 {
-		domainInfo.DomainStatus = make([]string, len(matchDomainStatuses))
+		domainInfo.Status = make([]string, len(matchDomainStatuses))
 		for i, match := range matchDomainStatuses {
-			domainInfo.DomainStatus[i] = match[1]
+			domainInfo.Status[i] = match[1]
 		}
+		domainInfo.Status = model.CleanStatus(domainInfo.Status)
 	}
 
 	// 设置数据库更新时间为数据处理时间
-	now := time.Now().UTC().Format(time.RFC3339)
-	domainInfo.LastUpdateOfRDAPDB = now
+	domainInfo.LastUpdateOfRdapDb = time.Now().UTC().Format(time.RFC3339)
 
-	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
 		return model.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil
 }
-func ParseWhoisResponseHK(response string, domain string) (model.DomainInfo, error) {
-	var domainInfo model.DomainInfo
-	domainInfo.DomainName = domain
 
-	// 解析创建日期
+func ParseWhoisResponseHK(response string, domain string) (model.DomainInfo, error) {
+	domainInfo := newDomainInfo(domain)
+
+	// 解析创建日期（HKIRC 只给日期，保持 RFC 3339 full-date）
 	matchCreationDate := reHKCreationDate.FindStringSubmatch(response)
 	if len(matchCreationDate) > 1 {
-		CreationDate := strings.TrimSpace(matchCreationDate[1])
-		parsedDate, err := time.Parse("02-01-2006", CreationDate)
-		if err == nil {
-			domainInfo.CreationDate = parsedDate.Format("2006-01-02")
-		}
+		domainInfo.RegistrationDate = normDate(matchCreationDate[1], nil)
 	}
 
 	// 解析过期日期
 	matchExpiryDate := reHKExpiryDate.FindStringSubmatch(response)
 	if len(matchExpiryDate) > 1 {
-		expiryDate := strings.TrimSpace(matchExpiryDate[1])
-		parsedDate, err := time.Parse("02-01-2006", expiryDate)
-		if err == nil {
-			domainInfo.RegistryExpiryDate = parsedDate.Format("2006-01-02")
-		}
+		domainInfo.ExpirationDate = normDate(matchExpiryDate[1], nil)
 	}
 
 	// 解析名称服务器
 	matchNameServers := reHKNameServer.FindStringSubmatch(response)
 	if len(matchNameServers) > 1 {
 		nameServers := strings.Split(strings.TrimSpace(matchNameServers[1]), "\n")
-		domainInfo.NameServer = make([]string, len(nameServers))
-		for i, ns := range nameServers {
-			domainInfo.NameServer[i] = strings.TrimSpace(ns)
-		}
+		domainInfo.Nameservers = lowerAll(nameServers)
 	}
 
 	// 解析 DNSSEC
 	matchDNSSEC := reHKDNSSEC.FindStringSubmatch(response)
 	if len(matchDNSSEC) > 1 {
-		domainInfo.DNSSec = strings.TrimSpace(matchDNSSEC[1])
+		domainInfo.SecureDNS = secureDNSFromString(matchDNSSEC[1])
 	}
 
 	// 解析注册商
@@ -242,14 +297,13 @@ func ParseWhoisResponseHK(response string, domain string) (model.DomainInfo, err
 	// 解析域名状态
 	matchDomainStatus := reHKDomainStatus.FindStringSubmatch(response)
 	if len(matchDomainStatus) > 1 {
-		domainInfo.DomainStatus = []string{strings.TrimSpace(matchDomainStatus[1])}
+		domainInfo.Status = model.CleanStatus([]string{matchDomainStatus[1]})
 	}
 
 	// 设置数据库更新时间为数据处理时间
-	now := time.Now().UTC().Format(time.RFC3339)
-	domainInfo.LastUpdateOfRDAPDB = now
+	domainInfo.LastUpdateOfRdapDb = time.Now().UTC().Format(time.RFC3339)
 
-	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
 		return model.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
@@ -257,8 +311,7 @@ func ParseWhoisResponseHK(response string, domain string) (model.DomainInfo, err
 }
 
 func ParseWhoisResponseTW(response string, domain string) (model.DomainInfo, error) {
-	var domainInfo model.DomainInfo
-	domainInfo.DomainName = domain
+	domainInfo := newDomainInfo(domain)
 
 	// 解析注册商
 	matchRegistrar := reTWRegistrar.FindStringSubmatch(response)
@@ -269,63 +322,50 @@ func ParseWhoisResponseTW(response string, domain string) (model.DomainInfo, err
 	// 解析域名状态
 	matchDomainStatuses := reTWDomainStatus.FindAllStringSubmatch(response, -1)
 	if len(matchDomainStatuses) > 0 {
-		domainInfo.DomainStatus = make([]string, len(matchDomainStatuses))
+		domainInfo.Status = make([]string, len(matchDomainStatuses))
 		for i, match := range matchDomainStatuses {
-			domainInfo.DomainStatus[i] = strings.TrimSpace(match[1])
+			domainInfo.Status[i] = strings.TrimSpace(match[1])
 		}
+		domainInfo.Status = model.CleanStatus(domainInfo.Status)
 	}
 
-	// 解析创建日期
+	// 解析创建日期（TWNIC 时间为台北时间，转换为 UTC）
 	matchCreationDate := reTWCreationDate.FindStringSubmatch(response)
 	if len(matchCreationDate) > 1 {
-		t, err := time.Parse("2006-01-02 15:04:05", matchCreationDate[1])
-		if err != nil {
-			return model.DomainInfo{}, err
-		}
-		// 将时间转换为 UTC，并格式化为新的字符串
-		domainInfo.CreationDate = t.Add(-8 * time.Hour).Format(time.RFC3339Nano)
+		domainInfo.RegistrationDate = normDate(matchCreationDate[1], zoneCST)
 	}
 
 	// 解析过期日期
 	matchExpiryDate := reTWExpiryDate.FindStringSubmatch(response)
 	if len(matchExpiryDate) > 1 {
-		t, err := time.Parse("2006-01-02 15:04:05", matchExpiryDate[1])
-		if err != nil {
-			return model.DomainInfo{}, err
-		}
-		// 将时间转换为 UTC，并格式化为新的字符串
-		domainInfo.RegistryExpiryDate = t.Add(-8 * time.Hour).Format(time.RFC3339Nano)
+		domainInfo.ExpirationDate = normDate(matchExpiryDate[1], zoneCST)
 	}
 
 	// 解析名称服务器
 	matchNameServers := reTWNameServer.FindStringSubmatch(response)
 	if len(matchNameServers) > 1 {
 		servers := strings.Split(strings.TrimSpace(matchNameServers[1]), "\n")
-		domainInfo.NameServer = make([]string, len(servers))
-		for i, server := range servers {
-			domainInfo.NameServer[i] = strings.TrimSpace(server)
-		}
+		domainInfo.Nameservers = lowerAll(servers)
 	}
 
 	// 解析 DNSSEC
 	matchDNSSEC := reTWDNSSEC.FindStringSubmatch(response)
 	if len(matchDNSSEC) > 1 {
-		domainInfo.DNSSec = matchDNSSEC[1]
+		domainInfo.SecureDNS = secureDNSFromString(matchDNSSEC[1])
 	}
 
 	// 设置数据库更新时间为数据处理时间
-	now := time.Now().UTC().Format(time.RFC3339)
-	domainInfo.LastUpdateOfRDAPDB = now
+	domainInfo.LastUpdateOfRdapDb = time.Now().UTC().Format(time.RFC3339)
 
-	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
 		return model.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil
 }
+
 func ParseWhoisResponseSO(response string, domain string) (model.DomainInfo, error) {
-	var domainInfo model.DomainInfo
-	domainInfo.DomainName = domain
+	domainInfo := newDomainInfo(domain)
 
 	// 解析注册商
 	matchRegistrar := reSORegistrar.FindStringSubmatch(response)
@@ -336,10 +376,11 @@ func ParseWhoisResponseSO(response string, domain string) (model.DomainInfo, err
 	// 解析域名状态
 	matchDomainStatuses := reSODomainStatus.FindAllStringSubmatch(response, -1)
 	if len(matchDomainStatuses) > 0 {
-		domainInfo.DomainStatus = make([]string, len(matchDomainStatuses))
+		domainInfo.Status = make([]string, len(matchDomainStatuses))
 		for i, match := range matchDomainStatuses {
-			domainInfo.DomainStatus[i] = match[1]
+			domainInfo.Status[i] = match[1]
 		}
+		domainInfo.Status = model.CleanStatus(domainInfo.Status)
 	}
 
 	// 解析 Registrar IANA ID
@@ -351,57 +392,58 @@ func ParseWhoisResponseSO(response string, domain string) (model.DomainInfo, err
 	// 解析创建日期
 	matchCreationDate := reSOCreationDate.FindStringSubmatch(response)
 	if len(matchCreationDate) > 1 {
-		domainInfo.CreationDate = matchCreationDate[1]
+		domainInfo.RegistrationDate = normDate(matchCreationDate[1], time.UTC)
 	}
 
 	// 解析过期日期
 	matchExpiryDate := reSOExpiryDate.FindStringSubmatch(response)
 	if len(matchExpiryDate) > 1 {
-		domainInfo.RegistryExpiryDate = matchExpiryDate[1]
+		domainInfo.ExpirationDate = normDate(matchExpiryDate[1], time.UTC)
 	}
 
 	// 解析更新日期
 	matchUpdatedDate := reSOUpdatedDate.FindStringSubmatch(response)
 	if len(matchUpdatedDate) > 1 {
-		domainInfo.UpdatedDate = matchUpdatedDate[1]
+		domainInfo.LastChangedDate = normDate(matchUpdatedDate[1], time.UTC)
 	}
 
 	// 解析名称服务器
 	matchNameServers := reSONameServer.FindAllStringSubmatch(response, -1)
 	if len(matchNameServers) > 0 {
-		domainInfo.NameServer = make([]string, len(matchNameServers))
+		domainInfo.Nameservers = make([]string, len(matchNameServers))
 		for i, match := range matchNameServers {
-			domainInfo.NameServer[i] = match[1]
+			domainInfo.Nameservers[i] = match[1]
 		}
+		domainInfo.Nameservers = lowerAll(domainInfo.Nameservers)
 	}
 
 	// 解析 DNSSEC
 	matchDNSSEC := reSODNSSEC.FindStringSubmatch(response)
 	if len(matchDNSSEC) > 1 {
-		domainInfo.DNSSec = matchDNSSEC[1]
+		domainInfo.SecureDNS = secureDNSFromString(matchDNSSEC[1])
 	}
 
 	// 解析 DNSSEC DS Data
 	matchDNSSecDSData := reSODNSSecDSData.FindStringSubmatch(response)
 	if len(matchDNSSecDSData) > 1 {
-		domainInfo.DNSSecDSData = []string{matchDNSSecDSData[1]}
+		attachDSData(&domainInfo, matchDNSSecDSData[1])
 	}
 
 	// 解析数据库更新时间
 	matchLastUpdateOfRDAPDB := reSOLastUpdateOfRDAPDB.FindStringSubmatch(response)
 	if len(matchLastUpdateOfRDAPDB) > 1 {
-		domainInfo.LastUpdateOfRDAPDB = strings.TrimSuffix(matchLastUpdateOfRDAPDB[1], " <<<")
+		domainInfo.LastUpdateOfRdapDb = normDate(strings.TrimSuffix(matchLastUpdateOfRDAPDB[1], " <<<"), time.UTC)
 	}
 
-	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
 		return model.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil
 }
+
 func ParseWhoisResponseRU(response string, domain string) (model.DomainInfo, error) {
-	var domainInfo model.DomainInfo
-	domainInfo.DomainName = domain
+	domainInfo := newDomainInfo(domain)
 
 	// 解析注册商
 	matchRegistrar := reRURegistrar.FindStringSubmatch(response)
@@ -412,40 +454,42 @@ func ParseWhoisResponseRU(response string, domain string) (model.DomainInfo, err
 	// 解析创建日期
 	matchCreationDate := reRUCreationDate.FindStringSubmatch(response)
 	if len(matchCreationDate) > 1 {
-		domainInfo.CreationDate = matchCreationDate[1]
+		domainInfo.RegistrationDate = normDate(matchCreationDate[1], time.UTC)
 	}
 
 	// 解析过期日期
 	matchExpiryDate := reRUExpiryDate.FindStringSubmatch(response)
 	if len(matchExpiryDate) > 1 {
-		domainInfo.RegistryExpiryDate = matchExpiryDate[1]
+		domainInfo.ExpirationDate = normDate(matchExpiryDate[1], time.UTC)
 	}
 
 	// 解析名称服务器
 	matchNameServers := reRUNameServer.FindAllStringSubmatch(response, -1)
 	if len(matchNameServers) > 0 {
-		domainInfo.NameServer = make([]string, len(matchNameServers))
+		domainInfo.Nameservers = make([]string, len(matchNameServers))
 		for i, match := range matchNameServers {
-			domainInfo.NameServer[i] = match[1]
+			domainInfo.Nameservers[i] = match[1]
 		}
+		domainInfo.Nameservers = lowerAll(domainInfo.Nameservers)
 	}
 
 	// 解析域名状态
 	matchDomainStatuses := reRUDomainStatus.FindAllStringSubmatch(response, -1)
 	if len(matchDomainStatuses) > 0 {
-		domainInfo.DomainStatus = make([]string, len(matchDomainStatuses))
+		domainInfo.Status = make([]string, len(matchDomainStatuses))
 		for i, match := range matchDomainStatuses {
-			domainInfo.DomainStatus[i] = match[1]
+			domainInfo.Status[i] = match[1]
 		}
+		domainInfo.Status = model.CleanStatus(domainInfo.Status)
 	}
 
 	// 解析数据库更新时间
 	matchLastUpdateOfRDAPDB := reRULastUpdateOfRDAPDB.FindStringSubmatch(response)
 	if len(matchLastUpdateOfRDAPDB) > 1 {
-		domainInfo.LastUpdateOfRDAPDB = matchLastUpdateOfRDAPDB[1]
+		domainInfo.LastUpdateOfRdapDb = normDate(matchLastUpdateOfRDAPDB[1], time.UTC)
 	}
 
-	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
 		return model.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
@@ -453,40 +497,40 @@ func ParseWhoisResponseRU(response string, domain string) (model.DomainInfo, err
 }
 
 func ParseWhoisResponseSB(response string, domain string) (model.DomainInfo, error) {
-	var domainInfo model.DomainInfo
-	domainInfo.DomainName = domain
+	domainInfo := newDomainInfo(domain)
 
 	// 解析创建日期
 	matchCreationDate := reSBCreationDate.FindStringSubmatch(response)
 	if len(matchCreationDate) > 1 {
-		domainInfo.CreationDate = matchCreationDate[1]
+		domainInfo.RegistrationDate = normDate(matchCreationDate[1], time.UTC)
 	}
 
 	// 解析过期日期
 	matchExpiryDate := reSBExpiryDate.FindStringSubmatch(response)
 	if len(matchExpiryDate) > 1 {
-		domainInfo.RegistryExpiryDate = matchExpiryDate[1]
+		domainInfo.ExpirationDate = normDate(matchExpiryDate[1], time.UTC)
 	}
 
 	// 解析更新日期
 	matchUpdatedDate := reSBUpdatedDate.FindStringSubmatch(response)
 	if len(matchUpdatedDate) > 1 {
-		domainInfo.UpdatedDate = matchUpdatedDate[1]
+		domainInfo.LastChangedDate = normDate(matchUpdatedDate[1], time.UTC)
 	}
 
 	// 解析名称服务器
 	matchNameServers := reSBNameServer.FindAllStringSubmatch(response, -1)
 	if len(matchNameServers) > 0 {
-		domainInfo.NameServer = make([]string, len(matchNameServers))
+		domainInfo.Nameservers = make([]string, len(matchNameServers))
 		for i, match := range matchNameServers {
-			domainInfo.NameServer[i] = match[1]
+			domainInfo.Nameservers[i] = match[1]
 		}
+		domainInfo.Nameservers = lowerAll(domainInfo.Nameservers)
 	}
 
 	// 解析 DNSSEC
 	matchDNSSEC := reSBDNSSEC.FindStringSubmatch(response)
 	if len(matchDNSSEC) > 1 {
-		domainInfo.DNSSec = matchDNSSEC[1]
+		domainInfo.SecureDNS = secureDNSFromString(matchDNSSEC[1])
 	}
 
 	// 解析注册商
@@ -498,10 +542,11 @@ func ParseWhoisResponseSB(response string, domain string) (model.DomainInfo, err
 	// 解析域名状态
 	matchDomainStatuses := reSBDomainStatus.FindAllStringSubmatch(response, -1)
 	if len(matchDomainStatuses) > 0 {
-		domainInfo.DomainStatus = make([]string, len(matchDomainStatuses))
+		domainInfo.Status = make([]string, len(matchDomainStatuses))
 		for i, match := range matchDomainStatuses {
-			domainInfo.DomainStatus[i] = match[1]
+			domainInfo.Status[i] = match[1]
 		}
+		domainInfo.Status = model.CleanStatus(domainInfo.Status)
 	}
 
 	// 解析 Registrar IANA ID
@@ -513,52 +558,48 @@ func ParseWhoisResponseSB(response string, domain string) (model.DomainInfo, err
 	// 解析 DNSSEC DS Data
 	matchDNSSecDSData := reSBDNSSecDSData.FindStringSubmatch(response)
 	if len(matchDNSSecDSData) > 1 {
-		domainInfo.DNSSecDSData = []string{matchDNSSecDSData[1]}
+		attachDSData(&domainInfo, matchDNSSecDSData[1])
 	}
 
 	// 解析数据库更新时间
 	matchLastUpdateOfRDAPDB := reSBLastUpdateOfRDAPDB.FindStringSubmatch(response)
 	if len(matchLastUpdateOfRDAPDB) > 1 {
-		domainInfo.LastUpdateOfRDAPDB = strings.TrimSuffix(matchLastUpdateOfRDAPDB[1], " <<<")
+		domainInfo.LastUpdateOfRdapDb = normDate(strings.TrimSuffix(matchLastUpdateOfRDAPDB[1], " <<<"), time.UTC)
 	}
 
-	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
 		return model.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
 	return domainInfo, nil
 }
-func ParseWhoisResponseMO(response string, domain string) (model.DomainInfo, error) {
-	var domainInfo model.DomainInfo
-	domainInfo.DomainName = domain
 
-	// Parse creation date
+func ParseWhoisResponseMO(response string, domain string) (model.DomainInfo, error) {
+	domainInfo := newDomainInfo(domain)
+
+	// Parse creation date (MONIC local time is UTC+8)
 	matchCreationDate := reMOCreationDate.FindStringSubmatch(response)
 	if len(matchCreationDate) > 1 {
-		domainInfo.CreationDate = matchCreationDate[1]
+		domainInfo.RegistrationDate = normDate(matchCreationDate[1], zoneCST)
 	}
 
 	// Parse expiry date
 	matchExpiryDate := reMOExpiryDate.FindStringSubmatch(response)
 	if len(matchExpiryDate) > 1 {
-		domainInfo.RegistryExpiryDate = matchExpiryDate[1]
+		domainInfo.ExpirationDate = normDate(matchExpiryDate[1], zoneCST)
 	}
 
 	// Parse name servers
 	matchNameServers := reMONameServer.FindStringSubmatch(response)
 	if len(matchNameServers) > 1 {
 		nameServers := strings.Split(strings.TrimSpace(matchNameServers[1]), "\n")
-		domainInfo.NameServer = make([]string, len(nameServers))
-		for i, ns := range nameServers {
-			domainInfo.NameServer[i] = strings.TrimSpace(ns)
-		}
+		domainInfo.Nameservers = lowerAll(nameServers)
 	}
 
 	// 设置数据库更新时间为数据处理时间
-	now := time.Now().UTC().Format(time.RFC3339)
-	domainInfo.LastUpdateOfRDAPDB = now
+	domainInfo.LastUpdateOfRdapDb = time.Now().UTC().Format(time.RFC3339)
 
-	if domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+	if domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
 		return model.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
@@ -566,8 +607,7 @@ func ParseWhoisResponseMO(response string, domain string) (model.DomainInfo, err
 }
 
 func ParseWhoisResponseAU(response string, domain string) (model.DomainInfo, error) {
-	var domainInfo model.DomainInfo
-	domainInfo.DomainName = domain
+	domainInfo := newDomainInfo(domain)
 
 	// 清理响应数据
 	cleanedResponse := strings.ReplaceAll(response, "\r", "")
@@ -575,34 +615,35 @@ func ParseWhoisResponseAU(response string, domain string) (model.DomainInfo, err
 	// 解析创建日期
 	matchCreationDate := reAUCreationDate.FindStringSubmatch(cleanedResponse)
 	if len(matchCreationDate) > 1 {
-		domainInfo.CreationDate = matchCreationDate[1]
+		domainInfo.RegistrationDate = normDate(matchCreationDate[1], time.UTC)
 	}
 
 	// 解析过期日期
 	matchExpiryDate := reAUExpiryDate.FindStringSubmatch(cleanedResponse)
 	if len(matchExpiryDate) > 1 {
-		domainInfo.RegistryExpiryDate = matchExpiryDate[1]
+		domainInfo.ExpirationDate = normDate(matchExpiryDate[1], time.UTC)
 	}
 
 	// 解析更新日期
 	matchUpdatedDate := reAUUpdatedDate.FindStringSubmatch(cleanedResponse)
 	if len(matchUpdatedDate) > 1 {
-		domainInfo.UpdatedDate = matchUpdatedDate[1]
+		domainInfo.LastChangedDate = normDate(matchUpdatedDate[1], time.UTC)
 	}
 
 	// 解析名称服务器
 	matchNameServers := reAUNameServer.FindAllStringSubmatch(cleanedResponse, -1)
 	if len(matchNameServers) > 0 {
-		domainInfo.NameServer = make([]string, len(matchNameServers))
+		domainInfo.Nameservers = make([]string, len(matchNameServers))
 		for i, match := range matchNameServers {
-			domainInfo.NameServer[i] = match[1]
+			domainInfo.Nameservers[i] = match[1]
 		}
+		domainInfo.Nameservers = lowerAll(domainInfo.Nameservers)
 	}
 
 	// 解析 DNSSEC
 	matchDNSSEC := reAUDNSSEC.FindStringSubmatch(cleanedResponse)
 	if len(matchDNSSEC) > 1 {
-		domainInfo.DNSSec = matchDNSSEC[1]
+		domainInfo.SecureDNS = secureDNSFromString(matchDNSSEC[1])
 	}
 
 	// 解析注册商
@@ -614,10 +655,11 @@ func ParseWhoisResponseAU(response string, domain string) (model.DomainInfo, err
 	// 解析域名状态
 	matchDomainStatuses := reAUDomainStatus.FindAllStringSubmatch(cleanedResponse, -1)
 	if len(matchDomainStatuses) > 0 {
-		domainInfo.DomainStatus = make([]string, len(matchDomainStatuses))
+		domainInfo.Status = make([]string, len(matchDomainStatuses))
 		for i, match := range matchDomainStatuses {
-			domainInfo.DomainStatus[i] = strings.TrimSpace(match[1])
+			domainInfo.Status[i] = strings.TrimSpace(match[1])
 		}
+		domainInfo.Status = model.CleanStatus(domainInfo.Status)
 	}
 
 	// 注册商 IANA ID 在给定示例中未提供，若需要解析请确保有正确格式的数据并使用相应正则表达式
@@ -629,13 +671,13 @@ func ParseWhoisResponseAU(response string, domain string) (model.DomainInfo, err
 	// 解析 DNSSEC DS Data
 	matchDNSSecDSData := reAUDNSSecDSData.FindStringSubmatch(cleanedResponse)
 	if len(matchDNSSecDSData) > 1 {
-		domainInfo.DNSSecDSData = []string{matchDNSSecDSData[1]}
+		attachDSData(&domainInfo, matchDNSSecDSData[1])
 	}
 
 	// 解析 Last update of WHOIS database
 	matchLastUpdateOfRDAPDB := reAULastUpdateOfRDAPDB.FindStringSubmatch(cleanedResponse)
 	if len(matchLastUpdateOfRDAPDB) > 1 {
-		domainInfo.LastUpdateOfRDAPDB = matchLastUpdateOfRDAPDB[1]
+		domainInfo.LastUpdateOfRdapDb = normDate(matchLastUpdateOfRDAPDB[1], time.UTC)
 	}
 
 	if domainInfo.Registrar == "" {
@@ -646,41 +688,40 @@ func ParseWhoisResponseAU(response string, domain string) (model.DomainInfo, err
 }
 
 func ParseWhoisResponseSG(response string, domain string) (model.DomainInfo, error) {
-	// SG匹配有问题，有时间再修改了
-	var domainInfo model.DomainInfo
-	domainInfo.DomainName = domain
+	domainInfo := newDomainInfo(domain)
 
-	// 解析创建日期
+	// 解析创建日期（SGNIC 时间为新加坡时间，转换为 UTC）
 	matchCreationDate := reSGCreationDate.FindStringSubmatch(response)
 	if len(matchCreationDate) > 1 {
-		domainInfo.CreationDate = strings.TrimRight(matchCreationDate[1], "\r")
+		domainInfo.RegistrationDate = normDate(strings.TrimRight(matchCreationDate[1], "\r"), zoneSGT)
 	}
 
 	// 解析过期日期
 	matchExpiryDate := reSGExpiryDate.FindStringSubmatch(response)
 	if len(matchExpiryDate) > 1 {
-		domainInfo.RegistryExpiryDate = strings.TrimRight(matchExpiryDate[1], "\r")
+		domainInfo.ExpirationDate = normDate(strings.TrimRight(matchExpiryDate[1], "\r"), zoneSGT)
 	}
 
 	// 解析更新日期
 	matchUpdatedDate := reSGUpdatedDate.FindStringSubmatch(response)
 	if len(matchUpdatedDate) > 1 {
-		domainInfo.UpdatedDate = strings.TrimRight(matchUpdatedDate[1], "\r")
+		domainInfo.LastChangedDate = normDate(strings.TrimRight(matchUpdatedDate[1], "\r"), zoneSGT)
 	}
 
 	// 解析名称服务器
 	matchNameServers := reSGNameServer.FindAllStringSubmatch(response, -1)
 	if len(matchNameServers) > 0 {
-		domainInfo.NameServer = make([]string, len(matchNameServers))
+		domainInfo.Nameservers = make([]string, len(matchNameServers))
 		for i, match := range matchNameServers {
-			domainInfo.NameServer[i] = strings.TrimRight(match[1], "\r")
+			domainInfo.Nameservers[i] = strings.TrimRight(match[1], "\r")
 		}
+		domainInfo.Nameservers = lowerAll(domainInfo.Nameservers)
 	}
 
 	// 解析 DNSSEC
 	matchDNSSEC := reSGDNSSEC.FindStringSubmatch(response)
 	if len(matchDNSSEC) > 1 {
-		domainInfo.DNSSec = strings.TrimRight(matchDNSSEC[1], "\r\t")
+		domainInfo.SecureDNS = secureDNSFromString(strings.TrimRight(matchDNSSEC[1], "\r\t"))
 	}
 
 	// 解析注册商
@@ -692,13 +733,14 @@ func ParseWhoisResponseSG(response string, domain string) (model.DomainInfo, err
 	// 解析域名状态
 	matchDomainStatuses := reSGDomainStatus.FindAllStringSubmatch(response, -1)
 	if len(matchDomainStatuses) > 0 {
-		domainInfo.DomainStatus = make([]string, len(matchDomainStatuses))
+		domainInfo.Status = make([]string, len(matchDomainStatuses))
 		for i, match := range matchDomainStatuses {
-			domainInfo.DomainStatus[i] = strings.TrimRight(match[1], "\r")
+			domainInfo.Status[i] = strings.TrimRight(match[1], "\r")
 		}
+		domainInfo.Status = model.CleanStatus(domainInfo.Status)
 	}
 
-	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
 		return model.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
@@ -706,8 +748,7 @@ func ParseWhoisResponseSG(response string, domain string) (model.DomainInfo, err
 }
 
 func ParseWhoisResponseLA(response string, domain string) (model.DomainInfo, error) {
-	var domainInfo model.DomainInfo
-	domainInfo.DomainName = domain
+	domainInfo := newDomainInfo(domain)
 
 	// 解析注册商
 	matchRegistrar := reLARegistrar.FindStringSubmatch(response)
@@ -727,43 +768,45 @@ func ParseWhoisResponseLA(response string, domain string) (model.DomainInfo, err
 	// 解析域名状态
 	matchDomainStatuses := reLADomainStatus.FindAllStringSubmatch(response, -1)
 	if len(matchDomainStatuses) > 0 {
-		domainInfo.DomainStatus = make([]string, len(matchDomainStatuses))
+		domainInfo.Status = make([]string, len(matchDomainStatuses))
 		for i, match := range matchDomainStatuses {
-			domainInfo.DomainStatus[i] = strings.TrimSpace(match[1])
+			domainInfo.Status[i] = strings.TrimSpace(match[1])
 		}
+		domainInfo.Status = model.CleanStatus(domainInfo.Status)
 	}
 
 	// 解析创建日期
 	matchCreationDate := reLACreationDate.FindStringSubmatch(response)
 	if len(matchCreationDate) > 1 {
-		domainInfo.CreationDate = strings.TrimSpace(matchCreationDate[1])
+		domainInfo.RegistrationDate = normDate(matchCreationDate[1], time.UTC)
 	}
 
 	// 解析过期日期
 	matchExpiryDate := reLAExpiryDate.FindStringSubmatch(response)
 	if len(matchExpiryDate) > 1 {
-		domainInfo.RegistryExpiryDate = strings.TrimSpace(matchExpiryDate[1])
+		domainInfo.ExpirationDate = normDate(matchExpiryDate[1], time.UTC)
 	}
 
 	// 解析更新日期
 	matchUpdatedDate := reLAUpdatedDate.FindStringSubmatch(response)
 	if len(matchUpdatedDate) > 1 {
-		domainInfo.UpdatedDate = strings.TrimSpace(matchUpdatedDate[1])
+		domainInfo.LastChangedDate = normDate(matchUpdatedDate[1], time.UTC)
 	}
 
 	// 解析名称服务器
 	matchNameServers := reLANameServer.FindAllStringSubmatch(response, -1)
 	if len(matchNameServers) > 0 {
-		domainInfo.NameServer = make([]string, len(matchNameServers))
+		domainInfo.Nameservers = make([]string, len(matchNameServers))
 		for i, match := range matchNameServers {
-			domainInfo.NameServer[i] = strings.TrimSpace(match[1])
+			domainInfo.Nameservers[i] = strings.TrimSpace(match[1])
 		}
+		domainInfo.Nameservers = lowerAll(domainInfo.Nameservers)
 	}
 
 	// 解析 DNSSEC
 	matchDNSSEC := reLADNSSEC.FindStringSubmatch(response)
 	if len(matchDNSSEC) > 1 {
-		domainInfo.DNSSec = strings.TrimSpace(matchDNSSEC[1])
+		domainInfo.SecureDNS = secureDNSFromString(matchDNSSEC[1])
 	}
 
 	// 解析数据库更新时间
@@ -771,11 +814,11 @@ func ParseWhoisResponseLA(response string, domain string) (model.DomainInfo, err
 	if len(matchLastUpdateOfRDAPDB) > 1 {
 		// 去除末尾的 " <<<" 标记
 		dbUpdate := strings.TrimSpace(matchLastUpdateOfRDAPDB[1])
-		domainInfo.LastUpdateOfRDAPDB = strings.TrimSuffix(dbUpdate, " <<<")
+		domainInfo.LastUpdateOfRdapDb = normDate(strings.TrimSuffix(dbUpdate, " <<<"), time.UTC)
 	}
 
 	// 验证必要字段
-	if domainInfo.Registrar == "" || domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
 		return model.DomainInfo{}, utils.ErrDomainNotFound
 	}
 
@@ -784,14 +827,12 @@ func ParseWhoisResponseLA(response string, domain string) (model.DomainInfo, err
 
 // ParseWhoisResponseJP parses WHOIS response for .jp domains (including .co.jp and other variants)
 func ParseWhoisResponseJP(response string, domain string) (model.DomainInfo, error) {
-	var domainInfo model.DomainInfo
-	domainInfo.DomainName = domain
+	domainInfo := newDomainInfo(domain)
 
 	// 解析域名 - 尝试两种格式
-	domainInfo.DomainName = matchFirstGroup(reJPDomainName, response,
-		func() string { return matchFirstGroup(reJPDomainNameAlt, response, nil) })
-	if domainInfo.DomainName == "" {
-		domainInfo.DomainName = domain
+	if name := matchFirstGroup(reJPDomainName, response,
+		func() string { return matchFirstGroup(reJPDomainNameAlt, response, nil) }); name != "" {
+		domainInfo.LdhName = strings.ToLower(name)
 	}
 
 	// 解析注册人/组织 - 尝试两种格式
@@ -799,41 +840,35 @@ func ParseWhoisResponseJP(response string, domain string) (model.DomainInfo, err
 		func() string { return matchFirstGroup(reJPOrganization, response, nil) })
 
 	// 解析名称服务器 - 尝试两种格式
-	domainInfo.NameServer = matchAllFirstGroup(reJPNameServer, response)
-	if len(domainInfo.NameServer) == 0 {
-		domainInfo.NameServer = matchAllFirstGroup(reJPNameServerAlt, response)
+	domainInfo.Nameservers = matchAllFirstGroup(reJPNameServer, response)
+	if len(domainInfo.Nameservers) == 0 {
+		domainInfo.Nameservers = matchAllFirstGroup(reJPNameServerAlt, response)
 	}
+	domainInfo.Nameservers = lowerAll(domainInfo.Nameservers)
 
 	// 解析 DNSSEC - 支持 [Signing Key] 和 s. [署名鍵] 两种格式
-	domainInfo.DNSSec = "unsigned"
+	domainInfo.SecureDNS = &model.SecureDNS{}
 	if signingKeyRaw := extractSigningKey(response); signingKeyRaw != "" {
-		domainInfo.DNSSec = "signedDelegation"
-		domainInfo.DNSSecDSData = []string{signingKeyRaw}
+		attachDSData(&domainInfo, signingKeyRaw)
 	}
 
 	// 解析注册日期 (格式: 2001/05/23)
 	if dateStr := matchFirstGroup(reJPCreationDate, response, nil); dateStr != "" {
-		if t, err := time.Parse("2006/01/02", dateStr); err == nil {
-			domainInfo.CreationDate = t.Format("2006-01-02")
-		}
+		domainInfo.RegistrationDate = normDate(dateStr, zoneJST)
 	}
 
 	// 解析过期日期 - 优先 [有効期限] 字段，再从 [状態] 中提取
 	if dateStr := matchFirstGroup(reJPExpiryDate, response, nil); dateStr != "" {
-		if t, err := time.Parse("2006/01/02", dateStr); err == nil {
-			domainInfo.RegistryExpiryDate = t.Format("2006-01-02")
-		}
+		domainInfo.ExpirationDate = normDate(dateStr, zoneJST)
 	}
 
 	// 解析 [状態] - 同时提取过期日期(如有)和状态文本
 	var statuses []string
 	if statusStr := matchFirstGroup(reJPStatus, response, nil); statusStr != "" {
 		// 从状态中提取过期日期 (适用于 co.jp: "Connected (2026/10/31)")
-		if domainInfo.RegistryExpiryDate == "" {
+		if domainInfo.ExpirationDate == "" {
 			if matchExpiry := reJPExpiryInStatus.FindStringSubmatch(statusStr); len(matchExpiry) > 1 {
-				if t, err := time.Parse("2006/01/02", matchExpiry[1]); err == nil {
-					domainInfo.RegistryExpiryDate = t.Format("2006-01-02")
-				}
+				domainInfo.ExpirationDate = normDate(matchExpiry[1], zoneJST)
 			}
 		}
 		// 清理状态文本（移除日期部分）
@@ -850,22 +885,19 @@ func ParseWhoisResponseJP(response string, domain string) (model.DomainInfo, err
 		}
 	}
 	if len(statuses) > 0 {
-		domainInfo.DomainStatus = statuses
+		domainInfo.Status = model.CleanStatus(statuses)
 	}
 
 	// 解析最终更新时间 (格式: 2025/06/01 01:05:04 (JST))
 	if dateStr := matchFirstGroup(reJPUpdatedDate, response, nil); dateStr != "" {
-		dateStr = reJPTimezone.ReplaceAllString(dateStr, "")
-		if t, err := time.Parse("2006/01/02 15:04:05", dateStr); err == nil {
-			domainInfo.UpdatedDate = t.Add(-9 * time.Hour).Format(time.RFC3339)
-		}
+		domainInfo.LastChangedDate = normDate(dateStr, zoneJST)
 	}
 
 	// 设置数据库更新时间为当前时间
-	domainInfo.LastUpdateOfRDAPDB = time.Now().UTC().Format(time.RFC3339)
+	domainInfo.LastUpdateOfRdapDb = time.Now().UTC().Format(time.RFC3339)
 
 	// 验证必要字段
-	if domainInfo.CreationDate == "" || domainInfo.RegistryExpiryDate == "" {
+	if domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
 		return model.DomainInfo{}, utils.ErrDomainNotFound
 	}
 

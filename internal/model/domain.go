@@ -1,16 +1,46 @@
 package model
 
-// DomainInfo represents the information about a domain.
+// RDAP object class names (RFC 9083 section 4.7) used as the
+// objectClassName discriminator on responses.
+const (
+	ObjectClassDomain    = "domain"
+	ObjectClassIPNetwork = "ip network"
+	ObjectClassAutnum    = "autnum"
+)
+
+// DSData is a DNSSEC delegation signer record (RFC 9083 section 5.3).
+type DSData struct {
+	KeyTag     int    `json:"keyTag"`
+	Algorithm  int    `json:"algorithm"`
+	DigestType int    `json:"digestType"`
+	Digest     string `json:"digest"`
+}
+
+// SecureDNS describes the DNSSEC state of a domain (RFC 9083 section 5.3).
+type SecureDNS struct {
+	DelegationSigned bool     `json:"delegationSigned"`
+	DSData           []DSData `json:"dsData,omitempty"`
+}
+
+// DomainInfo is the API representation of a domain. Field names follow the
+// RDAP JSON vocabulary (RFC 9083); dates are RFC 3339 UTC (date-only when the
+// registry provides no time of day).
 type DomainInfo struct {
-	DomainName         string   `json:"Domain Name"`             // DomainName is the name of the domain.
-	Registrar          string   `json:"Registrar"`               // Registrar is the registrar of the domain.
-	RegistrarIANAID    string   `json:"Registrar IANA ID"`       // RegistrarIANAID is the IANA ID of the registrar.
-	DomainStatus       []string `json:"Domain Status"`           // DomainStatus is the status of the domain.
-	CreationDate       string   `json:"Creation Date"`           // CreationDate is the creation date of the domain.
-	RegistryExpiryDate string   `json:"Registry Expiry Date"`    // RegistryExpiryDate is the expiry date of the domain.
-	UpdatedDate        string   `json:"Updated Date"`            // UpdatedDate is the updated date of the domain.
-	NameServer         []string `json:"Name Server"`             // NameServer is the name server of the domain.
-	DNSSec             string   `json:"DNSSEC"`                  // DNSSec is the DNSSEC of the domain.
-	DNSSecDSData       []string `json:"DNSSEC DS Data"`          // DNSSecDSData is the DNSSEC DS Data of the domain.
-	LastUpdateOfRDAPDB string   `json:"Last Update of Database"` // LastUpdateOfRDAPDB is the last update of the database.
+	ObjectClassName    string     `json:"objectClassName"` // always ObjectClassDomain
+	LdhName            string     `json:"ldhName"`
+	UnicodeName        string     `json:"unicodeName,omitempty"`
+	Registrar          string     `json:"registrar,omitempty"`
+	RegistrarIANAID    string     `json:"registrarIanaId,omitempty"`
+	Status             []string   `json:"status"`
+	RegistrationDate   string     `json:"registrationDate,omitempty"`
+	ExpirationDate     string     `json:"expirationDate,omitempty"`
+	LastChangedDate    string     `json:"lastChangedDate,omitempty"`
+	Nameservers        []string   `json:"nameservers"`
+	SecureDNS          *SecureDNS `json:"secureDNS,omitempty"`
+	LastUpdateOfRdapDb string     `json:"lastUpdateOfRdapDb,omitempty"`
+
+	// Unparsed and RawText are set when no parser exists for the TLD: the
+	// registry's WHOIS text is returned verbatim instead of parsed fields.
+	Unparsed bool   `json:"unparsed,omitempty"`
+	RawText  string `json:"rawText,omitempty"`
 }

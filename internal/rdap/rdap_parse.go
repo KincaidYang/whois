@@ -3,6 +3,8 @@ package rdap
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/KincaidYang/whois/internal/model"
 )
@@ -45,6 +47,7 @@ type rdapSecureDNS struct {
 
 type rdapDomainResponse struct {
 	LdhName     string           `json:"ldhName"`
+	UnicodeName string           `json:"unicodeName"`
 	Status      []string         `json:"status"`
 	Entities    []rdapEntity     `json:"entities"`
 	Events      []rdapEvent      `json:"events"`
@@ -123,8 +126,10 @@ func ParseRDAPResponseforDomain(response string) (model.DomainInfo, error) {
 	}
 
 	info := model.DomainInfo{
-		DomainName:   rdap.LdhName,
-		DomainStatus: rdap.Status,
+		ObjectClassName: model.ObjectClassDomain,
+		LdhName:         strings.ToLower(rdap.LdhName),
+		UnicodeName:     rdap.UnicodeName,
+		Status:          model.CleanStatus(rdap.Status),
 	}
 
 	// Extract registrar info from entities
@@ -140,33 +145,39 @@ func ParseRDAPResponseforDomain(response string) (model.DomainInfo, error) {
 		}
 	}
 
-	// Extract event dates
+	// Extract event dates, normalized to RFC 3339 UTC (unparseable values
+	// are passed through unchanged).
 	for _, event := range rdap.Events {
+		date, _ := model.NormalizeDate(event.EventDate, time.UTC)
 		switch event.EventAction {
 		case "registration":
-			info.CreationDate = event.EventDate
+			info.RegistrationDate = date
 		case "expiration":
-			info.RegistryExpiryDate = event.EventDate
+			info.ExpirationDate = date
 		case "last changed":
-			info.UpdatedDate = event.EventDate
+			info.LastChangedDate = date
 		case "last update of RDAP database":
-			info.LastUpdateOfRDAPDB = event.EventDate
+			info.LastUpdateOfRdapDb = date
 		}
 	}
 
 	// Extract nameservers
-	info.NameServer = make([]string, 0, len(rdap.Nameservers))
+	info.Nameservers = make([]string, 0, len(rdap.Nameservers))
 	for _, ns := range rdap.Nameservers {
-		info.NameServer = append(info.NameServer, ns.LdhName)
+		info.Nameservers = append(info.Nameservers, strings.ToLower(ns.LdhName))
 	}
 
 	// Extract DNSSEC info
-	info.DNSSec = "unsigned"
+	info.SecureDNS = &model.SecureDNS{}
 	if rdap.SecureDNS != nil && rdap.SecureDNS.DelegationSigned {
-		info.DNSSec = "signedDelegation"
+		info.SecureDNS.DelegationSigned = true
 		for _, ds := range rdap.SecureDNS.DsData {
-			info.DNSSecDSData = append(info.DNSSecDSData, fmt.Sprintf("%d %d %d %s",
-				ds.KeyTag, ds.Algorithm, ds.DigestType, ds.Digest))
+			info.SecureDNS.DSData = append(info.SecureDNS.DSData, model.DSData{
+				KeyTag:     ds.KeyTag,
+				Algorithm:  ds.Algorithm,
+				DigestType: ds.DigestType,
+				Digest:     ds.Digest,
+			})
 		}
 	}
 
@@ -181,23 +192,17 @@ func ParseRDAPResponseforIP(response string) (model.IPInfo, error) {
 	}
 
 	info := model.IPInfo{
-		IP:       rdap.Handle,
-		NetName:  rdap.Name,
-		Country:  rdap.Country,
-		IPStatus: rdap.Status,
-	}
-
-	if rdap.StartAddress != "" {
-		info.Range = rdap.StartAddress
-		if rdap.EndAddress != "" {
-			info.Range += " - " + rdap.EndAddress
-		}
+		ObjectClassName: model.ObjectClassIPNetwork,
+		Handle:          rdap.Handle,
+		StartAddress:    rdap.StartAddress,
+		EndAddress:      rdap.EndAddress,
+		Name:            rdap.Name,
+		Country:         rdap.Country,
+		Status:          model.CleanStatus(rdap.Status),
 	}
 
 	if rdap.Type != nil {
-		info.Networktype = *rdap.Type
-	} else {
-		info.Networktype = "Unknown"
+		info.Type = *rdap.Type
 	}
 
 	for _, cidr := range rdap.Cidr0Cidrs {
@@ -209,11 +214,12 @@ func ParseRDAPResponseforIP(response string) (model.IPInfo, error) {
 	}
 
 	for _, event := range rdap.Events {
+		date, _ := model.NormalizeDate(event.EventDate, time.UTC)
 		switch event.EventAction {
 		case "registration":
-			info.CreationDate = event.EventDate
+			info.RegistrationDate = date
 		case "last changed":
-			info.UpdatedDate = event.EventDate
+			info.LastChangedDate = date
 		}
 	}
 
@@ -235,17 +241,19 @@ func ParseRDAPResponseforASN(response string) (model.ASNInfo, error) {
 	}
 
 	info := model.ASNInfo{
-		ASN:      rdap.Handle,
-		ASName:   rdap.Name,
-		ASStatus: rdap.Status,
+		ObjectClassName: model.ObjectClassAutnum,
+		Handle:          rdap.Handle,
+		Name:            rdap.Name,
+		Status:          model.CleanStatus(rdap.Status),
 	}
 
 	for _, event := range rdap.Events {
+		date, _ := model.NormalizeDate(event.EventDate, time.UTC)
 		switch event.EventAction {
 		case "registration":
-			info.CreationDate = event.EventDate
+			info.RegistrationDate = date
 		case "last changed":
-			info.UpdatedDate = event.EventDate
+			info.LastChangedDate = date
 		}
 	}
 
