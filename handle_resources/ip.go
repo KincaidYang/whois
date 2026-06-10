@@ -20,7 +20,7 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, resource)
 	cacheResult, err := utils.GetFromCache(ctx, config.CacheManager, key)
 	if err != nil {
-		utils.HandleInternalError(w, err)
+		utils.HandleInternalError(ctx, w, err)
 		return
 	}
 	if cacheResult.Found {
@@ -54,12 +54,12 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 
 		result := string(resultBytes)
 		if err := utils.SetToCache(qctx, config.CacheManager, key, result, config.CacheExpiration); err != nil {
-			slog.Warn("cache write error", "key", key, "err", err)
+			slog.WarnContext(qctx, "cache write error", "key", key, "err", err)
 		}
 		return queryOutcome{body: result, contentType: "application/json"}, nil
 	})
 	if err != nil {
-		utils.HandleQueryError(w, err)
+		utils.HandleQueryError(ctx, w, err)
 		return
 	}
 

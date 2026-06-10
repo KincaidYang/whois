@@ -180,6 +180,18 @@ Response:
 }
 ```
 
+#### Query Raw WHOIS Text for a Domain
+
+Add `?raw=1` to get the unparsed WHOIS response as `text/plain`. Raw output is only supported for domain queries (IP/ASN lookups use RDAP, which has no raw-text form). Raw queries go straight to the WHOIS server (skipping RDAP) and return 404 when no WHOIS server is known for the TLD.
+
+```bash
+curl "http://localhost:8043/example.com?raw=1"
+```
+
+#### Request Tracing
+
+Every response carries an `X-Request-ID` header that matches the `request_id` field in server logs, making it easy to correlate a request with its log lines. Clients may also supply their own `X-Request-ID` header (max 64 characters, limited to letters, digits, `.`, `_`, `-`), which the server will reuse as-is.
+
 #### Query IPv4 WHOIS Information
 
 ```bash

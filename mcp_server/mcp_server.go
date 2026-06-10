@@ -53,7 +53,7 @@ func whoisLookup(ctx context.Context, _ *mcp.CallToolRequest, input *WhoisInput)
 	case config.ConcurrencyLimiter <- struct{}{}:
 	default:
 		config.Wg.Done()
-		slog.Warn("rate limit reached", "path", "/mcp")
+		slog.WarnContext(ctx, "rate limit reached", "path", "/mcp")
 		return errorResult("too many concurrent requests"), nil, nil
 	}
 	defer func() {
@@ -74,7 +74,7 @@ func whoisLookup(ctx context.Context, _ *mcp.CallToolRequest, input *WhoisInput)
 	} else if utils.IsASN(query) {
 		handle_resources.HandleASN(ctx, rc, query, cacheKeyPrefix)
 	} else if utils.IsDomain(query) {
-		handle_resources.HandleDomain(ctx, rc, query, cacheKeyPrefix)
+		handle_resources.HandleDomain(ctx, rc, query, cacheKeyPrefix, false)
 	} else {
 		return errorResult("Invalid input: please provide a valid domain, IP address, or ASN"), nil, nil
 	}

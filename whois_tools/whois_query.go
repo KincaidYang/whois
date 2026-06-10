@@ -31,7 +31,7 @@ func Whois(ctx context.Context, domain, tld string) (result string, err error) {
 		return "", fmt.Errorf("no Whois server known for TLD: %s", tld)
 	}
 
-	slog.Debug("querying WHOIS", "domain", domain, "tld", tld, "server", whoisServer)
+	slog.DebugContext(ctx, "querying WHOIS", "domain", domain, "tld", tld, "server", whoisServer)
 
 	// Check if the server address already includes a port
 	if _, _, err := net.SplitHostPort(whoisServer); err != nil {

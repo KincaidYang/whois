@@ -34,13 +34,28 @@ func (sw *statusWriter) WriteHeader(code int) {
 	sw.ResponseWriter.WriteHeader(code)
 }
 
+// withRequestID attaches a request ID to every request: an inbound
+// X-Request-ID header is reused when it passes validation, otherwise a fresh
+// ID is generated. The ID is echoed on the response and stored in the request
+// context so *Context slog calls carry it (see utils.ContextHandler).
+func withRequestID(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.Get("X-Request-ID")
+		if !utils.IsValidRequestID(id) {
+			id = utils.NewRequestID()
+		}
+		w.Header().Set("X-Request-ID", id)
+		next.ServeHTTP(w, r.WithContext(utils.WithRequestID(r.Context(), id)))
+	})
+}
+
 func handler(w http.ResponseWriter, r *http.Request) {
 	config.Wg.Add(1)
 	select {
 	case config.ConcurrencyLimiter <- struct{}{}:
 	default:
 		config.Wg.Done()
-		slog.Warn("rate limit reached", "path", r.URL.Path)
+		slog.WarnContext(r.Context(), "rate limit reached", "path", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusTooManyRequests)
 		fmt.Fprint(w, `{"error":"too many concurrent requests"}`)
@@ -57,6 +72,11 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	resource := strings.TrimPrefix(r.URL.Path, "/")
 	resource = strings.ToLower(resource)
 
+	// ?raw requests the unparsed WHOIS text (domains only; RDAP-backed IP
+	// and ASN lookups have no raw-text form). ?raw=0 / ?raw=false opt out.
+	rawValue := r.URL.Query().Get("raw")
+	raw := r.URL.Query().Has("raw") && rawValue != "0" && rawValue != "false"
+
 	cacheKeyPrefix := "whois:"
 	sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
 	start := time.Now()
@@ -64,13 +84,21 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	var resourceType string
 	if net.ParseIP(resource) != nil {
 		resourceType = "ip"
-		handle_resources.HandleIP(ctx, sw, resource, cacheKeyPrefix)
+		if raw {
+			utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Raw output is only supported for domain queries.")
+		} else {
+			handle_resources.HandleIP(ctx, sw, resource, cacheKeyPrefix)
+		}
 	} else if utils.IsASN(resource) {
 		resourceType = "asn"
-		handle_resources.HandleASN(ctx, sw, resource, cacheKeyPrefix)
+		if raw {
+			utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Raw output is only supported for domain queries.")
+		} else {
+			handle_resources.HandleASN(ctx, sw, resource, cacheKeyPrefix)
+		}
 	} else if utils.IsDomain(resource) {
 		resourceType = "domain"
-		handle_resources.HandleDomain(ctx, sw, resource, cacheKeyPrefix)
+		handle_resources.HandleDomain(ctx, sw, resource, cacheKeyPrefix, raw)
 	} else {
 		resourceType = "unknown"
 		utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Invalid input. Please provide a valid domain, IP, or ASN.")
@@ -106,7 +134,8 @@ func main() {
 	http.HandleFunc("/", handler)
 
 	srv := &http.Server{
-		Addr: fmt.Sprintf(":%d", config.Port),
+		Addr:    fmt.Sprintf(":%d", config.Port),
+		Handler: withRequestID(http.DefaultServeMux),
 		// WriteTimeout must exceed the upstream query timeout (WHOIS/RDAP
 		// each allow up to 10s), since the handler queries upstream
 		// synchronously before writing the response.

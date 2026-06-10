@@ -176,6 +176,16 @@ curl http://localhost:8043/example.com
 }
 ```
 
+#### 查询域名原始 WHOIS 文本
+添加 `?raw=1` 参数可获取未解析的 WHOIS 原文（`text/plain`），仅支持域名查询（IP/ASN 走 RDAP，无原文形式）。原文查询直接访问 WHOIS 服务器（跳过 RDAP），若该 TLD 没有已知 WHOIS 服务器则返回 404。
+
+```bash
+curl "http://localhost:8043/example.com?raw=1"
+```
+
+#### 请求追踪
+每个响应都带有 `X-Request-ID` 头，服务端日志中的 `request_id` 字段与之对应，便于排查问题。客户端也可自带 `X-Request-ID` 请求头（≤64 字符，仅限字母、数字、`.`、`_`、`-`），服务端将原样使用。
+
 #### 查询 IPv4 Whois 信息
 ```bash
 curl http://localhost:8043/1.12.34.56

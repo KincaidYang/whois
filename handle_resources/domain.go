@@ -42,7 +42,10 @@ var whoisParsers = map[string]func(string, string) (structs.DomainInfo, error){
 }
 
 // HandleDomain function is used to handle the HTTP request for querying the RDAP (Registration Data Access Protocol) or WHOIS information for a given domain.
-func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, cacheKeyPrefix string) {
+// When raw is true, the unparsed WHOIS response is returned as text/plain
+// (RDAP is skipped, since RDAP has no raw-text form), cached under a separate
+// "raw:" key namespace so parsed and raw results never mix.
+func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, cacheKeyPrefix string, raw bool) {
 	// Convert the domain to Punycode encoding (supports IDN domains)
 	punycodeDomain, err := idna.ToASCII(resource)
 	if err != nil {
@@ -74,11 +77,14 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	resource = mainDomain
 	domain := resource
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, domain)
+	if raw {
+		key = fmt.Sprintf("%sraw:%s", cacheKeyPrefix, domain)
+	}
 
 	// Check if the RDAP or WHOIS information for the domain is cached
 	cacheResult, err := utils.GetFromCache(ctx, config.CacheManager, key)
 	if err != nil {
-		utils.HandleInternalError(w, err)
+		utils.HandleInternalError(ctx, w, err)
 		return
 	}
 
@@ -94,11 +100,19 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 		return
 	}
 
-	// Select the query path: RDAP preferred, WHOIS as fallback. The query
-	// itself runs deduplicated, so concurrent misses on the same domain
-	// share one upstream request.
+	// Select the query path: RDAP preferred, WHOIS as fallback (raw output
+	// always queries WHOIS). The query itself runs deduplicated, so
+	// concurrent misses on the same domain share one upstream request.
 	var query func(context.Context) (queryOutcome, error)
-	if _, ok := server_lists.LookupRdapServer(tld); ok {
+	if raw {
+		if _, ok := server_lists.TLDToWhoisServer[tld]; !ok {
+			utils.HandleHTTPError(w, utils.ErrorTypeNotFound, "No WHOIS server known for TLD: "+tld)
+			return
+		}
+		query = func(qctx context.Context) (queryOutcome, error) {
+			return queryWhoisRaw(qctx, domain, tld, key)
+		}
+	} else if _, ok := server_lists.LookupRdapServer(tld); ok {
 		query = func(qctx context.Context) (queryOutcome, error) {
 			return queryRDAPDomain(qctx, domain, tld, key)
 		}
@@ -113,7 +127,7 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 
 	outcome, err := dedupedQuery(ctx, key, query)
 	if err != nil {
-		utils.HandleQueryError(w, err)
+		utils.HandleQueryError(ctx, w, err)
 		return
 	}
 
@@ -141,10 +155,24 @@ func queryRDAPDomain(ctx context.Context, domain, tld, key string) (queryOutcome
 
 	result := string(resultBytes)
 	if err := utils.SetToCache(ctx, config.CacheManager, key, result, config.CacheExpiration); err != nil {
-		slog.Warn("cache write error", "key", key, "err", err)
+		slog.WarnContext(ctx, "cache write error", "key", key, "err", err)
 	}
 
 	return queryOutcome{body: result, contentType: "application/json"}, nil
+}
+
+// queryWhoisRaw queries WHOIS for a domain and caches/returns the unparsed
+// response as text/plain.
+func queryWhoisRaw(ctx context.Context, domain, tld, key string) (queryOutcome, error) {
+	queryResult, err := whois_tools.Whois(ctx, domain, tld)
+	if err != nil {
+		return queryOutcome{}, err
+	}
+
+	if err := utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration); err != nil {
+		slog.WarnContext(ctx, "cache write error", "key", key, "err", err)
+	}
+	return queryOutcome{body: queryResult, contentType: "text/plain; charset=utf-8"}, nil
 }
 
 // queryWhoisDomain queries WHOIS for a domain, parses the response when a
@@ -159,7 +187,7 @@ func queryWhoisDomain(ctx context.Context, domain, tld, key string) (queryOutcom
 	if !ok {
 		// If there's no available parsing rule, return the original WHOIS data as text/plain
 		if err := utils.SetToCache(ctx, config.CacheManager, key, queryResult, config.CacheExpiration); err != nil {
-			slog.Warn("cache write error", "key", key, "err", err)
+			slog.WarnContext(ctx, "cache write error", "key", key, "err", err)
 		}
 		return queryOutcome{body: queryResult, contentType: "text/plain; charset=utf-8"}, nil
 	}
@@ -178,7 +206,7 @@ func queryWhoisDomain(ctx context.Context, domain, tld, key string) (queryOutcom
 
 	result := string(resultBytes)
 	if err := utils.SetToCache(ctx, config.CacheManager, key, result, config.CacheExpiration); err != nil {
-		slog.Warn("cache write error", "key", key, "err", err)
+		slog.WarnContext(ctx, "cache write error", "key", key, "err", err)
 	}
 
 	return queryOutcome{body: result, contentType: "application/json"}, nil

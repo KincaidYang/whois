@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -59,7 +60,7 @@ func TestHandleQueryError(t *testing.T) {
 
 	for _, tt := range tests {
 		w := httptest.NewRecorder()
-		HandleQueryError(w, tt.err)
+		HandleQueryError(context.Background(), w, tt.err)
 		if w.Code != tt.wantStatus {
 			t.Errorf("HandleQueryError(%v): status=%d, want %d", tt.err, w.Code, tt.wantStatus)
 		}
@@ -68,7 +69,7 @@ func TestHandleQueryError(t *testing.T) {
 
 func TestHandleInternalError(t *testing.T) {
 	w := httptest.NewRecorder()
-	HandleInternalError(w, ErrResourceNotFound)
+	HandleInternalError(context.Background(), w, ErrResourceNotFound)
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status=%d, want 500", w.Code)
 	}
@@ -78,7 +79,7 @@ func TestHandleInternalError(t *testing.T) {
 // errors (network failures, upstream hostnames) are not leaked to the client.
 func TestHandleQueryErrorSanitizesUnexpectedErrors(t *testing.T) {
 	w := httptest.NewRecorder()
-	HandleQueryError(w, errors.New("dial tcp whois.internal.example:43: connection refused"))
+	HandleQueryError(context.Background(), w, errors.New("dial tcp whois.internal.example:43: connection refused"))
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status=%d, want 500", w.Code)
@@ -99,7 +100,7 @@ func TestHandleQueryErrorSanitizesUnexpectedErrors(t *testing.T) {
 // rather than the raw error text.
 func TestHandleInternalErrorSanitizes(t *testing.T) {
 	w := httptest.NewRecorder()
-	HandleInternalError(w, errors.New("redis: connection pool timeout at 10.0.0.5:6379"))
+	HandleInternalError(context.Background(), w, errors.New("redis: connection pool timeout at 10.0.0.5:6379"))
 
 	var body ErrorResponse
 	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {

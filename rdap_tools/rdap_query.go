@@ -106,7 +106,7 @@ func RDAPQuery(ctx context.Context, domain, tld string) (string, error) {
 		return "", fmt.Errorf("no RDAP server known for TLD: %s", tld)
 	}
 
-	slog.Debug("querying RDAP", "type", "domain", "query", domain, "tld", tld, "server", rdapServer)
+	slog.DebugContext(ctx, "querying RDAP", "type", "domain", "query", domain, "tld", tld, "server", rdapServer)
 
 	start := time.Now()
 	defer func() {
@@ -124,7 +124,7 @@ func RDAPQueryIP(ctx context.Context, ip, serverURL string) (string, error) {
 	if serverURL == "" {
 		return "", fmt.Errorf("no RDAP server known for IP: %s", ip)
 	}
-	slog.Debug("querying RDAP", "type", "ip", "query", ip, "server", serverURL)
+	slog.DebugContext(ctx, "querying RDAP", "type", "ip", "query", ip, "server", serverURL)
 	start := time.Now()
 	defer func() {
 		metrics.UpstreamDuration.WithLabelValues("rdap", "_ip").Observe(time.Since(start).Seconds())
@@ -138,7 +138,7 @@ func RDAPQueryASN(ctx context.Context, as, serverURL string) (string, error) {
 	if serverURL == "" {
 		return "", fmt.Errorf("no RDAP server known for ASN: %s", as)
 	}
-	slog.Debug("querying RDAP", "type", "asn", "query", as, "server", serverURL)
+	slog.DebugContext(ctx, "querying RDAP", "type", "asn", "query", as, "server", serverURL)
 	start := time.Now()
 	defer func() {
 		metrics.UpstreamDuration.WithLabelValues("rdap", "_asn").Observe(time.Since(start).Seconds())
