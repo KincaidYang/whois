@@ -31,5 +31,5 @@ remain anonymous).
 ## Scope notes
 
 This service is designed to be deployed behind a reverse proxy. Rate limiting
-exists in-process (`ratelimit`), but per-IP limiting and TLS termination are
+exists in-process (`server.rateLimit`), but per-IP limiting and TLS termination are
 expected to be handled at the proxy layer.

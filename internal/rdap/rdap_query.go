@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/KincaidYang/whois/internal/config"
@@ -20,13 +21,19 @@ import (
 const maxResponseSize = 2 << 20 // 2 MiB
 
 // proxyClient is a pre-built HTTP client for proxied RDAP requests.
-// Initialized once at startup to enable connection pool reuse across requests.
+// Built once on first use (after config.Load has run) to enable connection
+// pool reuse across requests.
 var proxyClient *http.Client
 
 // proxySuffixSet is a set built from config.ProxySuffixes for O(1) lookup.
 var proxySuffixSet map[string]struct{}
 
-func init() {
+// proxyOnce defers proxy setup until the first query, because the config
+// package no longer initializes itself in init(); proxy settings only exist
+// once config.Load has been called.
+var proxyOnce sync.Once
+
+func initProxy() {
 	if config.ProxyServer != "" {
 		proxyURL, err := url.Parse(config.ProxyServer)
 		if err == nil {
@@ -54,6 +61,7 @@ func init() {
 // getHTTPClient returns an HTTP client with appropriate proxy settings.
 // Returns the pre-built proxyClient for proxied TLDs, or config.HttpClient otherwise.
 func getHTTPClient(tld string) *http.Client {
+	proxyOnce.Do(initProxy)
 	if proxyClient != nil {
 		_, matchTLD := proxySuffixSet[tld]
 		_, matchAll := proxySuffixSet["all"]
