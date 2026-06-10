@@ -61,7 +61,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Domains whose TLD has no parser now return JSON**
   (`{"objectClassName": "domain", "unparsed": true, "rawText": "..."}`)
   instead of `text/plain`. Only `?raw=1` returns plain text.
-- Cache keys moved from `whois:` to `whois:v2:`; existing cache entries are
+- Cache keys moved from `whois:` to `whois:v1:` (the first version of the
+  format that will stabilize in 1.0); entries cached by older releases are
   abandoned (no migration needed, they expire naturally).
 - **Configuration file restructured.** Keys are grouped by function and use
   camelCase, matching the API field style. Unknown keys and pre-v0.9 keys now

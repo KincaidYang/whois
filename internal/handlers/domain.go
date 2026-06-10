@@ -21,7 +21,7 @@ import (
 // CacheKeyPrefix namespaces all cache entries. The version segment is bumped
 // whenever the response format changes, so entries cached by an older release
 // are never served in the old format after an upgrade.
-const CacheKeyPrefix = "whois:v2:"
+const CacheKeyPrefix = "whois:v1:"
 
 // finalizeDomainInfo fills the fields shared by every domain response that
 // the parsers cannot know themselves: the Unicode form of the name (IDN) and
