@@ -36,11 +36,17 @@
           },
           {
             "$ref": "#/components/parameters/raw"
+          },
+          {
+            "$ref": "#/components/parameters/ifNoneMatch"
           }
         ],
         "responses": {
           "200": {
             "$ref": "#/components/responses/QueryResult"
+          },
+          "304": {
+            "$ref": "#/components/responses/NotModified"
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -320,6 +326,11 @@
       "get": {
         "operationId": "openapi",
         "summary": "This OpenAPI document",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ifNoneMatch"
+          }
+        ],
         "responses": {
           "200": {
             "description": "OpenAPI 3.1 description of this service.",
@@ -331,6 +342,9 @@
                 }
               }
             }
+          },
+          "304": {
+            "$ref": "#/components/responses/NotModified"
           },
           "401": {
             "$ref": "#/components/responses/Unauthorized"
@@ -373,6 +387,15 @@
       }
     },
     "parameters": {
+      "ifNoneMatch": {
+        "name": "If-None-Match",
+        "in": "header",
+        "required": false,
+        "description": "Conditional revalidation (RFC 9110): when the value matches the current `ETag` of the response, the server answers `304 Not Modified` with no body.",
+        "schema": {
+          "type": "string"
+        }
+      },
       "raw": {
         "name": "raw",
         "in": "query",
@@ -384,6 +407,12 @@
       }
     },
     "headers": {
+      "ETag": {
+        "description": "Strong entity tag of the response body, usable for `If-None-Match` revalidation.",
+        "schema": {
+          "type": "string"
+        }
+      },
       "X-Cache": {
         "description": "Whether the response was served from the server-side cache (HIT) or fetched from the upstream registry (MISS).",
         "schema": {
@@ -402,6 +431,9 @@
       "QueryResult": {
         "description": "Registration data for the detected resource type, or the raw WHOIS text when `raw` is set on a domain query.",
         "headers": {
+          "ETag": {
+            "$ref": "#/components/headers/ETag"
+          },
           "X-Cache": {
             "$ref": "#/components/headers/X-Cache"
           },
@@ -438,6 +470,14 @@
               "type": "string",
               "description": "Unparsed WHOIS response (only with `?raw=1` on a domain query)."
             }
+          }
+        }
+      },
+      "NotModified": {
+        "description": "The entity tag in `If-None-Match` matches the current response; the body is unchanged and omitted.",
+        "headers": {
+          "ETag": {
+            "$ref": "#/components/headers/ETag"
           }
         }
       },
