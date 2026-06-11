@@ -27,6 +27,7 @@ type rdapEntity struct {
 	Roles      []string          `json:"roles"`
 	VcardArray []json.RawMessage `json:"vcardArray"`
 	PublicIds  []rdapPublicId    `json:"publicIds"`
+	Entities   []rdapEntity      `json:"entities"`
 }
 
 type rdapNameserver struct {
@@ -40,9 +41,17 @@ type rdapDsData struct {
 	Digest     string `json:"digest"`
 }
 
+type rdapKeyData struct {
+	Flags     int    `json:"flags"`
+	Protocol  int    `json:"protocol"`
+	Algorithm int    `json:"algorithm"`
+	PublicKey string `json:"publicKey"`
+}
+
 type rdapSecureDNS struct {
-	DelegationSigned bool         `json:"delegationSigned"`
-	DsData           []rdapDsData `json:"dsData"`
+	DelegationSigned bool          `json:"delegationSigned"`
+	DsData           []rdapDsData  `json:"dsData"`
+	KeyData          []rdapKeyData `json:"keyData"`
 }
 
 type rdapDomainResponse struct {
@@ -132,14 +141,16 @@ func ParseRDAPResponseforDomain(response string) (model.DomainInfo, error) {
 		Status:          model.CleanStatus(rdap.Status),
 	}
 
-	// Extract registrar info from entities
-	for _, entity := range rdap.Entities {
-		for _, role := range entity.Roles {
-			if role == "registrar" {
-				info.Registrar = extractRegistrarName(entity.VcardArray)
-				if len(entity.PublicIds) > 0 {
-					info.RegistrarIANAID = entity.PublicIds[0].Identifier
-				}
+	// Extract registrar info from entities. The registrar entity is usually
+	// top-level, but some registries nest it inside another entity, so the
+	// search recurses. Only a public ID typed "IANA Registrar ID" is the IANA
+	// ID — registries also attach other IDs (e.g. Nominet's
+	// "Registry Identifier: NOMINET") that must not be mistaken for it.
+	if registrar := findRegistrarEntity(rdap.Entities); registrar != nil {
+		info.Registrar = extractRegistrarName(registrar.VcardArray)
+		for _, id := range registrar.PublicIds {
+			if strings.EqualFold(id.Type, "IANA Registrar ID") {
+				info.RegistrarIANAID = id.Identifier
 				break
 			}
 		}
@@ -161,16 +172,21 @@ func ParseRDAPResponseforDomain(response string) (model.DomainInfo, error) {
 		}
 	}
 
-	// Extract nameservers
+	// Extract nameservers. Some registries (DENIC, Nominet) return ldhName
+	// as an FQDN with a trailing dot; strip it so hostnames are uniform
+	// across registries.
 	info.Nameservers = make([]string, 0, len(rdap.Nameservers))
 	for _, ns := range rdap.Nameservers {
-		info.Nameservers = append(info.Nameservers, strings.ToLower(ns.LdhName))
+		info.Nameservers = append(info.Nameservers, strings.TrimSuffix(strings.ToLower(ns.LdhName), "."))
 	}
 
-	// Extract DNSSEC info
+	// Extract DNSSEC info. Published DS or DNSKEY records imply a signed
+	// delegation even when the registry omits the delegationSigned boolean
+	// (DENIC sends only keyData).
 	info.SecureDNS = &model.SecureDNS{}
-	if rdap.SecureDNS != nil && rdap.SecureDNS.DelegationSigned {
-		info.SecureDNS.DelegationSigned = true
+	if rdap.SecureDNS != nil {
+		info.SecureDNS.DelegationSigned = rdap.SecureDNS.DelegationSigned ||
+			len(rdap.SecureDNS.DsData) > 0 || len(rdap.SecureDNS.KeyData) > 0
 		for _, ds := range rdap.SecureDNS.DsData {
 			info.SecureDNS.DSData = append(info.SecureDNS.DSData, model.DSData{
 				KeyTag:     ds.KeyTag,
@@ -179,9 +195,35 @@ func ParseRDAPResponseforDomain(response string) (model.DomainInfo, error) {
 				Digest:     ds.Digest,
 			})
 		}
+		for _, kd := range rdap.SecureDNS.KeyData {
+			info.SecureDNS.KeyData = append(info.SecureDNS.KeyData, model.KeyData{
+				Flags:     kd.Flags,
+				Protocol:  kd.Protocol,
+				Algorithm: kd.Algorithm,
+				PublicKey: kd.PublicKey,
+			})
+		}
 	}
 
 	return info, nil
+}
+
+// findRegistrarEntity returns the first entity whose roles include
+// "registrar", searching nested entities depth-first. Returns nil when the
+// response has none (registry-operated TLDs like .br carry no registrar
+// entity at all).
+func findRegistrarEntity(entities []rdapEntity) *rdapEntity {
+	for i := range entities {
+		for _, role := range entities[i].Roles {
+			if role == "registrar" {
+				return &entities[i]
+			}
+		}
+		if nested := findRegistrarEntity(entities[i].Entities); nested != nil {
+			return nested
+		}
+	}
+	return nil
 }
 
 // ParseRDAPResponseforIP parses the RDAP response for an IP address.

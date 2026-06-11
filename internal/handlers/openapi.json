@@ -677,6 +677,31 @@
             "items": {
               "$ref": "#/components/schemas/DSData"
             }
+          },
+          "keyData": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/KeyData"
+            }
+          }
+        }
+      },
+      "KeyData": {
+        "type": "object",
+        "description": "DNSSEC key record; some registries publish DNSKEY material instead of DS records.",
+        "required": ["flags", "protocol", "algorithm", "publicKey"],
+        "properties": {
+          "flags": {
+            "type": "integer"
+          },
+          "protocol": {
+            "type": "integer"
+          },
+          "algorithm": {
+            "type": "integer"
+          },
+          "publicKey": {
+            "type": "string"
           }
         }
       },

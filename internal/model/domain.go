@@ -16,10 +16,20 @@ type DSData struct {
 	Digest     string `json:"digest"`
 }
 
+// KeyData is a DNSSEC key record (RFC 9083 section 5.3). Some registries
+// (e.g. DENIC) publish DNSKEY material instead of DS records.
+type KeyData struct {
+	Flags     int    `json:"flags"`
+	Protocol  int    `json:"protocol"`
+	Algorithm int    `json:"algorithm"`
+	PublicKey string `json:"publicKey"`
+}
+
 // SecureDNS describes the DNSSEC state of a domain (RFC 9083 section 5.3).
 type SecureDNS struct {
-	DelegationSigned bool     `json:"delegationSigned"`
-	DSData           []DSData `json:"dsData,omitempty"`
+	DelegationSigned bool      `json:"delegationSigned"`
+	DSData           []DSData  `json:"dsData,omitempty"`
+	KeyData          []KeyData `json:"keyData,omitempty"`
 }
 
 // DomainInfo is the API representation of a domain. Field names follow the
