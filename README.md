@@ -70,11 +70,14 @@ proxy:
 bootstrap:
   interval: 86400              # RDAP 服务器列表从 IANA 刷新间隔，单位：秒；0 则禁用（推荐：86400）
 
+auth:
+  keys: []                     # API 密钥列表。留空（默认）则服务完全开放；配置一个或多个密钥后，除 /health 和 /ready 外的所有端点都需要认证，请求时通过 "Authorization: Bearer <key>" 或 "X-API-Key: <key>" 携带密钥
+
 mcp:
   localhostProtection: false   # /mcp 端点的 DNS rebinding 保护：开启后只接受 Host 为 localhost 的请求。反向代理部署保持 false；本机直连部署建议设为 true
 ```
 
-部分配置项可通过环境变量覆盖（优先级高于配置文件），如 `WHOIS_REDIS_ADDR`、`WHOIS_REDIS_TLS`、`WHOIS_PORT`、`WHOIS_RATE_LIMIT`、`WHOIS_CACHE_EXPIRATION`、`WHOIS_NEGATIVE_CACHE_EXPIRATION`、`WHOIS_LOG_LEVEL`、`WHOIS_MCP_LOCALHOST_PROTECTION` 等。
+部分配置项可通过环境变量覆盖（优先级高于配置文件），如 `WHOIS_REDIS_ADDR`、`WHOIS_REDIS_TLS`、`WHOIS_PORT`、`WHOIS_RATE_LIMIT`、`WHOIS_CACHE_EXPIRATION`、`WHOIS_NEGATIVE_CACHE_EXPIRATION`、`WHOIS_LOG_LEVEL`、`WHOIS_MCP_LOCALHOST_PROTECTION`、`WHOIS_AUTH_KEYS`（逗号分隔）等。
 
 **配置说明：**
 - **Redis配置**：建议使用Redis以获得更好的性能和多实例缓存共享能力
@@ -85,6 +88,7 @@ mcp:
 - **代理配置**：某些TLD可能需要代理访问，可配置特定后缀使用代理
 - **日志级别**：`debug` 会输出每次缓存命中和上游查询，流量大时噪声较高；生产环境建议保持 `info`
 - **RDAP 刷新间隔**：服务启动时会立即从 IANA 拉取最新 RDAP 服务器列表，之后按此间隔定期刷新；编译进二进制的数据作为拉取失败时的兜底
+- **API 认证**：默认关闭。配置 `auth.keys` 后即启用，未携带有效密钥的请求返回 401（RFC 9457 problem+json）；仅 `/health` 和 `/ready` 豁免，便于存活/就绪探针工作
 
 
 > ⚠️ **Warning:** 限频针对的是程序向 whois 服务器发起的请求，而非用户向本程序发起的请求。例如，您将限频设置为 50，那么程序向注册局 whois 服务器发起的请求将不会超过 50 次/秒，但是用户向本程序发起的请求不受限制。请您通过 Nginx 等工具对本程序进行限流，以防止恶意请求。

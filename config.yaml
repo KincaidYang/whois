@@ -45,6 +45,15 @@ bootstrap:
   # 0 disables refreshing.
   interval: 86400
 
+auth:
+  # API keys accepted for authentication. Empty (the default) leaves the
+  # service open; one or more keys protect every endpoint except /health and
+  # /ready. Clients send a key as "Authorization: Bearer <key>" or
+  # "X-API-Key: <key>". Can also be set via WHOIS_AUTH_KEYS (comma-separated).
+  # keys:
+  #   - "your-secret-key"
+  keys: []
+
 mcp:
   # DNS-rebinding protection for the /mcp endpoint: rejects requests whose
   # Host header is not localhost. Keep false behind a reverse proxy; set true

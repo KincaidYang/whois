@@ -80,11 +80,14 @@ proxy:
 bootstrap:
   interval: 86400              # RDAP server list refresh interval in seconds; 0 disables fetching (recommended: 86400)
 
+auth:
+  keys: []                     # Accepted API keys. Empty (the default) leaves the service open; one or more keys protect every endpoint except /health and /ready. Clients send a key as "Authorization: Bearer <key>" or "X-API-Key: <key>"
+
 mcp:
   localhostProtection: false   # DNS-rebinding protection for /mcp: only accept requests whose Host header is localhost. Keep false behind a reverse proxy; set true for direct localhost deployments
 ```
 
-Selected options can be overridden via environment variables (which take precedence over the config file), e.g. `WHOIS_REDIS_ADDR`, `WHOIS_REDIS_TLS`, `WHOIS_PORT`, `WHOIS_RATE_LIMIT`, `WHOIS_CACHE_EXPIRATION`, `WHOIS_NEGATIVE_CACHE_EXPIRATION`, `WHOIS_LOG_LEVEL`, `WHOIS_MCP_LOCALHOST_PROTECTION`.
+Selected options can be overridden via environment variables (which take precedence over the config file), e.g. `WHOIS_REDIS_ADDR`, `WHOIS_REDIS_TLS`, `WHOIS_PORT`, `WHOIS_RATE_LIMIT`, `WHOIS_CACHE_EXPIRATION`, `WHOIS_NEGATIVE_CACHE_EXPIRATION`, `WHOIS_LOG_LEVEL`, `WHOIS_MCP_LOCALHOST_PROTECTION`, `WHOIS_AUTH_KEYS` (comma-separated).
 
 **Configuration Notes:**
 - **Redis Configuration**: Redis is recommended for better performance and multi-instance cache sharing
@@ -95,6 +98,7 @@ Selected options can be overridden via environment variables (which take precede
 - **Proxy Configuration**: Some TLDs may require proxy access
 - **Log Level**: `debug` logs every cache hit and upstream query dispatch — noisy under load; `info` is recommended for production
 - **Bootstrap Interval**: On startup the service immediately fetches the latest RDAP server list from IANA, then refreshes on this interval; compiled-in data serves as fallback if the fetch fails
+- **API Authentication**: Disabled by default. Configuring `auth.keys` enables it; requests without a valid key get a 401 (RFC 9457 problem+json). Only `/health` and `/ready` are exempt so liveness/readiness probes keep working
 
 > ⚠️ **Warning:** The rate limit applies to requests from this program to WHOIS servers, not requests from users to this program. For example, if you set the limit to 50, the program will not exceed 50 requests/second to registry WHOIS servers, but user requests to this program are unlimited. Please use Nginx or other tools to rate-limit this program to prevent malicious requests.
 

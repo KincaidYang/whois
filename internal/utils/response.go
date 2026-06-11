@@ -43,6 +43,14 @@ func writeProblem(w http.ResponseWriter, statusCode int, typeAnchor, title, deta
 	})
 }
 
+// WriteUnauthorized writes the 401 problem response used when API key
+// authentication is enabled and the request carries no valid key.
+func WriteUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Bearer realm="whois"`)
+	writeProblem(w, http.StatusUnauthorized, "unauthorized", "Authentication required",
+		"Provide a valid API key via \"Authorization: Bearer <key>\" or \"X-API-Key: <key>\".")
+}
+
 // WriteRateLimited writes the 429 problem response used when the concurrency
 // limiter rejects a request.
 func WriteRateLimited(w http.ResponseWriter) {

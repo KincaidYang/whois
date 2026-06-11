@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "whois",
-    "description": "WHOIS/RDAP query service. Returns registration data for domain names, IP networks (including CIDR prefixes) and autonomous system numbers as JSON aligned with the RDAP vocabulary (RFC 9083). Errors follow RFC 9457 Problem Details.",
+    "description": "WHOIS/RDAP query service. Returns registration data for domain names, IP networks (including CIDR prefixes) and autonomous system numbers as JSON aligned with the RDAP vocabulary (RFC 9083). Errors follow RFC 9457 Problem Details. API key authentication is disabled by default; when the operator configures `auth.keys`, every endpoint except /health and /ready requires a key sent as `Authorization: Bearer <key>` or `X-API-Key: <key>`.",
     "version": "0.8.0",
     "license": {
       "name": "MIT",
@@ -44,6 +44,9 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
             "$ref": "#/components/responses/QueryDenied"
@@ -107,6 +110,9 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
           "403": {
             "$ref": "#/components/responses/QueryDenied"
           },
@@ -160,6 +166,9 @@
           "400": {
             "$ref": "#/components/responses/BadRequest"
           },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
           "403": {
             "$ref": "#/components/responses/QueryDenied"
           },
@@ -212,6 +221,9 @@
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
             "$ref": "#/components/responses/QueryDenied"
@@ -276,6 +288,9 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           }
         }
       }
@@ -294,6 +309,9 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           }
         }
       }
@@ -313,6 +331,9 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           }
         }
       }
@@ -329,12 +350,28 @@
         "responses": {
           "200": {
             "description": "MCP protocol response."
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           }
         }
       }
     }
   },
   "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "API key sent as `Authorization: Bearer <key>`. Only enforced when the server is configured with `auth.keys`; authentication is disabled by default."
+      },
+      "apiKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "API key sent as `X-API-Key: <key>`. Only enforced when the server is configured with `auth.keys`; authentication is disabled by default."
+      }
+    },
     "parameters": {
       "raw": {
         "name": "raw",
@@ -400,6 +437,23 @@
             "schema": {
               "type": "string",
               "description": "Unparsed WHOIS response (only with `?raw=1` on a domain query)."
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "API key authentication is enabled on this server and the request carried no valid key. Only returned when the operator configures `auth.keys`; authentication is disabled by default.",
+        "headers": {
+          "WWW-Authenticate": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        },
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
             }
           }
         }

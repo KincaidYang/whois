@@ -32,6 +32,13 @@ results are negatively cached like not-found.
 query parameter combination is unsupported (e.g. `?raw=1` on an IP/ASN query,
 which has no raw WHOIS form).
 
+## unauthorized
+
+**Status: 401.** The server has API key authentication enabled (`auth.keys` in
+config) and the request carried no valid key. Send a configured key as
+`Authorization: Bearer <key>` or `X-API-Key: <key>`. Only `/health` and
+`/ready` are exempt from authentication.
+
 ## rate-limited
 
 **Status: 429.** The server's concurrent-request limit (`server.rateLimit` in
