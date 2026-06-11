@@ -180,6 +180,7 @@ An OpenAPI 3.1 description of the service is available at `/openapi.json`, cover
 #### Caching and CORS
 
 - Successful responses carry `X-Cache: HIT/MISS` indicating whether the server cache was hit, plus `Cache-Control: public, max-age=<cache seconds>` for client/CDN caching.
+- Successful (200) responses carry a strong `ETag`; send it back as `If-None-Match: <etag>` for conditional revalidation — unchanged content is answered with `304 Not Modified` and no body. `/openapi.json` supports this too.
 - Every response carries `Access-Control-Allow-Origin: *`, so the API can be called cross-origin from browser frontends directly.
 
 > Internationalized domain names (IDN, including Unicode domains with non-ASCII characters) can be queried directly; the program converts them to Punycode automatically, e.g. `http://1.2.3.4:8043/例子.cn`.

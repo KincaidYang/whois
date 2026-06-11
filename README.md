@@ -177,6 +177,7 @@ curl http://localhost:8043/2001:db8::/32
 
 #### 缓存与跨域
 - 成功响应带 `X-Cache: HIT/MISS` 头标识是否命中服务端缓存，以及 `Cache-Control: public, max-age=<缓存秒数>` 供客户端/CDN 缓存。
+- 成功响应（200）带强 `ETag` 头；请求时携带 `If-None-Match: <etag>` 可做条件重验证，内容未变化时返回 `304 Not Modified`（无响应体），`/openapi.json` 同样支持。
 - 所有响应带 `Access-Control-Allow-Origin: *`，可直接在浏览器前端跨域调用。
 
 #### 查询域名 Whois 信息
