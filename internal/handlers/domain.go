@@ -46,24 +46,27 @@ func finalizeDomainInfo(info *model.DomainInfo, domain string) {
 // whoisParsers is a map from top-level domain (TLD) to a function that can parse
 // the WHOIS response for that TLD into a DomainInfo structure.
 // Currently, it includes parsers for the following TLDs: cn, xn--fiqs8s, xn--fiqz9s,
-// hk, xn--j6w193g, tw, so, sb, sg, mo, ru, su, au, la, jp.
+// hk, xn--j6w193g, tw, so, sb, sg, mo, ru, su, au, la, jp, eu, kr, xn--3e0b707e.
 // You can add parsers for other TLDs by adding them to this map.
 var whoisParsers = map[string]func(string, string) (model.DomainInfo, error){
-	"cn":          whois.ParseWhoisResponseCN,
-	"xn--fiqs8s":  whois.ParseWhoisResponseCN,
-	"xn--fiqz9s":  whois.ParseWhoisResponseCN,
-	"hk":          whois.ParseWhoisResponseHK,
-	"xn--j6w193g": whois.ParseWhoisResponseHK,
-	"tw":          whois.ParseWhoisResponseTW,
-	"so":          whois.ParseWhoisResponseSO,
-	"sb":          whois.ParseWhoisResponseSB,
-	"sg":          whois.ParseWhoisResponseSG,
-	"mo":          whois.ParseWhoisResponseMO,
-	"ru":          whois.ParseWhoisResponseRU,
-	"su":          whois.ParseWhoisResponseRU,
-	"au":          whois.ParseWhoisResponseAU,
-	"la":          whois.ParseWhoisResponseLA,
-	"jp":          whois.ParseWhoisResponseJP,
+	"cn":           whois.ParseWhoisResponseCN,
+	"xn--fiqs8s":   whois.ParseWhoisResponseCN,
+	"xn--fiqz9s":   whois.ParseWhoisResponseCN,
+	"hk":           whois.ParseWhoisResponseHK,
+	"xn--j6w193g":  whois.ParseWhoisResponseHK,
+	"tw":           whois.ParseWhoisResponseTW,
+	"so":           whois.ParseWhoisResponseSO,
+	"sb":           whois.ParseWhoisResponseSB,
+	"sg":           whois.ParseWhoisResponseSG,
+	"mo":           whois.ParseWhoisResponseMO,
+	"ru":           whois.ParseWhoisResponseRU,
+	"su":           whois.ParseWhoisResponseRU,
+	"au":           whois.ParseWhoisResponseAU,
+	"la":           whois.ParseWhoisResponseLA,
+	"jp":           whois.ParseWhoisResponseJP,
+	"eu":           whois.ParseWhoisResponseEU,
+	"kr":           whois.ParseWhoisResponseKR,
+	"xn--3e0b707e": whois.ParseWhoisResponseKR,
 }
 
 // HandleDomain function is used to handle the HTTP request for querying the RDAP (Registration Data Access Protocol) or WHOIS information for a given domain.
