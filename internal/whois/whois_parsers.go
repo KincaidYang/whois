@@ -112,6 +112,21 @@ var (
 	reLADNSSEC             = regexp.MustCompile(`DNSSEC:\s+(.+)`)
 	reLALastUpdateOfRDAPDB = regexp.MustCompile(`>>> Last update of WHOIS database:\s+(.+)`)
 
+	// EU (EURid)。port-43 响应不含任何日期与联系人信息（隐私政策），
+	// 可提取的字段只有注册商、域名服务器与 DNSSEC 公钥。
+	reEURegistrarName = regexp.MustCompile(`Registrar:\s*\n\s*Name:\s*(.*)`)
+	reEUNameServers   = regexp.MustCompile(`(?s)Name servers:\s*\n(.*?)\n\s*\n`)
+	reEUStatus        = regexp.MustCompile(`Status:\s*(.*)`)
+	reEUKeys          = regexp.MustCompile(`\nKeys:\s*\n`)
+
+	// KR (KISA/KRNIC)。响应分韩文/英文两段，只解析 "# ENGLISH" 之后的部分。
+	reKRCreationDate = regexp.MustCompile(`Registered Date\s*:\s*(.*)`)
+	reKRUpdatedDate  = regexp.MustCompile(`Last Updated Date\s*:\s*(.*)`)
+	reKRExpiryDate   = regexp.MustCompile(`Expiration Date\s*:\s*(.*)`)
+	reKRRegistrar    = regexp.MustCompile(`Authorized Agency\s*:\s*(.*)`)
+	reKRNameServer   = regexp.MustCompile(`Host Name\s*:\s*(.*)`)
+	reKRDNSSEC       = regexp.MustCompile(`DNSSEC\s*:\s*(.*)`)
+
 	// JP WHOIS 预编译正则表达式
 	// 格式1：.jp 域名
 	reJPDomainName = regexp.MustCompile(`\[Domain Name\]\s+(.*)`)
@@ -897,6 +912,107 @@ func ParseWhoisResponseJP(response string, domain string) (model.DomainInfo, err
 	domainInfo.LastUpdateOfRdapDb = time.Now().UTC().Format(time.RFC3339)
 
 	// 验证必要字段
+	if domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
+		return model.DomainInfo{}, utils.ErrDomainNotFound
+	}
+
+	return domainInfo, nil
+}
+
+// ParseWhoisResponseEU parses EURid (.eu) WHOIS responses. The port-43
+// service discloses no dates, contacts or EPP status — only the registrar,
+// the name servers (with optional glue addresses) and the DNSSEC public keys.
+func ParseWhoisResponseEU(response string, domain string) (model.DomainInfo, error) {
+	// 未注册域名返回 "Status: AVAILABLE"
+	if status := matchFirstGroup(reEUStatus, response, nil); strings.EqualFold(status, "AVAILABLE") {
+		return model.DomainInfo{}, utils.ErrDomainNotFound
+	}
+
+	domainInfo := newDomainInfo(domain)
+
+	// 解析注册商（Registrar 块内的 Name 行）
+	domainInfo.Registrar = matchFirstGroup(reEURegistrarName, response, nil)
+
+	// 解析域名服务器：块内每行形如 "ns1.eurid.eu (185.36.4.252)"，
+	// 去掉胶水记录地址并去重（同一主机的 v4/v6 各占一行）
+	if m := reEUNameServers.FindStringSubmatch(response); len(m) > 1 {
+		seen := make(map[string]struct{})
+		for _, line := range strings.Split(m[1], "\n") {
+			host := strings.TrimSpace(line)
+			if i := strings.Index(host, " ("); i >= 0 {
+				host = host[:i]
+			}
+			host = strings.ToLower(strings.TrimSpace(host))
+			if host == "" {
+				continue
+			}
+			if _, dup := seen[host]; dup {
+				continue
+			}
+			seen[host] = struct{}{}
+			domainInfo.Nameservers = append(domainInfo.Nameservers, host)
+		}
+	}
+
+	// 解析 DNSSEC：已签名时响应携带 "Keys:" 公钥块，未签名时整块缺失
+	domainInfo.SecureDNS = &model.SecureDNS{DelegationSigned: reEUKeys.MatchString(response)}
+
+	// 设置数据库更新时间为数据处理时间
+	domainInfo.LastUpdateOfRdapDb = time.Now().UTC().Format(time.RFC3339)
+
+	if domainInfo.Registrar == "" {
+		return model.DomainInfo{}, utils.ErrDomainNotFound
+	}
+
+	return domainInfo, nil
+}
+
+// ParseWhoisResponseKR parses KISA/KRNIC (.kr / .한국) WHOIS responses,
+// reading the "# ENGLISH" half of the bilingual output. Dates are local
+// Korean dates without a time of day ("2007. 02. 28.").
+func ParseWhoisResponseKR(response string, domain string) (model.DomainInfo, error) {
+	// 未注册域名（韩英双语提示）
+	if strings.Contains(response, "The requested domain was not found in the Registry or Registrar") {
+		return model.DomainInfo{}, utils.ErrDomainNotFound
+	}
+
+	// 只解析英文段，避免韩文段的同名字段（如 "DNSSEC : 미서명"）先被匹配
+	if idx := strings.Index(response, "# ENGLISH"); idx >= 0 {
+		response = response[idx:]
+	}
+
+	domainInfo := newDomainInfo(domain)
+
+	// 解析注册/变更/过期日期（日期无时分秒，直接归一为 YYYY-MM-DD）
+	if dateStr := matchFirstGroup(reKRCreationDate, response, nil); dateStr != "" {
+		domainInfo.RegistrationDate = normDate(dateStr, nil)
+	}
+	if dateStr := matchFirstGroup(reKRUpdatedDate, response, nil); dateStr != "" {
+		domainInfo.LastChangedDate = normDate(dateStr, nil)
+	}
+	if dateStr := matchFirstGroup(reKRExpiryDate, response, nil); dateStr != "" {
+		domainInfo.ExpirationDate = normDate(dateStr, nil)
+	}
+
+	// 解析注册商，去掉附带的网址（"Gabia, Inc.(http://www.gabia.co.kr)"）
+	registrar := matchFirstGroup(reKRRegistrar, response, nil)
+	if i := strings.Index(registrar, "(http"); i >= 0 {
+		registrar = strings.TrimSpace(registrar[:i])
+	}
+	domainInfo.Registrar = registrar
+
+	// 解析域名服务器（Primary/Secondary Name Server 块中的 Host Name 行）
+	domainInfo.Nameservers = lowerAll(matchAllFirstGroup(reKRNameServer, response))
+
+	// 解析 DNSSEC（"signed" / "unsigned"）
+	if dnssec := matchFirstGroup(reKRDNSSEC, response, nil); dnssec != "" {
+		domainInfo.SecureDNS = secureDNSFromString(dnssec)
+	}
+
+	// 设置数据库更新时间为数据处理时间
+	domainInfo.LastUpdateOfRdapDb = time.Now().UTC().Format(time.RFC3339)
+
+	// 注册资格受限的域名（如 nic.kr）不返回任何字段，与未注册同样处理
 	if domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
 		return model.DomainInfo{}, utils.ErrDomainNotFound
 	}

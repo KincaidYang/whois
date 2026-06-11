@@ -569,3 +569,218 @@ func TestParseWhoisResponseJP_NotFound(t *testing.T) {
 		t.Errorf("expected ErrDomainNotFound, got %v", err)
 	}
 }
+
+func TestParseWhoisResponseEU(t *testing.T) {
+	// 真实 whois.eu 响应节选（前缀的 % 法律声明省略）
+	response := `% WHOIS eurid.eu
+Domain: eurid.eu
+Script: LATIN
+
+Registrant:
+        NOT DISCLOSED!
+        Visit www.eurid.eu for the web-based WHOIS.
+
+Technical:
+        Organisation: EURid vzw
+        Language: en
+        Email: tech@eurid.eu
+
+Registrar:
+        Name: EURid vzw
+        Website: https://www.eurid.eu
+
+Name servers:
+        ns3.eurid.eu (2001:67c:9c:3937::253)
+        ns3.eurid.eu (185.36.4.253)
+        nsp.netnod.se
+        ns1.eurid.eu (2001:67c:9c:3937::252)
+        ns1.eurid.eu (185.36.4.252)
+
+Keys:
+        flags:KSK protocol:3 algorithm:RSA_SHA256 pubKey:AwEAAcOQldGtC33GLx8s335UscKMPlWjDXCqbhR2QyAYcfS4CZS6YHg3A1Zz
+
+Please visit www.eurid.eu for more info.
+`
+
+	domain := "eurid.eu"
+	expected := model.DomainInfo{
+		ObjectClassName: model.ObjectClassDomain,
+		LdhName:         domain,
+		Registrar:       "EURid vzw",
+		Nameservers:     []string{"ns3.eurid.eu", "nsp.netnod.se", "ns1.eurid.eu"},
+		SecureDNS:       &model.SecureDNS{DelegationSigned: true},
+	}
+
+	domainInfo, err := ParseWhoisResponseEU(response, domain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := time.Parse(time.RFC3339, domainInfo.LastUpdateOfRdapDb); err != nil {
+		t.Errorf("LastUpdateOfRdapDb is not a valid RFC3339 timestamp: %v", domainInfo.LastUpdateOfRdapDb)
+	}
+	domainInfo.LastUpdateOfRdapDb = ""
+	if !reflect.DeepEqual(domainInfo, expected) {
+		t.Errorf("expected %+v, got %+v", expected, domainInfo)
+	}
+}
+
+func TestParseWhoisResponseEU_Unsigned(t *testing.T) {
+	response := `% WHOIS example.eu
+Domain: example.eu
+Script: LATIN
+
+Registrar:
+        Name: Example Registrar BV
+        Website: https://registrar.example
+
+Name servers:
+        ns1.example.net
+        ns2.example.net
+
+Please visit www.eurid.eu for more info.
+`
+
+	domainInfo, err := ParseWhoisResponseEU(response, "example.eu")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if domainInfo.SecureDNS == nil || domainInfo.SecureDNS.DelegationSigned {
+		t.Errorf("expected unsigned secureDNS, got %+v", domainInfo.SecureDNS)
+	}
+	if len(domainInfo.Nameservers) != 2 {
+		t.Errorf("nameservers: %+v", domainInfo.Nameservers)
+	}
+}
+
+func TestParseWhoisResponseEU_NotFound(t *testing.T) {
+	response := `% WHOIS zzz-notexist.eu
+Domain: zzz-notexist.eu
+Script: LATIN
+Status: AVAILABLE
+`
+
+	_, err := ParseWhoisResponseEU(response, "zzz-notexist.eu")
+	if !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("expected ErrDomainNotFound, got %v", err)
+	}
+}
+
+func TestParseWhoisResponseKR(t *testing.T) {
+	// 真实 whois.kr 响应节选（韩文段在前、英文段在后）
+	response := `query : naver.kr
+
+
+# KOREAN(UTF8)
+
+도메인이름                  : naver.kr
+등록일                      : 2007. 02. 28.
+최근 정보 변경일            : 2018. 02. 28.
+사용 종료일                 : 2027. 02. 28.
+등록대행자                  : (주)가비아(http://www.gabia.co.kr)
+DNSSEC                      : 미서명
+
+1차 네임서버 정보
+   호스트이름               : ns1.naver.com
+
+2차 네임서버 정보
+   호스트이름               : ns2.naver.com
+
+
+# ENGLISH
+
+Domain Name                 : naver.kr
+Registrant                  : NAVER Corp.
+Registrant Address          : 6 Buljung-ro, Bundang-gu, Seongnam-si, Gyeonggi-do, 463-867, Korea, &nbsp;
+Registrant Zip Code         : 463867
+Administrative Contact(AC)  : NAVER Corp.
+AC E-Mail                   : dl_ssl@navercorp.com
+AC Phone Number             : +82.28293528
+Registered Date             : 2007. 02. 28.
+Last Updated Date           : 2018. 02. 28.
+Expiration Date             : 2027. 02. 28.
+Publishes                   : Y
+Authorized Agency           : Gabia, Inc.(http://www.gabia.co.kr)
+DNSSEC                      : unsigned
+
+Primary Name Server
+   Host Name                : ns1.naver.com
+
+Secondary Name Server
+   Host Name                : ns2.naver.com
+
+
+- KISA/KRNIC WHOIS Service -
+`
+
+	domain := "naver.kr"
+	expected := model.DomainInfo{
+		ObjectClassName:  model.ObjectClassDomain,
+		LdhName:          domain,
+		RegistrationDate: "2007-02-28",
+		LastChangedDate:  "2018-02-28",
+		ExpirationDate:   "2027-02-28",
+		Registrar:        "Gabia, Inc.",
+		Nameservers:      []string{"ns1.naver.com", "ns2.naver.com"},
+		SecureDNS:        &model.SecureDNS{DelegationSigned: false},
+	}
+
+	domainInfo, err := ParseWhoisResponseKR(response, domain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, err := time.Parse(time.RFC3339, domainInfo.LastUpdateOfRdapDb); err != nil {
+		t.Errorf("LastUpdateOfRdapDb is not a valid RFC3339 timestamp: %v", domainInfo.LastUpdateOfRdapDb)
+	}
+	domainInfo.LastUpdateOfRdapDb = ""
+	if !reflect.DeepEqual(domainInfo, expected) {
+		t.Errorf("expected %+v, got %+v", expected, domainInfo)
+	}
+}
+
+func TestParseWhoisResponseKR_NotFound(t *testing.T) {
+	response := `query : zzz-notexist.kr
+
+
+# KOREAN(UTF8)
+
+상기 도메인이름은 등록되어 있지 않습니다.
+
+
+# ENGLISH
+
+The requested domain was not found in the Registry or Registrar’s WHOIS Server.
+
+
+- KISA/KRNIC WHOIS Service -
+`
+
+	_, err := ParseWhoisResponseKR(response, "zzz-notexist.kr")
+	if !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("expected ErrDomainNotFound, got %v", err)
+	}
+}
+
+func TestParseWhoisResponseKR_Restricted(t *testing.T) {
+	// 注册资格受限的域名（如 nic.kr）不返回任何字段
+	response := `query : nic.kr
+
+
+# KOREAN(UTF8)
+
+상기 도메인이름은 도메인이름의 안정적 관리와 공공의 이익 등을 위하여 
+등록자격이 제한된 도메인이름입니다.
+
+
+# ENGLISH
+
+This request domain name is restricted to specifically qualified registrants for stable management of domain names and public interest.
+
+
+- KISA/KRNIC WHOIS Service -
+`
+
+	_, err := ParseWhoisResponseKR(response, "nic.kr")
+	if !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("expected ErrDomainNotFound, got %v", err)
+	}
+}

@@ -23,6 +23,7 @@ var dateOnlyLayouts = []string{
 	"02-01-2006", // .hk
 	"2006/01/02", // .jp
 	"02-Jan-2006",
+	"2006. 01. 02.", // .kr
 }
 
 // NormalizeDate parses a registry-provided date string and returns it as
