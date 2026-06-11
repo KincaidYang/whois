@@ -85,6 +85,30 @@ func TestAuthAPIKeyHeader(t *testing.T) {
 	}
 }
 
+// TestAuthInvalidBearerFallsBackToAPIKey verifies a stale bearer token does
+// not mask a valid X-API-Key sent on the same request.
+func TestAuthInvalidBearerFallsBackToAPIKey(t *testing.T) {
+	withTestAuthKeys(t, "test-key-1")
+
+	req := httptest.NewRequest("GET", "/info", nil)
+	req.Header.Set("Authorization", "Bearer stale-token")
+	req.Header.Set("X-API-Key", "test-key-1")
+	if w := authRequest(req); w.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d", w.Code)
+	}
+}
+
+// TestAuthEmptyKeyNeverMatches verifies a request with no credentials is
+// rejected even if an empty string somehow ends up in the configured keys.
+func TestAuthEmptyKeyNeverMatches(t *testing.T) {
+	withTestAuthKeys(t, "")
+
+	w := authRequest(httptest.NewRequest("GET", "/info", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401, got %d", w.Code)
+	}
+}
+
 // TestAuthWrongKey verifies unknown keys are rejected on both headers.
 func TestAuthWrongKey(t *testing.T) {
 	withTestAuthKeys(t, "test-key-1")

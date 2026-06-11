@@ -207,10 +207,30 @@ func load() {
 	MCPLocalhostProtection = config.MCP.LocalhostProtection
 
 	// Set API authentication keys
-	AuthKeys = config.Auth.Keys
+	authKeys, err := normalizeAuthKeys(config.Auth.Keys)
+	if err != nil {
+		slog.Error("invalid configuration", "err", err)
+		os.Exit(1)
+	}
+	AuthKeys = authKeys
 	if len(AuthKeys) > 0 {
 		slog.Info("API key authentication enabled", "keys", len(AuthKeys))
 	}
+}
+
+// normalizeAuthKeys trims surrounding whitespace from the configured API keys
+// and rejects empty entries: a request with no credentials presents the empty
+// key, so an accidental "" in auth.keys would turn authentication on while
+// accepting every request.
+func normalizeAuthKeys(keys []string) ([]string, error) {
+	normalized := make([]string, len(keys))
+	for i, key := range keys {
+		normalized[i] = strings.TrimSpace(key)
+		if normalized[i] == "" {
+			return nil, fmt.Errorf("auth.keys must not contain empty keys")
+		}
+	}
+	return normalized, nil
 }
 
 // applyDefaults sets default values for configuration left unset

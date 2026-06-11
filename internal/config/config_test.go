@@ -68,6 +68,26 @@ func TestParseConfigYAML(t *testing.T) {
 	}
 }
 
+func TestNormalizeAuthKeys(t *testing.T) {
+	keys, err := normalizeAuthKeys([]string{" padded ", "plain"})
+	if err != nil {
+		t.Fatalf("normalizeAuthKeys: %v", err)
+	}
+	if keys[0] != "padded" || keys[1] != "plain" {
+		t.Errorf("got %+v", keys)
+	}
+
+	for _, bad := range [][]string{{""}, {"   "}, {"ok", ""}} {
+		if _, err := normalizeAuthKeys(bad); err == nil {
+			t.Errorf("normalizeAuthKeys(%q): expected error", bad)
+		}
+	}
+
+	if keys, err := normalizeAuthKeys(nil); err != nil || len(keys) != 0 {
+		t.Errorf("nil keys: got %+v, %v", keys, err)
+	}
+}
+
 func TestEnvOverrideAuthKeys(t *testing.T) {
 	t.Setenv("WHOIS_AUTH_KEYS", "k1, k2 ,,k3")
 	var cfg Config

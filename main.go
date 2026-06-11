@@ -53,20 +53,26 @@ func withRequestID(next http.Handler) http.Handler {
 // compared case-insensitively (RFC 9110 section 11.1).
 const bearerPrefix = "Bearer "
 
-// requestAPIKey extracts the API key a request presents, from either an
-// "Authorization: Bearer <key>" or an "X-API-Key: <key>" header.
-func requestAPIKey(r *http.Request) string {
+// requestAuthorized reports whether the request presents a configured API
+// key as "Authorization: Bearer <key>" or "X-API-Key: <key>". Both headers
+// are checked, so a stale bearer token does not mask a valid X-API-Key.
+func requestAuthorized(r *http.Request) bool {
 	if auth := r.Header.Get("Authorization"); len(auth) > len(bearerPrefix) &&
-		strings.EqualFold(auth[:len(bearerPrefix)], bearerPrefix) {
-		return auth[len(bearerPrefix):]
+		strings.EqualFold(auth[:len(bearerPrefix)], bearerPrefix) &&
+		keyAllowed(auth[len(bearerPrefix):]) {
+		return true
 	}
-	return r.Header.Get("X-API-Key")
+	return keyAllowed(r.Header.Get("X-API-Key"))
 }
 
 // keyAllowed reports whether key matches one of the configured API keys,
 // comparing in constant time so the comparison itself leaks nothing about the
-// configured keys.
+// configured keys. The empty key never matches: it is what a request with no
+// credentials presents.
 func keyAllowed(key string) bool {
+	if key == "" {
+		return false
+	}
 	allowed := false
 	for _, k := range config.AuthKeys {
 		if subtle.ConstantTimeCompare([]byte(key), []byte(k)) == 1 {
@@ -87,7 +93,7 @@ func withAuth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !keyAllowed(requestAPIKey(r)) {
+		if !requestAuthorized(r) {
 			utils.WriteUnauthorized(w)
 			return
 		}
