@@ -30,6 +30,8 @@ proxy:
   suffixes: ["cn", "jp"]
 bootstrap:
   interval: 3600
+auth:
+  keys: ["key-one", "key-two"]
 mcp:
   localhostProtection: true
 `
@@ -60,6 +62,38 @@ func TestParseConfigYAML(t *testing.T) {
 	}
 	if !cfg.MCP.LocalhostProtection {
 		t.Errorf("mcp.localhostProtection: false")
+	}
+	if len(cfg.Auth.Keys) != 2 || cfg.Auth.Keys[0] != "key-one" {
+		t.Errorf("auth.keys: %+v", cfg.Auth.Keys)
+	}
+}
+
+func TestNormalizeAuthKeys(t *testing.T) {
+	keys, err := normalizeAuthKeys([]string{" padded ", "plain"})
+	if err != nil {
+		t.Fatalf("normalizeAuthKeys: %v", err)
+	}
+	if keys[0] != "padded" || keys[1] != "plain" {
+		t.Errorf("got %+v", keys)
+	}
+
+	for _, bad := range [][]string{{""}, {"   "}, {"ok", ""}} {
+		if _, err := normalizeAuthKeys(bad); err == nil {
+			t.Errorf("normalizeAuthKeys(%q): expected error", bad)
+		}
+	}
+
+	if keys, err := normalizeAuthKeys(nil); err != nil || len(keys) != 0 {
+		t.Errorf("nil keys: got %+v, %v", keys, err)
+	}
+}
+
+func TestEnvOverrideAuthKeys(t *testing.T) {
+	t.Setenv("WHOIS_AUTH_KEYS", "k1, k2 ,,k3")
+	var cfg Config
+	overrideConfigWithEnv(&cfg)
+	if len(cfg.Auth.Keys) != 3 || cfg.Auth.Keys[0] != "k1" || cfg.Auth.Keys[1] != "k2" || cfg.Auth.Keys[2] != "k3" {
+		t.Errorf("auth.keys from env: %+v", cfg.Auth.Keys)
 	}
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"io"
 	"log/slog"
@@ -48,6 +49,58 @@ func withRequestID(next http.Handler) http.Handler {
 	})
 }
 
+// bearerPrefix is the Authorization header scheme prefix; the scheme name is
+// compared case-insensitively (RFC 9110 section 11.1).
+const bearerPrefix = "Bearer "
+
+// requestAuthorized reports whether the request presents a configured API
+// key as "Authorization: Bearer <key>" or "X-API-Key: <key>". Both headers
+// are checked, so a stale bearer token does not mask a valid X-API-Key.
+func requestAuthorized(r *http.Request) bool {
+	if auth := r.Header.Get("Authorization"); len(auth) > len(bearerPrefix) &&
+		strings.EqualFold(auth[:len(bearerPrefix)], bearerPrefix) &&
+		keyAllowed(auth[len(bearerPrefix):]) {
+		return true
+	}
+	return keyAllowed(r.Header.Get("X-API-Key"))
+}
+
+// keyAllowed reports whether key matches one of the configured API keys,
+// comparing in constant time so the comparison itself leaks nothing about the
+// configured keys. The empty key never matches: it is what a request with no
+// credentials presents.
+func keyAllowed(key string) bool {
+	if key == "" {
+		return false
+	}
+	allowed := false
+	for _, k := range config.AuthKeys {
+		if subtle.ConstantTimeCompare([]byte(key), []byte(k)) == 1 {
+			allowed = true
+		}
+	}
+	return allowed
+}
+
+// withAuth enforces API key authentication when auth.keys is configured
+// (empty keys leave the service open). Only /health and /ready are exempt so
+// liveness probes keep working; everything else — queries, /mcp, /metrics,
+// /info, /openapi.json — requires a key: an instance that enables auth is not
+// meant to be publicly enumerable at all.
+func withAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if len(config.AuthKeys) == 0 || r.URL.Path == "/health" || r.URL.Path == "/ready" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !requestAuthorized(r) {
+			utils.WriteUnauthorized(w)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // withCORS allows cross-origin browser access: every response carries
 // Access-Control-Allow-Origin and preflight OPTIONS requests are answered
 // directly.
@@ -57,7 +110,7 @@ func withCORS(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, X-Cache")
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Request-ID, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Request-ID, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -197,7 +250,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", config.Port),
-		Handler: withRequestID(withCORS(http.DefaultServeMux)),
+		Handler: withRequestID(withCORS(withAuth(http.DefaultServeMux))),
 		// WriteTimeout must exceed the upstream query timeout (WHOIS/RDAP
 		// each allow up to 10s), since the handler queries upstream
 		// synchronously before writing the response.

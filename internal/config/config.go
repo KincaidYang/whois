@@ -78,6 +78,10 @@ var (
 	// MCPLocalhostProtection enables DNS-rebinding protection on the /mcp
 	// endpoint. Defaults to false for reverse proxy deployments.
 	MCPLocalhostProtection bool
+	// AuthKeys is the list of accepted API keys. Empty leaves the service
+	// open; non-empty enables authentication on every endpoint except
+	// /health and /ready.
+	AuthKeys []string
 )
 
 // RequestTimeout bounds how long a single query may take, so a slow upstream
@@ -201,6 +205,32 @@ func load() {
 
 	// Set MCP endpoint options
 	MCPLocalhostProtection = config.MCP.LocalhostProtection
+
+	// Set API authentication keys
+	authKeys, err := normalizeAuthKeys(config.Auth.Keys)
+	if err != nil {
+		slog.Error("invalid configuration", "err", err)
+		os.Exit(1)
+	}
+	AuthKeys = authKeys
+	if len(AuthKeys) > 0 {
+		slog.Info("API key authentication enabled", "keys", len(AuthKeys))
+	}
+}
+
+// normalizeAuthKeys trims surrounding whitespace from the configured API keys
+// and rejects empty entries: a request with no credentials presents the empty
+// key, so an accidental "" in auth.keys would turn authentication on while
+// accepting every request.
+func normalizeAuthKeys(keys []string) ([]string, error) {
+	normalized := make([]string, len(keys))
+	for i, key := range keys {
+		normalized[i] = strings.TrimSpace(key)
+		if normalized[i] == "" {
+			return nil, fmt.Errorf("auth.keys must not contain empty keys")
+		}
+	}
+	return normalized, nil
 }
 
 // applyDefaults sets default values for configuration left unset
@@ -303,7 +333,7 @@ var legacyKeys = map[string]string{
 // groupKeys are the only keys allowed at the top level of the configuration.
 var groupKeys = map[string]bool{
 	"server": true, "log": true, "cache": true, "redis": true,
-	"proxy": true, "bootstrap": true, "mcp": true,
+	"proxy": true, "bootstrap": true, "mcp": true, "auth": true,
 }
 
 // detectLegacyKeys returns an error describing every pre-v0.9 key found in
@@ -461,6 +491,17 @@ func overrideConfigWithEnv(config *Config) {
 	}
 	if mcpProtection := os.Getenv("WHOIS_MCP_LOCALHOST_PROTECTION"); mcpProtection != "" {
 		config.MCP.LocalhostProtection = mcpProtection == "true" || mcpProtection == "1"
+	}
+
+	// Override API authentication keys (comma-separated)
+	if authKeys := os.Getenv("WHOIS_AUTH_KEYS"); authKeys != "" {
+		keys := []string{}
+		for _, key := range strings.Split(authKeys, ",") {
+			if key = strings.TrimSpace(key); key != "" {
+				keys = append(keys, key)
+			}
+		}
+		config.Auth.Keys = keys
 	}
 }
 

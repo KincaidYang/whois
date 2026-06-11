@@ -63,6 +63,14 @@ type Config struct {
 		// all fetching; the default config.yaml sets 86400 (24 hours).
 		Interval int `json:"interval" yaml:"interval"`
 	} `json:"bootstrap" yaml:"bootstrap"`
+	// Auth holds API authentication settings.
+	Auth struct {
+		// Keys is the list of accepted API keys. Empty (the default) leaves
+		// the service open; one or more keys protect every endpoint except
+		// /health and /ready, which stay open for liveness probes. Clients
+		// send a key as "Authorization: Bearer <key>" or "X-API-Key: <key>".
+		Keys []string `json:"keys" yaml:"keys"`
+	} `json:"auth" yaml:"auth"`
 	// MCP holds settings for the MCP Streamable HTTP endpoint (/mcp).
 	MCP struct {
 		// LocalhostProtection enables DNS-rebinding protection, which rejects
