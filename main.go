@@ -101,10 +101,10 @@ func withAuth(next http.Handler) http.Handler {
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, X-Cache")
+		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, X-Cache, ETag")
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Request-ID, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, If-None-Match, X-Request-ID, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -188,6 +188,14 @@ func serve(w http.ResponseWriter, r *http.Request, resource, want string) {
 	raw := r.URL.Query().Has("raw") && rawValue != "0" && rawValue != "false"
 
 	cacheKeyPrefix := handlers.CacheKeyPrefix
+
+	// GET responses are buffered so a 200 gets an ETag and an If-None-Match
+	// revalidation can be answered with 304 instead of the full body.
+	var cw *utils.ConditionalWriter
+	if r.Method == http.MethodGet {
+		cw = utils.NewConditionalWriter(w, r.Header.Get("If-None-Match"))
+		w = cw
+	}
 	sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
 	start := time.Now()
 
@@ -223,8 +231,13 @@ func serve(w http.ResponseWriter, r *http.Request, resource, want string) {
 		utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Invalid input. Please provide a valid domain, IP, or ASN.")
 	}
 
+	code := sw.code
+	if cw != nil {
+		code = cw.Finish()
+	}
+
 	elapsed := time.Since(start).Seconds()
-	metrics.HTTPRequestsTotal.WithLabelValues(resourceType, strconv.Itoa(sw.code)).Inc()
+	metrics.HTTPRequestsTotal.WithLabelValues(resourceType, strconv.Itoa(code)).Inc()
 	metrics.HTTPRequestDuration.WithLabelValues(resourceType).Observe(elapsed)
 }
 
