@@ -86,6 +86,9 @@
           },
           {
             "$ref": "#/components/parameters/raw"
+          },
+          {
+            "$ref": "#/components/parameters/ifNoneMatch"
           }
         ],
         "responses": {
@@ -112,6 +115,9 @@
                 }
               }
             }
+          },
+          "304": {
+            "$ref": "#/components/responses/NotModified"
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -148,6 +154,9 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/ifNoneMatch"
           }
         ],
         "responses": {
@@ -168,6 +177,9 @@
                 }
               }
             }
+          },
+          "304": {
+            "$ref": "#/components/responses/NotModified"
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -204,6 +216,9 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/ifNoneMatch"
           }
         ],
         "responses": {
@@ -224,6 +239,9 @@
                 }
               }
             }
+          },
+          "304": {
+            "$ref": "#/components/responses/NotModified"
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"
@@ -417,7 +435,10 @@
         "description": "Whether the response was served from the server-side cache (HIT) or fetched from the upstream registry (MISS).",
         "schema": {
           "type": "string",
-          "enum": ["HIT", "MISS"]
+          "enum": [
+            "HIT",
+            "MISS"
+          ]
         }
       },
       "Cache-Control": {
@@ -553,7 +574,11 @@
       "Problem": {
         "type": "object",
         "description": "RFC 9457 Problem Details. `type` and `title` are stable identifiers; `detail` is human-readable and may change between releases. See https://github.com/KincaidYang/whois/blob/main/docs/errors.md",
-        "required": ["type", "title", "status"],
+        "required": [
+          "type",
+          "title",
+          "status"
+        ],
         "properties": {
           "type": {
             "type": "string",
@@ -574,7 +599,11 @@
       "Domain": {
         "type": "object",
         "description": "Domain registration data; field names follow the RDAP domain object (RFC 9083 section 5.3). Dates are RFC 3339 UTC, or `YYYY-MM-DD` when the registry publishes only a date.",
-        "required": ["objectClassName", "status", "nameservers"],
+        "required": [
+          "objectClassName",
+          "status",
+          "nameservers"
+        ],
         "properties": {
           "objectClassName": {
             "type": "string",
@@ -636,7 +665,9 @@
       "SecureDNS": {
         "type": "object",
         "description": "DNSSEC information (RFC 9083 section 5.3).",
-        "required": ["delegationSigned"],
+        "required": [
+          "delegationSigned"
+        ],
         "properties": {
           "delegationSigned": {
             "type": "boolean"
@@ -652,7 +683,12 @@
       "DSData": {
         "type": "object",
         "description": "Delegation signer record.",
-        "required": ["keyTag", "algorithm", "digestType", "digest"],
+        "required": [
+          "keyTag",
+          "algorithm",
+          "digestType",
+          "digest"
+        ],
         "properties": {
           "keyTag": {
             "type": "integer"
@@ -671,7 +707,11 @@
       "IPNetwork": {
         "type": "object",
         "description": "IP network registration data; field names follow the RDAP ip network object (RFC 9083 section 5.4).",
-        "required": ["objectClassName", "handle", "status"],
+        "required": [
+          "objectClassName",
+          "handle",
+          "status"
+        ],
         "properties": {
           "objectClassName": {
             "type": "string",
@@ -721,7 +761,11 @@
       "Autnum": {
         "type": "object",
         "description": "Autonomous system registration data; field names follow the RDAP autnum object (RFC 9083 section 5.5).",
-        "required": ["objectClassName", "handle", "status"],
+        "required": [
+          "objectClassName",
+          "handle",
+          "status"
+        ],
         "properties": {
           "objectClassName": {
             "type": "string",
