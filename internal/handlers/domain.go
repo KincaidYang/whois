@@ -46,7 +46,8 @@ func finalizeDomainInfo(info *model.DomainInfo, domain string) {
 // whoisParsers is a map from top-level domain (TLD) to a function that can parse
 // the WHOIS response for that TLD into a DomainInfo structure.
 // Currently, it includes parsers for the following TLDs: cn, xn--fiqs8s, xn--fiqz9s,
-// hk, xn--j6w193g, tw, so, sb, sg, mo, ru, su, au, la, jp, eu, kr, xn--3e0b707e.
+// hk, xn--j6w193g, tw, so, sb, sg, mo, ru, su, au, la, jp, eu, xn--e1a4c,
+// xn--qxa6a, kr, xn--3e0b707e.
 // You can add parsers for other TLDs by adding them to this map.
 var whoisParsers = map[string]func(string, string) (model.DomainInfo, error){
 	"cn":           whois.ParseWhoisResponseCN,
@@ -65,6 +66,8 @@ var whoisParsers = map[string]func(string, string) (model.DomainInfo, error){
 	"la":           whois.ParseWhoisResponseLA,
 	"jp":           whois.ParseWhoisResponseJP,
 	"eu":           whois.ParseWhoisResponseEU,
+	"xn--e1a4c":    whois.ParseWhoisResponseEU,
+	"xn--qxa6a":    whois.ParseWhoisResponseEU,
 	"kr":           whois.ParseWhoisResponseKR,
 	"xn--3e0b707e": whois.ParseWhoisResponseKR,
 }
