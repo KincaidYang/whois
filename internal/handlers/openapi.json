@@ -3,7 +3,7 @@
   "info": {
     "title": "whois",
     "description": "WHOIS/RDAP query service. Returns registration data for domain names, IP networks (including CIDR prefixes) and autonomous system numbers as JSON aligned with the RDAP vocabulary (RFC 9083). Errors follow RFC 9457 Problem Details. API key authentication is disabled by default; when the operator configures `auth.keys`, every endpoint except /health and /ready requires a key sent as `Authorization: Bearer <key>` or `X-API-Key: <key>`.",
-    "version": "0.8.0",
+    "version": "0.9.0",
     "license": {
       "name": "MIT",
       "identifier": "MIT"

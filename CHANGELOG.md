@@ -10,6 +10,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Each breaking change is listed under a **Breaking** heading below. After
 > v1.0.0 the API and configuration format will remain stable.
 
+## [0.9.0] - 2026-06-11
+
+### Added
+- **Optional API key authentication.** A non-empty `auth.keys` list in the
+  configuration (or `WHOIS_AUTH_KEYS`, comma-separated) protects every
+  endpoint except `/health` and `/ready`. Keys are accepted as
+  `Authorization: Bearer <key>` or `X-API-Key: <key>` and compared in
+  constant time; failures return an RFC 9457 `401` problem response
+  (`#unauthorized`). Authentication is disabled by default.
+- **`ETag` and `If-None-Match` conditional requests.** Successful (200)
+  responses carry a strong `ETag`; revalidating with `If-None-Match` returns
+  `304 Not Modified` with no body. `/openapi.json` supports this too.
+- **WHOIS parsers for `.eu` and `.kr`.** EURid domains (`.eu`, `.ею`, `.ευ`)
+  and KISA domains (`.kr`, `.한국`) now return parsed fields instead of raw
+  WHOIS text. (EURid's port-43 service discloses no dates or status by
+  policy; registrar, nameservers and DNSSEC state are what exists.)
+- **`secureDNS.keyData`** (RFC 9083 §5.3) for registries that publish DNSKEY
+  material instead of DS records (e.g. DENIC).
+- Weekly dependabot updates for Go modules and GitHub Actions.
+
+### Fixed
+- RDAP: `registrarIanaId` is now taken only from public IDs typed
+  `IANA Registrar ID` — `.uk` responses previously returned Nominet's
+  registry identifier (`"NOMINET"`) as the IANA ID. Registrar entities are
+  also found when nested inside other entities.
+- RDAP: DNSSEC is no longer reported unsigned when the registry omits the
+  `delegationSigned` boolean but publishes `dsData`/`keyData` (DENIC, among
+  others); `dsData` is kept in that case too.
+- RDAP: trailing dots stripped from nameserver hostnames (DENIC and Nominet
+  return FQDNs like `ns1.denic.de.`).
+
 ## [0.8.0] - 2026-06-10
 
 ### Breaking
@@ -148,6 +179,7 @@ See the [release notes](https://github.com/KincaidYang/whois/releases/tag/v0.6.0
 See the [GitHub releases page](https://github.com/KincaidYang/whois/releases)
 for 0.5.x and earlier.
 
+[0.9.0]: https://github.com/KincaidYang/whois/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/KincaidYang/whois/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/KincaidYang/whois/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/KincaidYang/whois/compare/v0.5.4...v0.6.0
