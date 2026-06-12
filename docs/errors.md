@@ -41,8 +41,12 @@ config) and the request carried no valid key. Send a configured key as
 
 ## rate-limited
 
-**Status: 429.** The server's concurrent-request limit (`server.rateLimit` in
-config) was reached. Retry after a short delay.
+**Status: 429.** Either the server's concurrent-request limit
+(`server.rateLimit` in config) was reached, or the API key's per-key rate
+limit (`rateLimit` on the key's `auth.keys` entry, requests per minute) is
+exhausted. Per-key rejections carry a `Retry-After` response header with the
+number of seconds until the next request is allowed; concurrency rejections
+do not, and a short delay before retrying is enough.
 
 ## query-failed
 

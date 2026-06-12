@@ -112,6 +112,16 @@ func withAuth(next http.Handler) http.Handler {
 			metrics.ClientRequestsTotal.WithLabelValues("unauthenticated", "401").Inc()
 			return
 		}
+		if client.Limiter != nil {
+			reservation := client.Limiter.Reserve()
+			if delay := reservation.Delay(); delay > 0 {
+				reservation.Cancel()
+				slog.WarnContext(r.Context(), "per-key rate limit reached", "client", client.Name, "path", r.URL.Path)
+				utils.WriteRateLimitedAfter(w, delay)
+				metrics.ClientRequestsTotal.WithLabelValues(client.Name, "429").Inc()
+				return
+			}
+		}
 		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
 		next.ServeHTTP(sw, r.WithContext(utils.WithClient(r.Context(), client.Name)))
 		metrics.ClientRequestsTotal.WithLabelValues(client.Name, strconv.Itoa(sw.code)).Inc()
@@ -124,7 +134,7 @@ func withAuth(next http.Handler) http.Handler {
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, X-Cache, ETag")
+		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, X-Cache, ETag, Retry-After")
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, If-None-Match, X-Request-ID, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")

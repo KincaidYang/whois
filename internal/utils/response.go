@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
+	"time"
 )
 
 // ErrorType represents different types of errors
@@ -56,6 +59,20 @@ func WriteUnauthorized(w http.ResponseWriter) {
 func WriteRateLimited(w http.ResponseWriter) {
 	writeProblem(w, http.StatusTooManyRequests, "rate-limited",
 		"Too many concurrent requests", "")
+}
+
+// WriteRateLimitedAfter writes the 429 problem response used when a per-key
+// rate limit rejects a request, with a Retry-After header telling the client
+// when the next token becomes available (rounded up to whole seconds).
+func WriteRateLimitedAfter(w http.ResponseWriter, retryAfter time.Duration) {
+	seconds := int(math.Ceil(retryAfter.Seconds()))
+	if seconds < 1 {
+		seconds = 1
+	}
+	w.Header().Set("Retry-After", strconv.Itoa(seconds))
+	writeProblem(w, http.StatusTooManyRequests, "rate-limited",
+		"Rate limit exceeded",
+		"The API key's request budget is exhausted. Retry after the delay in the Retry-After header.")
 }
 
 // HandleQueryError handles common query errors with appropriate HTTP responses.

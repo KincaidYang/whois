@@ -550,7 +550,15 @@
         }
       },
       "RateLimited": {
-        "description": "The server's concurrent-request limit was reached; retry after a short delay.",
+        "description": "The server's concurrent-request limit was reached (retry after a short delay), or the API key's per-key rate limit is exhausted (per-key rejections carry a Retry-After header).",
+        "headers": {
+          "Retry-After": {
+            "description": "Seconds until the next request is allowed. Only present on per-key rate limit rejections.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
         "content": {
           "application/problem+json": {
             "schema": {

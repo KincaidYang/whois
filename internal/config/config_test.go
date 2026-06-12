@@ -123,8 +123,14 @@ func TestNormalizeAuthClients(t *testing.T) {
 	if clients[0] != (AuthClient{Key: "padded", Name: "key1"}) {
 		t.Errorf("auto-named client: %+v", clients[0])
 	}
-	if clients[1] != (AuthClient{Key: "plain", Name: "ci", RateLimit: 60}) {
+	if clients[1].Key != "plain" || clients[1].Name != "ci" || clients[1].RateLimit != 60 {
 		t.Errorf("named client: %+v", clients[1])
+	}
+	if clients[0].Limiter != nil {
+		t.Error("unlimited client should have no limiter")
+	}
+	if l := clients[1].Limiter; l == nil || l.Limit() != 1 || l.Burst() != 60 {
+		t.Errorf("limited client: limiter %+v, want rate 1/s burst 60", clients[1].Limiter)
 	}
 
 	for name, bad := range map[string][]AuthKeySpec{
