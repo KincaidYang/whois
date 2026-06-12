@@ -83,7 +83,29 @@ var (
 	// optional rate limit). Empty leaves the service open; non-empty enables
 	// authentication on every endpoint except /health and /ready.
 	AuthClients []AuthClient
+	// BatchEnabled turns on the POST /batch bulk-query endpoint and the MCP
+	// batch tool (default: false).
+	BatchEnabled bool
+	// BatchMaxItems caps how many queries one batch request may carry.
+	BatchMaxItems int
 )
+
+// authClientKey is the context key under which the authenticated client is
+// stored by the auth middleware, so handlers that charge more than one
+// rate-limit token per request (batch) can reach the client's limiter.
+type authClientKey struct{}
+
+// WithAuthClient returns a copy of ctx carrying the authenticated client.
+func WithAuthClient(ctx context.Context, client *AuthClient) context.Context {
+	return context.WithValue(ctx, authClientKey{}, client)
+}
+
+// AuthClientFromContext returns the authenticated client stored in ctx, or
+// nil on instances without authentication enabled.
+func AuthClientFromContext(ctx context.Context) *AuthClient {
+	client, _ := ctx.Value(authClientKey{}).(*AuthClient)
+	return client
+}
 
 // AuthClient is the runtime form of one auth.keys entry: the secret itself
 // plus the name used to label the caller in logs and metrics.
@@ -221,6 +243,10 @@ func load() {
 	// Set MCP endpoint options
 	MCPLocalhostProtection = config.MCP.LocalhostProtection
 
+	// Set batch endpoint options
+	BatchEnabled = config.Batch.Enabled
+	BatchMaxItems = config.Batch.MaxItems
+
 	// Set API authentication clients
 	authClients, err := normalizeAuthClients(config.Auth.Keys)
 	if err != nil {
@@ -314,6 +340,11 @@ func applyDefaults(config *Config) {
 	if config.Server.RateLimit == 0 {
 		config.Server.RateLimit = 100
 	}
+
+	// Default batch size cap: 10 queries per request
+	if config.Batch.MaxItems == 0 {
+		config.Batch.MaxItems = 10
+	}
 }
 
 // initializeCacheManager sets up the cache with Redis primary and memory fallback
@@ -383,6 +414,7 @@ var legacyKeys = map[string]string{
 var groupKeys = map[string]bool{
 	"server": true, "log": true, "cache": true, "redis": true,
 	"proxy": true, "bootstrap": true, "mcp": true, "auth": true,
+	"batch": true,
 }
 
 // detectLegacyKeys returns an error describing every pre-v0.9 key found in
@@ -540,6 +572,16 @@ func overrideConfigWithEnv(config *Config) {
 	}
 	if proxySuffixes := os.Getenv("WHOIS_PROXY_SUFFIXES"); proxySuffixes != "" {
 		config.Proxy.Suffixes = strings.Split(proxySuffixes, ",")
+	}
+
+	// Override batch configuration
+	if batchEnabled := os.Getenv("WHOIS_BATCH_ENABLED"); batchEnabled != "" {
+		config.Batch.Enabled = batchEnabled == "true" || batchEnabled == "1"
+	}
+	if batchMaxItems := os.Getenv("WHOIS_BATCH_MAX_ITEMS"); batchMaxItems != "" {
+		if maxItems, err := strconv.Atoi(batchMaxItems); err == nil {
+			config.Batch.MaxItems = maxItems
+		}
 	}
 
 	if logLevel := os.Getenv("WHOIS_LOG_LEVEL"); logLevel != "" {
