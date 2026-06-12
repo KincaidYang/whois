@@ -82,6 +82,16 @@ bootstrap:
 
 auth:
   keys: []                     # Accepted API keys. Empty (the default) leaves the service open; one or more keys protect every endpoint except /health and /ready. Clients send a key as "Authorization: Bearer <key>" or "X-API-Key: <key>"
+  # Entries are bare strings or objects (named, optionally rate-limited):
+  # keys:
+  #   - "plain-secret"         # anonymous key, auto-named key1/key2/...
+  #   - key: "another-secret"
+  #     name: "ci"             # display name: appears in the log "client" field and Prometheus metrics
+  #     rateLimit: 120         # per-key rate limit (requests/minute); 0 or omitted = unlimited
+
+batch:
+  enabled: false               # POST /batch bulk-query endpoint (and the MCP batch tool); off by default, best enabled together with auth.keys
+  maxItems: 10                 # maximum queries per batch request
 
 mcp:
   localhostProtection: false   # DNS-rebinding protection for /mcp: only accept requests whose Host header is localhost. Keep false behind a reverse proxy; set true for direct localhost deployments
@@ -111,7 +121,9 @@ Every configuration option can be overridden via environment variables (which ta
 | `WHOIS_PROXY_PASSWORD` | `proxy.password` | empty | Proxy password |
 | `WHOIS_PROXY_SUFFIXES` | `proxy.suffixes` | empty | TLDs queried through the proxy, **comma-separated** (`all` proxies everything) |
 | `WHOIS_BOOTSTRAP_INTERVAL` | `bootstrap.interval` | `0` (disabled) | IANA RDAP list refresh interval in seconds; the sample config ships 86400 |
-| `WHOIS_AUTH_KEYS` | `auth.keys` | empty | API keys, **comma-separated** |
+| `WHOIS_AUTH_KEYS` | `auth.keys` | empty | API keys, **comma-separated** (bare keys only; naming / per-key limits need the config file) |
+| `WHOIS_BATCH_ENABLED` | `batch.enabled` | `false` | `true`/`1` enables the bulk-query endpoint |
+| `WHOIS_BATCH_MAX_ITEMS` | `batch.maxItems` | `10` | Maximum queries per batch request |
 | `WHOIS_MCP_LOCALHOST_PROTECTION` | `mcp.localhostProtection` | `false` | `true`/`1` enables DNS-rebinding protection for /mcp |
 
 Boolean variables accept only `true` and `1`; anything else is treated as `false`. Numeric variables that fail to parse are silently ignored, leaving the config-file/default value in place.
@@ -136,8 +148,10 @@ docker run -d --name whois -p 8043:8043 \
 - **Log Level**: `debug` logs every cache hit and upstream query dispatch — noisy under load; `info` is recommended for production
 - **Bootstrap Interval**: On startup the service immediately fetches the latest RDAP server list from IANA, then refreshes on this interval; compiled-in data serves as fallback if the fetch fails
 - **API Authentication**: Disabled by default. Configuring `auth.keys` enables it; requests without a valid key get a 401 (RFC 9457 problem+json). Only `/health` and `/ready` are exempt so liveness/readiness probes keep working
+- **Key naming and per-key rate limits**: The object form of `auth.keys` gives each key a display name and a rate limit. The name labels the caller in the request logs (`client` field) and in the `whois_client_requests_total{client,status_code}` Prometheus metric; the limit is a token bucket (requests/minute, **a full minute's budget may be spent at once**) answering over-budget requests with 429 + `Retry-After`. Batches are charged per item: a batch of N queries costs N tokens
+- **Batch queries**: Off by default. Best enabled together with `auth.keys` — an open instance offering bulk queries multiplies how fast it can be abused against upstream registries
 
-> ⚠️ **Warning:** The rate limit applies to requests from this program to WHOIS servers, not requests from users to this program. For example, if you set the limit to 50, the program will not exceed 50 requests/second to registry WHOIS servers, but user requests to this program are unlimited. Please use Nginx or other tools to rate-limit this program to prevent malicious requests.
+> ⚠️ **Warning:** The rate limit applies to requests from this program to WHOIS servers, not requests from users to this program. For example, if you set the limit to 50, the program will not exceed 50 requests/second to registry WHOIS servers, but user requests to this program are unlimited. Please use Nginx or other tools to rate-limit this program, or configure a per-key `rateLimit`, to prevent malicious requests.
 
 ### Run
 
@@ -159,6 +173,7 @@ The service provides the following health check endpoints:
 | `GET /metrics` | Prometheus metrics - request count, latency, cache hit rate, upstream query duration |
 | `GET /openapi.json` | OpenAPI 3.1 specification - machine-readable description of all endpoints and response schemas |
 | `POST /mcp` | MCP Streamable HTTP endpoint - for AI assistant integration |
+| `POST /batch` | Bulk queries - multiple domains/IPs/ASNs in one request (off by default, see `batch.enabled`) |
 
 ### Process Daemon (Optional)
 
@@ -216,7 +231,7 @@ An OpenAPI 3.1 description of the service is available at `/openapi.json`, cover
 
 #### Caching and CORS
 
-- Successful responses carry `X-Cache: HIT/MISS` indicating whether the server cache was hit, plus `Cache-Control: public, max-age=<cache seconds>` for client/CDN caching.
+- Successful responses carry an `X-Cache` header describing the cache outcome: `HIT` (served from the server cache), `MISS` (fetched upstream), or `REFRESH` (forced upstream by `?refresh`), plus `Cache-Control: public, max-age=<cache seconds>` for client/CDN caching.
 - Successful (200) responses carry a strong `ETag`; send it back as `If-None-Match: <etag>` for conditional revalidation — unchanged content is answered with `304 Not Modified` and no body. `/openapi.json` supports this too.
 - Every response carries `Access-Control-Allow-Origin: *`, so the API can be called cross-origin from browser frontends directly.
 
@@ -271,6 +286,37 @@ Add `?raw=1` to get the unparsed WHOIS response as `text/plain`. Raw output is o
 ```bash
 curl "http://localhost:8043/example.com?raw=1"
 ```
+
+#### Force a Cache Refresh
+
+Add `?refresh=1` to bypass the server cache, query the registry directly and overwrite the cached entry with the result (the response carries `X-Cache: REFRESH`) — useful right after a domain transfer or renewal. **Only available on instances with API key authentication enabled**: open instances answer 403 (`refresh-requires-auth`), since otherwise anyone could use it to hammer upstream registries through the cache. Can be combined with `?raw`.
+
+```bash
+curl -H "X-API-Key: your-secret-key" "http://localhost:8043/example.com?refresh=1"
+```
+
+#### Batch Queries
+
+`POST /batch` answers several queries in one request (domains, IPs/CIDR prefixes and ASNs freely mixed; types are auto-detected). Off by default — enable with `batch.enabled: true`; the per-request cap is `batch.maxItems` (default 10).
+
+```bash
+curl -X POST -H "X-API-Key: your-secret-key" -H "Content-Type: application/json" \
+  -d '{"queries": ["example.com", "8.8.8.8", "AS15169"]}' \
+  http://localhost:8043/batch
+```
+
+The response is always 200 with per-item statuses: successful items carry the regular response object in `data`, failed items a problem+json object in `error`:
+
+```json
+{
+  "results": [
+    {"query": "example.com", "status": 200, "data": {"objectClassName": "domain", "ldhName": "example.com"}},
+    {"query": "nx.invalid", "status": 404, "error": {"type": "...#not-found", "title": "Resource not found", "status": 404}}
+  ]
+}
+```
+
+With per-key rate limits configured, a batch of N queries is charged as N requests, so batching cannot bypass the limit. Duplicate queries within a batch collapse into a single upstream request.
 
 #### Request Tracing
 
@@ -380,6 +426,15 @@ The service exposes an [MCP (Model Context Protocol)](https://modelcontextprotoc
 ```
 
 Accepts a domain name, IPv4/v6 address or CIDR prefix, or ASN (e.g. `AS12345`). Returns the same JSON as the REST API.
+
+**Tool:** `whois_batch_lookup` (requires `batch.enabled`)
+
+**Input:**
+```json
+{ "queries": ["example.com", "8.8.8.8", "AS15169"] }
+```
+
+Returns per-query results, matching the behavior of `POST /batch` (subject to the same `batch.maxItems` cap and per-key rate limiting).
 
 **MCP server URL:** `http://ip:port/mcp`
 
