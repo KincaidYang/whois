@@ -10,6 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Each breaking change is listed under a **Breaking** heading below. After
 > v1.0.0 the API and configuration format will remain stable.
 
+## [Unreleased]
+
+### Fixed
+- IANA RDAP bootstrap fetches are now capped at 2 MiB, matching the limit
+  already applied to WHOIS/RDAP upstream reads; an oversized response is
+  rejected instead of read without bound.
+- Negative values in numeric configuration settings (`server.port`,
+  `server.rateLimit`, `cache.expiration`, `cache.memoryMaxSize`,
+  `cache.memoryCleanInterval`, `bootstrap.interval`, `batch.maxItems`) are
+  now rejected at startup with a clear error naming the offending key,
+  instead of crashing later or silently misbehaving
+  (`cache.negativeExpiration` keeps its documented negative "disable"
+  semantics).
+
 ## [0.10.0] - 2026-06-12
 
 ### Added

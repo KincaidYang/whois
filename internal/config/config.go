@@ -184,6 +184,12 @@ func load() {
 	// Apply default values for anything left unset
 	applyDefaults(&config)
 
+	// Reject negative values that would otherwise fail far from their cause
+	if err := validateConfig(&config); err != nil {
+		slog.Error("invalid configuration", "err", err)
+		os.Exit(1)
+	}
+
 	// Initialize the Redis client with custom options
 	options := &redis.Options{
 		Addr:            config.Redis.Addr,
@@ -345,6 +351,33 @@ func applyDefaults(config *Config) {
 	if config.Batch.MaxItems == 0 {
 		config.Batch.MaxItems = 10
 	}
+}
+
+// validateConfig rejects negative values in numeric settings after defaults
+// are applied: each would otherwise fail far from its cause (a negative
+// server.rateLimit panics creating the concurrency limiter, a negative
+// cache.memoryCleanInterval panics the memory cache's cleanup ticker, a
+// negative batch.maxItems rejects every batch request). cache.negativeExpiration
+// is exempt: negative is its documented "disable" value.
+func validateConfig(config *Config) error {
+	checks := []struct {
+		name  string
+		value int
+	}{
+		{"server.port", config.Server.Port},
+		{"server.rateLimit", config.Server.RateLimit},
+		{"cache.expiration", config.Cache.Expiration},
+		{"cache.memoryMaxSize", config.Cache.MemoryMaxSize},
+		{"cache.memoryCleanInterval", config.Cache.MemoryCleanInterval},
+		{"bootstrap.interval", config.Bootstrap.Interval},
+		{"batch.maxItems", config.Batch.MaxItems},
+	}
+	for _, c := range checks {
+		if c.value < 0 {
+			return fmt.Errorf("%s must not be negative (got %d)", c.name, c.value)
+		}
+	}
+	return nil
 }
 
 // initializeCacheManager sets up the cache with Redis primary and memory fallback
