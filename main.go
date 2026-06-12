@@ -34,6 +34,13 @@ func (sw *statusWriter) WriteHeader(code int) {
 	sw.ResponseWriter.WriteHeader(code)
 }
 
+// Unwrap exposes the underlying writer to http.ResponseController, so
+// optional interfaces like http.Flusher keep working through the wrapper —
+// the MCP endpoint's SSE stream needs Flush to deliver its initial response.
+func (sw *statusWriter) Unwrap() http.ResponseWriter {
+	return sw.ResponseWriter
+}
+
 // withRequestID attaches a request ID to every request: an inbound
 // X-Request-ID header is reused when it passes validation, otherwise a fresh
 // ID is generated. The ID is echoed on the response and stored in the request

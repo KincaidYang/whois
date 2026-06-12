@@ -177,6 +177,26 @@ func TestAuthClientInContext(t *testing.T) {
 	}
 }
 
+// TestAuthStatusWriterFlush verifies http.ResponseController can reach the
+// underlying writer's Flush through the metrics statusWriter wrapper — the
+// MCP endpoint's SSE stream relies on it to deliver the initial response.
+func TestAuthStatusWriterFlush(t *testing.T) {
+	withTestAuthKeys(t, "test-key-1")
+
+	var flushErr error
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flushErr = http.NewResponseController(w).Flush()
+	})
+
+	req := httptest.NewRequest("GET", "/mcp", nil)
+	req.Header.Set("X-API-Key", "test-key-1")
+	withAuth(inner).ServeHTTP(httptest.NewRecorder(), req)
+
+	if flushErr != nil {
+		t.Errorf("Flush through statusWriter: %v", flushErr)
+	}
+}
+
 // TestAuthPreflightExempt verifies CORS preflight requests are answered
 // before authentication, so browsers can complete preflight without a key.
 func TestAuthPreflightExempt(t *testing.T) {
