@@ -78,11 +78,20 @@ var (
 	// MCPLocalhostProtection enables DNS-rebinding protection on the /mcp
 	// endpoint. Defaults to false for reverse proxy deployments.
 	MCPLocalhostProtection bool
-	// AuthKeys is the list of accepted API keys. Empty leaves the service
-	// open; non-empty enables authentication on every endpoint except
-	// /health and /ready.
-	AuthKeys []string
+	// AuthClients is the list of accepted API clients (key + display name +
+	// optional rate limit). Empty leaves the service open; non-empty enables
+	// authentication on every endpoint except /health and /ready.
+	AuthClients []AuthClient
 )
+
+// AuthClient is the runtime form of one auth.keys entry: the secret itself
+// plus the name used to label the caller in logs and metrics.
+type AuthClient struct {
+	Key  string
+	Name string
+	// RateLimit is the per-key budget in requests per minute; 0 = unlimited.
+	RateLimit int
+}
 
 // RequestTimeout bounds how long a single query may take, so a slow upstream
 // WHOIS/RDAP server cannot hold a concurrency slot indefinitely. It must stay
@@ -206,31 +215,62 @@ func load() {
 	// Set MCP endpoint options
 	MCPLocalhostProtection = config.MCP.LocalhostProtection
 
-	// Set API authentication keys
-	authKeys, err := normalizeAuthKeys(config.Auth.Keys)
+	// Set API authentication clients
+	authClients, err := normalizeAuthClients(config.Auth.Keys)
 	if err != nil {
 		slog.Error("invalid configuration", "err", err)
 		os.Exit(1)
 	}
-	AuthKeys = authKeys
-	if len(AuthKeys) > 0 {
-		slog.Info("API key authentication enabled", "keys", len(AuthKeys))
+	AuthClients = authClients
+	if len(AuthClients) > 0 {
+		names := make([]string, len(AuthClients))
+		for i, c := range AuthClients {
+			names[i] = c.Name
+		}
+		slog.Info("API key authentication enabled", "clients", names)
 	}
 }
 
-// normalizeAuthKeys trims surrounding whitespace from the configured API keys
-// and rejects empty entries: a request with no credentials presents the empty
-// key, so an accidental "" in auth.keys would turn authentication on while
-// accepting every request.
-func normalizeAuthKeys(keys []string) ([]string, error) {
-	normalized := make([]string, len(keys))
-	for i, key := range keys {
-		normalized[i] = strings.TrimSpace(key)
-		if normalized[i] == "" {
+// normalizeAuthClients turns the configured auth.keys entries into runtime
+// clients. Keys are trimmed and must be non-empty: a request with no
+// credentials presents the empty key, so an accidental "" in auth.keys would
+// turn authentication on while accepting every request. Names default to
+// key1, key2, … by position; they end up in logs and Prometheus label values,
+// so they are held to the same charset/length rule as request IDs. Duplicate
+// keys or names are rejected — duplicate keys would make the matched client
+// ambiguous, duplicate names would silently merge two callers' metrics.
+func normalizeAuthClients(specs []AuthKeySpec) ([]AuthClient, error) {
+	clients := make([]AuthClient, len(specs))
+	seenKeys := make(map[string]bool, len(specs))
+	seenNames := make(map[string]bool, len(specs))
+	for i, spec := range specs {
+		key := strings.TrimSpace(spec.Key)
+		if key == "" {
 			return nil, fmt.Errorf("auth.keys must not contain empty keys")
 		}
+		if seenKeys[key] {
+			return nil, fmt.Errorf("auth.keys entry %d: duplicate key", i+1)
+		}
+		seenKeys[key] = true
+
+		name := strings.TrimSpace(spec.Name)
+		if name == "" {
+			name = fmt.Sprintf("key%d", i+1)
+		} else if !utils.IsValidRequestID(name) {
+			return nil, fmt.Errorf("auth.keys entry %d: name %q must be 1-64 characters of [A-Za-z0-9._-]", i+1, spec.Name)
+		}
+		if seenNames[name] {
+			return nil, fmt.Errorf("auth.keys entry %d: duplicate name %q", i+1, name)
+		}
+		seenNames[name] = true
+
+		if spec.RateLimit < 0 {
+			return nil, fmt.Errorf("auth.keys entry %d (%s): rateLimit must not be negative", i+1, name)
+		}
+
+		clients[i] = AuthClient{Key: key, Name: name, RateLimit: spec.RateLimit}
 	}
-	return normalized, nil
+	return clients, nil
 }
 
 // applyDefaults sets default values for configuration left unset
@@ -500,12 +540,13 @@ func overrideConfigWithEnv(config *Config) {
 		config.MCP.LocalhostProtection = mcpProtection == "true" || mcpProtection == "1"
 	}
 
-	// Override API authentication keys (comma-separated)
+	// Override API authentication keys (comma-separated bare keys; the
+	// name/rateLimit object form is config-file only)
 	if authKeys := os.Getenv("WHOIS_AUTH_KEYS"); authKeys != "" {
-		keys := []string{}
+		keys := []AuthKeySpec{}
 		for _, key := range strings.Split(authKeys, ",") {
 			if key = strings.TrimSpace(key); key != "" {
-				keys = append(keys, key)
+				keys = append(keys, AuthKeySpec{Key: key})
 			}
 		}
 		config.Auth.Keys = keys

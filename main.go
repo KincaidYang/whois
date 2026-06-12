@@ -53,33 +53,35 @@ func withRequestID(next http.Handler) http.Handler {
 // compared case-insensitively (RFC 9110 section 11.1).
 const bearerPrefix = "Bearer "
 
-// requestAuthorized reports whether the request presents a configured API
-// key as "Authorization: Bearer <key>" or "X-API-Key: <key>". Both headers
-// are checked, so a stale bearer token does not mask a valid X-API-Key.
-func requestAuthorized(r *http.Request) bool {
+// requestClient returns the configured client whose API key the request
+// presents as "Authorization: Bearer <key>" or "X-API-Key: <key>", or nil.
+// Both headers are checked, so a stale bearer token does not mask a valid
+// X-API-Key.
+func requestClient(r *http.Request) *config.AuthClient {
 	if auth := r.Header.Get("Authorization"); len(auth) > len(bearerPrefix) &&
-		strings.EqualFold(auth[:len(bearerPrefix)], bearerPrefix) &&
-		keyAllowed(auth[len(bearerPrefix):]) {
-		return true
-	}
-	return keyAllowed(r.Header.Get("X-API-Key"))
-}
-
-// keyAllowed reports whether key matches one of the configured API keys,
-// comparing in constant time so the comparison itself leaks nothing about the
-// configured keys. The empty key never matches: it is what a request with no
-// credentials presents.
-func keyAllowed(key string) bool {
-	if key == "" {
-		return false
-	}
-	allowed := false
-	for _, k := range config.AuthKeys {
-		if subtle.ConstantTimeCompare([]byte(key), []byte(k)) == 1 {
-			allowed = true
+		strings.EqualFold(auth[:len(bearerPrefix)], bearerPrefix) {
+		if client := clientForKey(auth[len(bearerPrefix):]); client != nil {
+			return client
 		}
 	}
-	return allowed
+	return clientForKey(r.Header.Get("X-API-Key"))
+}
+
+// clientForKey returns the configured client whose key matches, comparing
+// every entry in constant time so the comparison itself leaks nothing about
+// the configured keys. The empty key never matches: it is what a request with
+// no credentials presents.
+func clientForKey(key string) *config.AuthClient {
+	if key == "" {
+		return nil
+	}
+	var matched *config.AuthClient
+	for i := range config.AuthClients {
+		if subtle.ConstantTimeCompare([]byte(key), []byte(config.AuthClients[i].Key)) == 1 {
+			matched = &config.AuthClients[i]
+		}
+	}
+	return matched
 }
 
 // withAuth enforces API key authentication when auth.keys is configured
@@ -87,17 +89,25 @@ func keyAllowed(key string) bool {
 // liveness probes keep working; everything else — queries, /mcp, /metrics,
 // /info, /openapi.json — requires a key: an instance that enables auth is not
 // meant to be publicly enumerable at all.
+//
+// Authenticated requests carry the client name in the request context, so
+// request-path logs name the caller, and are counted per client in
+// whois_client_requests_total.
 func withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(config.AuthKeys) == 0 || r.URL.Path == "/health" || r.URL.Path == "/ready" {
+		if len(config.AuthClients) == 0 || r.URL.Path == "/health" || r.URL.Path == "/ready" {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !requestAuthorized(r) {
+		client := requestClient(r)
+		if client == nil {
 			utils.WriteUnauthorized(w)
+			metrics.ClientRequestsTotal.WithLabelValues("unauthenticated", "401").Inc()
 			return
 		}
-		next.ServeHTTP(w, r)
+		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+		next.ServeHTTP(sw, r.WithContext(utils.WithClient(r.Context(), client.Name)))
+		metrics.ClientRequestsTotal.WithLabelValues(client.Name, strconv.Itoa(sw.code)).Inc()
 	})
 }
 
