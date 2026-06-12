@@ -77,7 +77,44 @@ mcp:
   localhostProtection: false   # /mcp 端点的 DNS rebinding 保护：开启后只接受 Host 为 localhost 的请求。反向代理部署保持 false；本机直连部署建议设为 true
 ```
 
-部分配置项可通过环境变量覆盖（优先级高于配置文件），如 `WHOIS_REDIS_ADDR`、`WHOIS_REDIS_TLS`、`WHOIS_PORT`、`WHOIS_RATE_LIMIT`、`WHOIS_CACHE_EXPIRATION`、`WHOIS_NEGATIVE_CACHE_EXPIRATION`、`WHOIS_LOG_LEVEL`、`WHOIS_MCP_LOCALHOST_PROTECTION`、`WHOIS_AUTH_KEYS`（逗号分隔）等。
+### 环境变量
+
+所有配置项均可通过环境变量覆盖（优先级高于配置文件），适合 Docker/Kubernetes 等不便挂载配置文件的部署方式：
+
+| 环境变量 | 对应配置项 | 默认值 | 说明 |
+|---------|-----------|--------|------|
+| `WHOIS_PORT` | `server.port` | `8043` | 服务监听端口 |
+| `WHOIS_RATE_LIMIT` | `server.rateLimit` | `100` | 最大并发请求数 |
+| `WHOIS_LOG_LEVEL` | `log.level` | `info` | 日志级别：debug、info、warn、error |
+| `WHOIS_CACHE_EXPIRATION` | `cache.expiration` | `3600` | 缓存过期时间（秒） |
+| `WHOIS_NEGATIVE_CACHE_EXPIRATION` | `cache.negativeExpiration` | `60` | 负向缓存时间（秒），负数禁用 |
+| `WHOIS_REQUIRE_REDIS` | `cache.requireRedis` | `false` | `true`/`1` 时 Redis 不可用则启动失败 |
+| `WHOIS_MEMORY_MAX_SIZE` | `cache.memoryMaxSize` | `10000` | 内存缓存最大条目数 |
+| `WHOIS_MEMORY_CLEAN_INTERVAL` | `cache.memoryCleanInterval` | `300` | 内存缓存清理间隔（秒） |
+| `WHOIS_REDIS_ADDR` | `redis.addr` | 空 | Redis 地址；不可用时自动降级到内存缓存（除非开启 requireRedis） |
+| `WHOIS_REDIS_PASSWORD` | `redis.password` | 空 | Redis 密码 |
+| `WHOIS_REDIS_DB` | `redis.db` | `0` | Redis 数据库编号 |
+| `WHOIS_REDIS_TLS` | `redis.tls` | `false` | `true`/`1` 启用 Redis TLS |
+| `WHOIS_REDIS_TLS_SKIP_VERIFY` | `redis.tlsSkipVerify` | `false` | `true`/`1` 跳过证书校验（不推荐） |
+| `WHOIS_PROXY_SERVER` | `proxy.server` | 空 | 代理服务器地址，空则不使用代理 |
+| `WHOIS_PROXY_USERNAME` | `proxy.username` | 空 | 代理用户名 |
+| `WHOIS_PROXY_PASSWORD` | `proxy.password` | 空 | 代理密码 |
+| `WHOIS_PROXY_SUFFIXES` | `proxy.suffixes` | 空 | 走代理的 TLD 列表，**逗号分隔**（`all` 表示全部） |
+| `WHOIS_BOOTSTRAP_INTERVAL` | `bootstrap.interval` | `0`（禁用） | IANA RDAP 列表刷新间隔（秒）；配置文件示例为 86400 |
+| `WHOIS_AUTH_KEYS` | `auth.keys` | 空 | API 密钥，**逗号分隔** |
+| `WHOIS_MCP_LOCALHOST_PROTECTION` | `mcp.localhostProtection` | `false` | `true`/`1` 启用 /mcp 的 DNS rebinding 保护 |
+
+布尔型变量只认 `true` 和 `1`，其余值视为 `false`。数值型变量解析失败时静默忽略并沿用配置文件/默认值。
+
+纯环境变量部署示例（不挂载配置文件）：
+
+```bash
+docker run -d --name whois -p 8043:8043 \
+  -e WHOIS_REDIS_ADDR=redis:6379 \
+  -e WHOIS_BOOTSTRAP_INTERVAL=86400 \
+  -e WHOIS_AUTH_KEYS=secret1,secret2 \
+  --link redis:redis jinzeyang/whois
+```
 
 **配置说明：**
 - **Redis配置**：建议使用Redis以获得更好的性能和多实例缓存共享能力

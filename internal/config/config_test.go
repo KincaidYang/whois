@@ -97,6 +97,23 @@ func TestEnvOverrideAuthKeys(t *testing.T) {
 	}
 }
 
+func TestEnvOverrideBootstrapInterval(t *testing.T) {
+	t.Setenv("WHOIS_BOOTSTRAP_INTERVAL", "3600")
+	var cfg Config
+	overrideConfigWithEnv(&cfg)
+	if cfg.Bootstrap.Interval != 3600 {
+		t.Errorf("bootstrap.interval from env: %d, want 3600", cfg.Bootstrap.Interval)
+	}
+
+	t.Setenv("WHOIS_BOOTSTRAP_INTERVAL", "not-a-number")
+	cfg = Config{}
+	cfg.Bootstrap.Interval = 86400
+	overrideConfigWithEnv(&cfg)
+	if cfg.Bootstrap.Interval != 86400 {
+		t.Errorf("invalid env should keep existing value: %d, want 86400", cfg.Bootstrap.Interval)
+	}
+}
+
 func TestParseConfigJSON(t *testing.T) {
 	cfg, err := parseConfig([]byte(`{"server": {"port": 8080}, "log": {"level": "warn"}}`), ".json")
 	if err != nil {
