@@ -51,6 +51,9 @@ func TestPerKeyRateLimitExceeded(t *testing.T) {
 	if err != nil || retryAfter < 1 {
 		t.Errorf("Retry-After: got %q, want an integer >= 1", w.Header().Get("Retry-After"))
 	}
+	if got := w.Header().Get("Access-Control-Expose-Headers"); !strings.Contains(got, "Retry-After") {
+		t.Errorf("Access-Control-Expose-Headers missing Retry-After (browsers could not read the delay): %q", got)
+	}
 }
 
 // TestPerKeyRateLimitUnlimited verifies keys without a rateLimit are not
