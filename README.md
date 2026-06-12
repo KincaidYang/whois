@@ -72,6 +72,16 @@ bootstrap:
 
 auth:
   keys: []                     # API 密钥列表。留空（默认）则服务完全开放；配置一个或多个密钥后，除 /health 和 /ready 外的所有端点都需要认证，请求时通过 "Authorization: Bearer <key>" 或 "X-API-Key: <key>" 携带密钥
+  # 列表项支持纯字符串，也支持对象形式（可命名、可按 key 限流）：
+  # keys:
+  #   - "plain-secret"         # 匿名 key，自动命名 key1/key2/…
+  #   - key: "another-secret"
+  #     name: "ci"             # 显示名：出现在日志 client 字段和 Prometheus 指标中
+  #     rateLimit: 120         # 该 key 的速率限制（次/分钟）；0 或缺省=不限
+
+batch:
+  enabled: false               # POST /batch 批量查询端点（含 MCP 批量 tool），默认关闭；建议与 auth.keys 一起开启
+  maxItems: 10                 # 单批最多查询条数
 
 mcp:
   localhostProtection: false   # /mcp 端点的 DNS rebinding 保护：开启后只接受 Host 为 localhost 的请求。反向代理部署保持 false；本机直连部署建议设为 true
@@ -101,7 +111,9 @@ mcp:
 | `WHOIS_PROXY_PASSWORD` | `proxy.password` | 空 | 代理密码 |
 | `WHOIS_PROXY_SUFFIXES` | `proxy.suffixes` | 空 | 走代理的 TLD 列表，**逗号分隔**（`all` 表示全部） |
 | `WHOIS_BOOTSTRAP_INTERVAL` | `bootstrap.interval` | `0`（禁用） | IANA RDAP 列表刷新间隔（秒）；配置文件示例为 86400 |
-| `WHOIS_AUTH_KEYS` | `auth.keys` | 空 | API 密钥，**逗号分隔** |
+| `WHOIS_AUTH_KEYS` | `auth.keys` | 空 | API 密钥，**逗号分隔**（仅纯 key 形式；命名/按 key 限流需配置文件） |
+| `WHOIS_BATCH_ENABLED` | `batch.enabled` | `false` | `true`/`1` 开启批量查询端点 |
+| `WHOIS_BATCH_MAX_ITEMS` | `batch.maxItems` | `10` | 单批最多查询条数 |
 | `WHOIS_MCP_LOCALHOST_PROTECTION` | `mcp.localhostProtection` | `false` | `true`/`1` 启用 /mcp 的 DNS rebinding 保护 |
 
 布尔型变量只认 `true` 和 `1`，其余值视为 `false`。数值型变量解析失败时静默忽略并沿用配置文件/默认值。
@@ -126,9 +138,11 @@ docker run -d --name whois -p 8043:8043 \
 - **日志级别**：`debug` 会输出每次缓存命中和上游查询，流量大时噪声较高；生产环境建议保持 `info`
 - **RDAP 刷新间隔**：服务启动时会立即从 IANA 拉取最新 RDAP 服务器列表，之后按此间隔定期刷新；编译进二进制的数据作为拉取失败时的兜底
 - **API 认证**：默认关闭。配置 `auth.keys` 后即启用，未携带有效密钥的请求返回 401（RFC 9457 problem+json）；仅 `/health` 和 `/ready` 豁免，便于存活/就绪探针工作
+- **key 命名与按 key 限流**：`auth.keys` 的对象形式可为每个 key 设置显示名和速率限制。显示名出现在请求日志的 `client` 字段和 Prometheus 指标 `whois_client_requests_total{client,status_code}` 中，便于区分调用方；速率限制为 token bucket（次/分钟，**允许一次性用完整分钟额度**），超限返回 429 + `Retry-After` 头。批量查询按条数计费：一批 N 条消耗 N 个令牌
+- **批量查询**：默认关闭。建议与 `auth.keys` 一起开启——开放实例提供批量查询等于放大被滥用打上游注册局的能力
 
 
-> ⚠️ **Warning:** 限频针对的是程序向 whois 服务器发起的请求，而非用户向本程序发起的请求。例如，您将限频设置为 50，那么程序向注册局 whois 服务器发起的请求将不会超过 50 次/秒，但是用户向本程序发起的请求不受限制。请您通过 Nginx 等工具对本程序进行限流，以防止恶意请求。
+> ⚠️ **Warning:** 限频针对的是程序向 whois 服务器发起的请求，而非用户向本程序发起的请求。例如，您将限频设置为 50，那么程序向注册局 whois 服务器发起的请求将不会超过 50 次/秒，但是用户向本程序发起的请求不受限制。请您通过 Nginx 等工具对本程序进行限流，或为每个 API key 配置 `rateLimit`，以防止恶意请求。
 
 ### 运行
 ```bash
@@ -148,6 +162,7 @@ docker run -d --name whois -p 8043:8043 \
 | `GET /metrics` | Prometheus 指标 - 请求计数、延迟、缓存命中率、上游查询耗时 |
 | `GET /openapi.json` | OpenAPI 3.1 规范 - 全部端点与响应 schema 的机器可读描述 |
 | `POST /mcp` | MCP Streamable HTTP 端点 - 供 AI 助手集成使用 |
+| `POST /batch` | 批量查询 - 一次提交多个域名/IP/ASN（默认关闭，见 `batch.enabled`） |
 
 **示例：**
 ```bash
@@ -213,7 +228,7 @@ curl http://localhost:8043/2001:db8::/32
 服务在 `/openapi.json` 提供 OpenAPI 3.1 描述文档，包含全部端点、响应 schema（RDAP 词汇）和错误格式，可直接导入 Postman/Swagger UI 等工具。
 
 #### 缓存与跨域
-- 成功响应带 `X-Cache: HIT/MISS` 头标识是否命中服务端缓存，以及 `Cache-Control: public, max-age=<缓存秒数>` 供客户端/CDN 缓存。
+- 成功响应带 `X-Cache` 头标识缓存状态：`HIT`（命中服务端缓存）、`MISS`（回源注册局）、`REFRESH`（`?refresh` 强制回源），以及 `Cache-Control: public, max-age=<缓存秒数>` 供客户端/CDN 缓存。
 - 成功响应（200）带强 `ETag` 头；请求时携带 `If-None-Match: <etag>` 可做条件重验证，内容未变化时返回 `304 Not Modified`（无响应体），`/openapi.json` 同样支持。
 - 所有响应带 `Access-Control-Allow-Origin: *`，可直接在浏览器前端跨域调用。
 
@@ -263,6 +278,35 @@ curl http://localhost:8043/example.com
 ```bash
 curl "http://localhost:8043/example.com?raw=1"
 ```
+
+#### 强制刷新缓存
+添加 `?refresh=1` 参数可跳过服务端缓存、强制向注册局查询并用新结果覆盖缓存（响应带 `X-Cache: REFRESH`），适合域名转移/续费后立即查看新状态。**仅在开启 API 认证的实例上可用**：未配置 `auth.keys` 的实例返回 403（`refresh-requires-auth`）——否则任何人都能借此击穿缓存刷上游注册局。可与 `?raw` 叠加使用。
+
+```bash
+curl -H "X-API-Key: your-secret-key" "http://localhost:8043/example.com?refresh=1"
+```
+
+#### 批量查询
+`POST /batch` 一次提交多个查询（域名/IP/CIDR/ASN 可混排，自动识别类型），逐项返回结果。默认关闭，需配置 `batch.enabled: true`；单批条数上限 `batch.maxItems`（默认 10）。
+
+```bash
+curl -X POST -H "X-API-Key: your-secret-key" -H "Content-Type: application/json" \
+  -d '{"queries": ["example.com", "8.8.8.8", "AS15169"]}' \
+  http://localhost:8043/batch
+```
+
+响应恒为 200，逐项给出状态：成功项的 `data` 是常规响应对象，失败项的 `error` 是 problem+json 对象：
+
+```json
+{
+  "results": [
+    {"query": "example.com", "status": 200, "data": {"objectClassName": "domain", "ldhName": "example.com"}},
+    {"query": "nx.invalid", "status": 404, "error": {"type": "...#not-found", "title": "Resource not found", "status": 404}}
+  ]
+}
+```
+
+配置了按 key 限流时，一批 N 条按 N 个请求计费，无法借批量绕过限流。批内重复查询会被合并为一次上游请求。
 
 #### 请求追踪
 每个响应都带有 `X-Request-ID` 头，服务端日志中的 `request_id` 字段与之对应，便于排查问题。客户端也可自带 `X-Request-ID` 请求头（≤64 字符，仅限字母、数字、`.`、`_`、`-`），服务端将原样使用。
@@ -389,6 +433,15 @@ curl http://localhost:8043/205794
 ```
 
 支持域名、IPv4/v6 地址或 CIDR 前缀、ASN（如 `AS12345`），返回结果与 REST API 完全一致。
+
+**工具名：** `whois_batch_lookup`（需开启 `batch.enabled`）
+
+**输入：**
+```json
+{ "queries": ["example.com", "8.8.8.8", "AS15169"] }
+```
+
+逐项返回结果，与 `POST /batch` 行为一致（同样受 `batch.maxItems` 与按 key 限流约束）。
 
 **MCP 服务器地址：** `http://ip:端口/mcp`
 

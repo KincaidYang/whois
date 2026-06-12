@@ -10,6 +10,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Each breaking change is listed under a **Breaking** heading below. After
 > v1.0.0 the API and configuration format will remain stable.
 
+## [0.10.0] - 2026-06-12
+
+### Added
+- **Named API keys with per-key rate limits.** `auth.keys` entries now also
+  accept an object form `{key, name, rateLimit}` alongside bare strings
+  (fully backward compatible). The name labels the caller in request logs
+  (`client` field) and in the new
+  `whois_client_requests_total{client, status_code}` Prometheus counter;
+  `rateLimit` (requests per minute, token bucket with a full minute's burst)
+  answers over-budget requests with an RFC 9457 `429` problem and a
+  `Retry-After` header.
+- **`POST /batch` bulk queries** (and an MCP `whois_batch_lookup` tool):
+  up to `batch.maxItems` (default 10) mixed domain/IP/ASN queries per
+  request, each answered independently with per-item status, the regular
+  response object in `data` on success and a problem object in `error` on
+  failure. Disabled by default (`batch.enabled` / `WHOIS_BATCH_ENABLED`);
+  best enabled together with authentication. A batch of N queries costs N
+  rate-limit tokens, so batching cannot bypass per-key limits.
+- **`?refresh=1` forces a fresh upstream query**, bypassing the cache read
+  and overwriting the cached entry (response carries `X-Cache: REFRESH`).
+  Only honored on instances with authentication enabled; open instances
+  answer `403` (`#refresh-requires-auth`).
+- **`WHOIS_BOOTSTRAP_INTERVAL`** environment override (previously the only
+  option without one) and a complete environment variable reference table in
+  the README (both languages), including an env-only `docker run` example.
+
 ## [0.9.0] - 2026-06-11
 
 ### Added
