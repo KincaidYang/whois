@@ -19,6 +19,7 @@ import (
 
 	"github.com/KincaidYang/whois/internal/utils"
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/time/rate"
 	"gopkg.in/yaml.v3"
 )
 
@@ -91,6 +92,11 @@ type AuthClient struct {
 	Name string
 	// RateLimit is the per-key budget in requests per minute; 0 = unlimited.
 	RateLimit int
+	// Limiter enforces RateLimit as a token bucket refilling at
+	// RateLimit/60 tokens per second with a full minute's budget of burst,
+	// so a client may spend its whole per-minute allowance at once. Nil
+	// when RateLimit is 0.
+	Limiter *rate.Limiter
 }
 
 // RequestTimeout bounds how long a single query may take, so a slow upstream
@@ -269,6 +275,9 @@ func normalizeAuthClients(specs []AuthKeySpec) ([]AuthClient, error) {
 		}
 
 		clients[i] = AuthClient{Key: key, Name: name, RateLimit: spec.RateLimit}
+		if spec.RateLimit > 0 {
+			clients[i].Limiter = rate.NewLimiter(rate.Limit(spec.RateLimit)/60, spec.RateLimit)
+		}
 	}
 	return clients, nil
 }

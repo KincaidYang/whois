@@ -112,6 +112,16 @@ func withAuth(next http.Handler) http.Handler {
 			metrics.ClientRequestsTotal.WithLabelValues("unauthenticated", "401").Inc()
 			return
 		}
+		if client.Limiter != nil {
+			reservation := client.Limiter.Reserve()
+			if delay := reservation.Delay(); delay > 0 {
+				reservation.Cancel()
+				slog.WarnContext(r.Context(), "per-key rate limit reached", "client", client.Name, "path", r.URL.Path)
+				utils.WriteRateLimitedAfter(w, delay)
+				metrics.ClientRequestsTotal.WithLabelValues(client.Name, "429").Inc()
+				return
+			}
+		}
 		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
 		next.ServeHTTP(sw, r.WithContext(utils.WithClient(r.Context(), client.Name)))
 		metrics.ClientRequestsTotal.WithLabelValues(client.Name, strconv.Itoa(sw.code)).Inc()
