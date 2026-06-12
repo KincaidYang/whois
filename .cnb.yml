@@ -23,11 +23,10 @@ $:
         - name: release 上传附件
           image: cnbcool/attachments:latest
           settings:
-            attachments:
-              - dist/*
-              - "!dist/config.yaml"
-              - "!dist/artifacts.json"
-              - "!dist/metadata.json"
+            # attachments 插件对每个模式独立匹配，"!" 否定模式实际语义是
+            # "除该文件外的全部文件"，多条否定会互相抵消导致排除失效，
+            # 因此只能用正向白名单匹配 goreleaser 产物（归档 + 校验和）
+            attachments: "dist/*.tar.gz,dist/*_checksums.txt"
     - runner:
         tags: cnb:arch:amd64
       services:
