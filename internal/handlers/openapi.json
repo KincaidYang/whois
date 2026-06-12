@@ -38,6 +38,9 @@
             "$ref": "#/components/parameters/raw"
           },
           {
+            "$ref": "#/components/parameters/refresh"
+          },
+          {
             "$ref": "#/components/parameters/ifNoneMatch"
           }
         ],
@@ -86,6 +89,9 @@
           },
           {
             "$ref": "#/components/parameters/raw"
+          },
+          {
+            "$ref": "#/components/parameters/refresh"
           },
           {
             "$ref": "#/components/parameters/ifNoneMatch"
@@ -156,6 +162,9 @@
             }
           },
           {
+            "$ref": "#/components/parameters/refresh"
+          },
+          {
             "$ref": "#/components/parameters/ifNoneMatch"
           }
         ],
@@ -216,6 +225,9 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "$ref": "#/components/parameters/refresh"
           },
           {
             "$ref": "#/components/parameters/ifNoneMatch"
@@ -422,6 +434,15 @@
         "schema": {
           "type": "string"
         }
+      },
+      "refresh": {
+        "name": "refresh",
+        "in": "query",
+        "required": false,
+        "description": "Bypass the server-side cache and query the upstream registry, overwriting the cached entry (response carries `X-Cache: REFRESH`). Only honored when API key authentication is enabled; open instances return 403 `refresh-requires-auth`. `refresh=0` and `refresh=false` opt out; any other presence of the parameter opts in.",
+        "schema": {
+          "type": "string"
+        }
       }
     },
     "headers": {
@@ -432,12 +453,13 @@
         }
       },
       "X-Cache": {
-        "description": "Whether the response was served from the server-side cache (HIT) or fetched from the upstream registry (MISS).",
+        "description": "Whether the response was served from the server-side cache (HIT), fetched from the upstream registry (MISS), or forced upstream by `?refresh` (REFRESH).",
         "schema": {
           "type": "string",
           "enum": [
             "HIT",
-            "MISS"
+            "MISS",
+            "REFRESH"
           ]
         }
       },
@@ -540,7 +562,7 @@
         }
       },
       "QueryDenied": {
-        "description": "The upstream registry refused to answer the query.",
+        "description": "The upstream registry refused to answer the query (problem type `query-denied`), or `?refresh` was used on an instance without API key authentication enabled (problem type `refresh-requires-auth`).",
         "content": {
           "application/problem+json": {
             "schema": {

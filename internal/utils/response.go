@@ -75,6 +75,16 @@ func WriteRateLimitedAfter(w http.ResponseWriter, retryAfter time.Duration) {
 		"The API key's request budget is exhausted. Retry after the delay in the Retry-After header.")
 }
 
+// WriteRefreshRequiresAuth writes the 403 problem response returned when
+// ?refresh is used on an instance without API key authentication: an open
+// instance honoring forced refreshes would let anyone bypass the cache and
+// hammer upstream registries.
+func WriteRefreshRequiresAuth(w http.ResponseWriter) {
+	writeProblem(w, http.StatusForbidden, "refresh-requires-auth",
+		"Refresh requires authentication",
+		"The ?refresh parameter is only honored when API key authentication (auth.keys) is enabled on this instance.")
+}
+
 // HandleQueryError handles common query errors with appropriate HTTP responses.
 // Unexpected errors are logged in full but reported to the client with a
 // generic message, so internal details such as upstream server addresses and

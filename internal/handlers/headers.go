@@ -12,3 +12,12 @@ import (
 func setCacheControl(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", int(config.CacheExpiration.Seconds())))
 }
+
+// missLabel is the X-Cache value for a response that went upstream: REFRESH
+// when the cache was deliberately bypassed (?refresh=1), MISS otherwise.
+func missLabel(refresh bool) string {
+	if refresh {
+		return "REFRESH"
+	}
+	return "MISS"
+}

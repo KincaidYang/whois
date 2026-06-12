@@ -69,11 +69,11 @@ func whoisLookup(ctx context.Context, _ *mcp.CallToolRequest, input *WhoisInput)
 	const cacheKeyPrefix = handlers.CacheKeyPrefix
 
 	if utils.IsIP(query) || utils.IsCIDR(query) {
-		handlers.HandleIP(ctx, rc, query, cacheKeyPrefix)
+		handlers.HandleIP(ctx, rc, query, cacheKeyPrefix, false)
 	} else if utils.IsASN(query) {
-		handlers.HandleASN(ctx, rc, query, cacheKeyPrefix)
+		handlers.HandleASN(ctx, rc, query, cacheKeyPrefix, false)
 	} else if utils.IsDomain(query) {
-		handlers.HandleDomain(ctx, rc, query, cacheKeyPrefix, false)
+		handlers.HandleDomain(ctx, rc, query, cacheKeyPrefix, false, false)
 	} else {
 		return errorResult("Invalid input: please provide a valid domain, IP address, or ASN"), nil, nil
 	}
