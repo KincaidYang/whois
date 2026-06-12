@@ -123,7 +123,8 @@ func withAuth(next http.Handler) http.Handler {
 			}
 		}
 		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
-		next.ServeHTTP(sw, r.WithContext(utils.WithClient(r.Context(), client.Name)))
+		ctx := config.WithAuthClient(utils.WithClient(r.Context(), client.Name), client)
+		next.ServeHTTP(sw, r.WithContext(ctx))
 		metrics.ClientRequestsTotal.WithLabelValues(client.Name, strconv.Itoa(sw.code)).Inc()
 	})
 }
@@ -162,6 +163,9 @@ func registerRoutes(mux *http.ServeMux) {
 	// MCP Streamable HTTP endpoint
 	mux.Handle("/mcp", mcp.NewHandler(config.Version))
 
+	// Bulk query endpoint (off unless batch.enabled is set)
+	mux.HandleFunc("/batch", batchHandler)
+
 	// RFC 9082-style typed query paths. The ip path uses a rest wildcard so
 	// CIDR prefixes ("/ip/192.0.2.0/24") keep their slash.
 	mux.HandleFunc("/domain/{resource}", typedHandler("domain"))
@@ -176,6 +180,40 @@ func registerRoutes(mux *http.ServeMux) {
 // domain, IP address, or ASN.
 func handler(w http.ResponseWriter, r *http.Request) {
 	serve(w, r, strings.TrimPrefix(r.URL.Path, "/"), "")
+}
+
+// batchHandler serves POST /batch. Like serve it occupies one concurrency
+// slot and runs under the shared request timeout; the batch's internal
+// fan-out is bounded separately (handlers.HandleBatch).
+func batchHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		utils.WriteMethodNotAllowed(w, http.MethodPost)
+		return
+	}
+
+	config.Wg.Add(1)
+	select {
+	case config.ConcurrencyLimiter <- struct{}{}:
+	default:
+		config.Wg.Done()
+		slog.WarnContext(r.Context(), "rate limit reached", "path", r.URL.Path)
+		utils.WriteRateLimited(w)
+		metrics.HTTPRequestsTotal.WithLabelValues("batch", "429").Inc()
+		return
+	}
+	defer func() {
+		config.Wg.Done()
+		<-config.ConcurrencyLimiter
+	}()
+
+	ctx, cancel := context.WithTimeout(r.Context(), config.RequestTimeout)
+	defer cancel()
+
+	sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+	start := time.Now()
+	handlers.HandleBatch(ctx, sw, r)
+	metrics.HTTPRequestsTotal.WithLabelValues("batch", strconv.Itoa(sw.code)).Inc()
+	metrics.HTTPRequestDuration.WithLabelValues("batch").Observe(time.Since(start).Seconds())
 }
 
 // typedHandler serves the RFC 9082-style typed paths (/domain/{resource},

@@ -85,6 +85,31 @@ func WriteRefreshRequiresAuth(w http.ResponseWriter) {
 		"The ?refresh parameter is only honored when API key authentication (auth.keys) is enabled on this instance.")
 }
 
+// WriteMethodNotAllowed writes a 405 problem response carrying the Allow
+// header listing the methods the endpoint supports.
+func WriteMethodNotAllowed(w http.ResponseWriter, allow string) {
+	w.Header().Set("Allow", allow)
+	writeProblem(w, http.StatusMethodNotAllowed, "bad-request",
+		"Method not allowed", "This endpoint only accepts "+allow+".")
+}
+
+// WriteBatchDisabled writes the 403 problem response returned when the batch
+// endpoint is requested but batch.enabled is off (the default).
+func WriteBatchDisabled(w http.ResponseWriter) {
+	writeProblem(w, http.StatusForbidden, "batch-disabled",
+		"Batch queries are disabled",
+		"Batch queries are turned off on this instance. The operator can enable them with batch.enabled in the configuration.")
+}
+
+// WriteRateLimitedBatch writes the 429 problem response returned when a batch
+// request asks for more items than the API key's per-minute budget could ever
+// grant, so no Retry-After would make it succeed — the batch must shrink.
+func WriteRateLimitedBatch(w http.ResponseWriter) {
+	writeProblem(w, http.StatusTooManyRequests, "rate-limited",
+		"Rate limit exceeded",
+		"The batch exceeds the API key's per-minute request budget. Reduce the batch size.")
+}
+
 // HandleQueryError handles common query errors with appropriate HTTP responses.
 // Unexpected errors are logged in full but reported to the client with a
 // generic message, so internal details such as upstream server addresses and

@@ -33,8 +33,17 @@ bootstrap:
 auth:
   # API keys accepted for authentication. Empty (the default) leaves the
   # service open; one or more keys protect every endpoint except /health and
-  # /ready. Can also be set via WHOIS_AUTH_KEYS (comma-separated).
+  # /ready. Can also be set via WHOIS_AUTH_KEYS (comma-separated). Entries
+  # are bare strings, or {key, name, rateLimit} objects for per-key naming
+  # and rate limiting (requests/minute).
   keys: []
+
+batch:
+  # POST /batch bulk queries (and the MCP whois_batch_lookup tool). Off by
+  # default; best enabled together with auth.keys. Can also be set via
+  # WHOIS_BATCH_ENABLED / WHOIS_BATCH_MAX_ITEMS.
+  enabled: false
+  maxItems: 10
 
 mcp:
   # DNS-rebinding protection for the /mcp endpoint: rejects requests whose

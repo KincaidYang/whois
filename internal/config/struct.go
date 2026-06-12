@@ -140,6 +140,16 @@ type Config struct {
 		// AuthKeySpec.
 		Keys []AuthKeySpec `json:"keys" yaml:"keys"`
 	} `json:"auth" yaml:"auth"`
+	// Batch holds settings for the POST /batch bulk-query endpoint.
+	Batch struct {
+		// Enabled turns the endpoint on (default: false). Best combined with
+		// auth.keys: a public open instance offering batch queries multiplies
+		// how fast it can be abused against upstream registries.
+		Enabled bool `json:"enabled" yaml:"enabled"`
+		// MaxItems is the maximum number of queries accepted in one batch
+		// request (default: 10).
+		MaxItems int `json:"maxItems" yaml:"maxItems"`
+	} `json:"batch" yaml:"batch"`
 	// MCP holds settings for the MCP Streamable HTTP endpoint (/mcp).
 	MCP struct {
 		// LocalhostProtection enables DNS-rebinding protection, which rejects

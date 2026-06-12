@@ -47,6 +47,12 @@ authentication enabled. Refresh is only honored on authenticated instances,
 because on an open instance it would let anyone bypass the cache and hammer
 upstream registries.
 
+## batch-disabled
+
+**Status: 403.** The `POST /batch` endpoint (or the MCP batch tool) was used
+on an instance that has not enabled batch queries. The operator can turn them
+on with `batch.enabled` in the configuration.
+
 ## rate-limited
 
 **Status: 429.** Either the server's concurrent-request limit

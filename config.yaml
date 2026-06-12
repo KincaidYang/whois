@@ -50,9 +50,24 @@ auth:
   # service open; one or more keys protect every endpoint except /health and
   # /ready. Clients send a key as "Authorization: Bearer <key>" or
   # "X-API-Key: <key>". Can also be set via WHOIS_AUTH_KEYS (comma-separated).
+  # Entries are bare strings, or objects with a display name (shows up in
+  # logs and metrics) and an optional per-key rate limit in requests/minute:
   # keys:
   #   - "your-secret-key"
+  #   - key: "another-secret-key"
+  #     name: "ci"
+  #     rateLimit: 120
   keys: []
+
+batch:
+  # POST /batch answers up to maxItems mixed domain/IP/ASN queries in one
+  # request (also exposed as the MCP whois_batch_lookup tool). Off by
+  # default; best enabled together with auth.keys, since an open instance
+  # offering batch queries multiplies how fast it can be abused against
+  # upstream registries. With a per-key rate limit, a batch of N queries
+  # costs N tokens.
+  enabled: false
+  maxItems: 10
 
 mcp:
   # DNS-rebinding protection for the /mcp endpoint: rejects requests whose

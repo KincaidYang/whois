@@ -276,6 +276,69 @@
         }
       }
     },
+    "/batch": {
+      "post": {
+        "operationId": "batchQuery",
+        "summary": "Query multiple domains, IPs/CIDR prefixes, or ASNs in one request",
+        "description": "Answers each query independently and always returns 200 with per-item statuses: successful items carry the regular response object in `data`, failed items an RFC 9457 problem object in `error`. Disabled by default; the operator enables it with `batch.enabled`, and the number of queries per request is capped by `batch.maxItems` (default 10). When the API key has a per-key rate limit, a batch of N queries costs N tokens — the same as N single queries.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "queries"
+                ],
+                "properties": {
+                  "queries": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Domain names (IDN accepted), IP addresses, CIDR prefixes, or ASNs, freely mixed."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Per-item results in request order.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Batch queries are disabled on this instance (problem type `batch-disabled`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "operationId": "health",
@@ -601,6 +664,56 @@
       }
     },
     "schemas": {
+      "BatchResponse": {
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BatchItem"
+            },
+            "description": "One entry per query, in request order."
+          }
+        }
+      },
+      "BatchItem": {
+        "type": "object",
+        "required": [
+          "query",
+          "status"
+        ],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "The query exactly as submitted."
+          },
+          "status": {
+            "type": "integer",
+            "description": "The HTTP status this query would have received as a single request."
+          },
+          "data": {
+            "description": "The regular response object; present when status < 400.",
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Domain"
+              },
+              {
+                "$ref": "#/components/schemas/IPNetwork"
+              },
+              {
+                "$ref": "#/components/schemas/Autnum"
+              }
+            ]
+          },
+          "error": {
+            "$ref": "#/components/schemas/Problem",
+            "description": "The problem object; present when status >= 400."
+          }
+        }
+      },
       "Problem": {
         "type": "object",
         "description": "RFC 9457 Problem Details. `type` and `title` are stable identifiers; `detail` is human-readable and may change between releases. See https://github.com/KincaidYang/whois/blob/main/docs/errors.md",
