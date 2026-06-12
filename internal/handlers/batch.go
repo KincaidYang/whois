@@ -134,13 +134,34 @@ func RunBatch(ctx context.Context, queries []string) []BatchItem {
 		wg.Add(1)
 		go func(i int, query string) {
 			defer wg.Done()
-			sem <- struct{}{}
+			// A query still queued when the batch deadline expires must not
+			// start: the handlers' singleflight layer deliberately detaches
+			// upstream flights from the caller's deadline, so a late start
+			// would get a fresh timeout and outlive the response.
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				results[i] = batchDeadlineItem(query)
+				return
+			}
 			defer func() { <-sem }()
+			if ctx.Err() != nil {
+				results[i] = batchDeadlineItem(query)
+				return
+			}
 			results[i] = runBatchItem(ctx, query)
 		}(i, query)
 	}
 	wg.Wait()
 	return results
+}
+
+// batchDeadlineItem reports a query that never ran because the batch's
+// request deadline expired while it was queued behind slower items.
+func batchDeadlineItem(query string) BatchItem {
+	rc := NewResponseCapture()
+	utils.HandleHTTPError(rc, utils.ErrorTypeInternalServer, "The batch deadline expired before this query started; retry it separately.")
+	return BatchItem{Query: query, Status: rc.StatusCode(), Error: rc.Body()}
 }
 
 // runBatchItem answers one batch query by dispatching to the regular

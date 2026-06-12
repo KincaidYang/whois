@@ -126,6 +126,27 @@ func TestBatchMixedResults(t *testing.T) {
 	}
 }
 
+// TestBatchExpiredDeadline verifies queries still queued when the batch
+// deadline expires are reported as per-item errors instead of starting late —
+// the singleflight layer would otherwise give them a fresh detached timeout
+// that can outlive the HTTP response.
+func TestBatchExpiredDeadline(t *testing.T) {
+	withTestBatch(t, true, 10)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	results := handlers.RunBatch(ctx, []string{"a.cn", "b.cn"})
+	for _, item := range results {
+		if item.Status != http.StatusInternalServerError {
+			t.Errorf("%s: expected 500 for expired deadline, got %d", item.Query, item.Status)
+		}
+		if !strings.Contains(string(item.Error), "deadline expired") {
+			t.Errorf("%s: expected deadline detail, got: %s", item.Query, item.Error)
+		}
+	}
+}
+
 // TestBatchChargesRateLimitTokens verifies a batch of N queries consumes N
 // tokens of the key's budget: the middleware charges 1, the handler the
 // remaining N-1, so the next request is rejected.
