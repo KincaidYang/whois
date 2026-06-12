@@ -19,6 +19,11 @@ type bootstrapResponse struct {
 	Services [][]json.RawMessage `json:"services"`
 }
 
+// maxBootstrapResponseSize caps how much we read from an IANA bootstrap file,
+// matching the limit on WHOIS/RDAP upstream reads (the dns.json file, the
+// largest of the four, is around 200 KB).
+const maxBootstrapResponseSize = 2 << 20 // 2 MiB
+
 var ianaBootstrapURLs = map[string]string{
 	"dns":  "https://data.iana.org/rdap/dns.json",
 	"ipv4": "https://data.iana.org/rdap/ipv4.json",
@@ -44,9 +49,14 @@ func fetchBootstrap(ctx context.Context, client *http.Client, url string) (map[s
 		return nil, fmt.Errorf("unexpected status %d from %s", resp.StatusCode, url)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// Read one byte past the limit so an oversized response is detected and
+	// rejected rather than silently truncated.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBootstrapResponseSize+1))
 	if err != nil {
 		return nil, err
+	}
+	if len(body) > maxBootstrapResponseSize {
+		return nil, fmt.Errorf("bootstrap response from %s exceeds %d bytes", url, maxBootstrapResponseSize)
 	}
 
 	var bootstrap bootstrapResponse

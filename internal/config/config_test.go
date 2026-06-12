@@ -252,6 +252,48 @@ func TestParseConfigUnsupportedExt(t *testing.T) {
 	}
 }
 
+func TestValidateConfigNegativeValues(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{"server.port", func(c *Config) { c.Server.Port = -1 }},
+		{"server.rateLimit", func(c *Config) { c.Server.RateLimit = -1 }},
+		{"cache.expiration", func(c *Config) { c.Cache.Expiration = -1 }},
+		{"cache.memoryMaxSize", func(c *Config) { c.Cache.MemoryMaxSize = -1 }},
+		{"cache.memoryCleanInterval", func(c *Config) { c.Cache.MemoryCleanInterval = -1 }},
+		{"bootstrap.interval", func(c *Config) { c.Bootstrap.Interval = -1 }},
+		{"batch.maxItems", func(c *Config) { c.Batch.MaxItems = -1 }},
+	}
+	for _, tc := range cases {
+		var cfg Config
+		applyDefaults(&cfg)
+		tc.mutate(&cfg)
+		err := validateConfig(&cfg)
+		if err == nil {
+			t.Errorf("%s: expected error for negative value", tc.name)
+			continue
+		}
+		if !strings.Contains(err.Error(), tc.name) {
+			t.Errorf("%s: error %q does not name the offending key", tc.name, err)
+		}
+	}
+}
+
+func TestValidateConfigDefaultsPass(t *testing.T) {
+	var cfg Config
+	applyDefaults(&cfg)
+	if err := validateConfig(&cfg); err != nil {
+		t.Errorf("defaults must validate: %v", err)
+	}
+
+	// The documented "disable" value for negative caching must stay accepted.
+	cfg.Cache.NegativeExpiration = -1
+	if err := validateConfig(&cfg); err != nil {
+		t.Errorf("negative cache.negativeExpiration must stay valid: %v", err)
+	}
+}
+
 func TestApplyDefaults(t *testing.T) {
 	var cfg Config
 	applyDefaults(&cfg)
