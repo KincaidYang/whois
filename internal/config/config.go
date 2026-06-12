@@ -472,6 +472,13 @@ func overrideConfigWithEnv(config *Config) {
 		}
 	}
 
+	// Override bootstrap configuration
+	if bootstrapInterval := os.Getenv("WHOIS_BOOTSTRAP_INTERVAL"); bootstrapInterval != "" {
+		if intervalInt, err := strconv.Atoi(bootstrapInterval); err == nil {
+			config.Bootstrap.Interval = intervalInt
+		}
+	}
+
 	// Override proxy configuration
 	if proxyServer := os.Getenv("WHOIS_PROXY_SERVER"); proxyServer != "" {
 		config.Proxy.Server = proxyServer

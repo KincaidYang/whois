@@ -87,7 +87,44 @@ mcp:
   localhostProtection: false   # DNS-rebinding protection for /mcp: only accept requests whose Host header is localhost. Keep false behind a reverse proxy; set true for direct localhost deployments
 ```
 
-Selected options can be overridden via environment variables (which take precedence over the config file), e.g. `WHOIS_REDIS_ADDR`, `WHOIS_REDIS_TLS`, `WHOIS_PORT`, `WHOIS_RATE_LIMIT`, `WHOIS_CACHE_EXPIRATION`, `WHOIS_NEGATIVE_CACHE_EXPIRATION`, `WHOIS_LOG_LEVEL`, `WHOIS_MCP_LOCALHOST_PROTECTION`, `WHOIS_AUTH_KEYS` (comma-separated).
+### Environment Variables
+
+Every configuration option can be overridden via environment variables (which take precedence over the config file) — handy for Docker/Kubernetes deployments where mounting a config file is inconvenient:
+
+| Variable | Config key | Default | Description |
+|----------|-----------|---------|-------------|
+| `WHOIS_PORT` | `server.port` | `8043` | HTTP listen port |
+| `WHOIS_RATE_LIMIT` | `server.rateLimit` | `100` | Maximum concurrent requests |
+| `WHOIS_LOG_LEVEL` | `log.level` | `info` | Log level: debug, info, warn, error |
+| `WHOIS_CACHE_EXPIRATION` | `cache.expiration` | `3600` | Cache TTL in seconds |
+| `WHOIS_NEGATIVE_CACHE_EXPIRATION` | `cache.negativeExpiration` | `60` | Negative-cache TTL in seconds; negative value disables |
+| `WHOIS_REQUIRE_REDIS` | `cache.requireRedis` | `false` | `true`/`1` makes startup fail when Redis is unavailable |
+| `WHOIS_MEMORY_MAX_SIZE` | `cache.memoryMaxSize` | `10000` | Max entries in the in-memory cache |
+| `WHOIS_MEMORY_CLEAN_INTERVAL` | `cache.memoryCleanInterval` | `300` | In-memory cache cleanup interval in seconds |
+| `WHOIS_REDIS_ADDR` | `redis.addr` | empty | Redis address; the service falls back to the in-memory cache when unreachable (unless requireRedis) |
+| `WHOIS_REDIS_PASSWORD` | `redis.password` | empty | Redis password |
+| `WHOIS_REDIS_DB` | `redis.db` | `0` | Redis database number |
+| `WHOIS_REDIS_TLS` | `redis.tls` | `false` | `true`/`1` enables TLS for Redis |
+| `WHOIS_REDIS_TLS_SKIP_VERIFY` | `redis.tlsSkipVerify` | `false` | `true`/`1` skips certificate verification (not recommended) |
+| `WHOIS_PROXY_SERVER` | `proxy.server` | empty | Proxy URL; empty disables proxying |
+| `WHOIS_PROXY_USERNAME` | `proxy.username` | empty | Proxy username |
+| `WHOIS_PROXY_PASSWORD` | `proxy.password` | empty | Proxy password |
+| `WHOIS_PROXY_SUFFIXES` | `proxy.suffixes` | empty | TLDs queried through the proxy, **comma-separated** (`all` proxies everything) |
+| `WHOIS_BOOTSTRAP_INTERVAL` | `bootstrap.interval` | `0` (disabled) | IANA RDAP list refresh interval in seconds; the sample config ships 86400 |
+| `WHOIS_AUTH_KEYS` | `auth.keys` | empty | API keys, **comma-separated** |
+| `WHOIS_MCP_LOCALHOST_PROTECTION` | `mcp.localhostProtection` | `false` | `true`/`1` enables DNS-rebinding protection for /mcp |
+
+Boolean variables accept only `true` and `1`; anything else is treated as `false`. Numeric variables that fail to parse are silently ignored, leaving the config-file/default value in place.
+
+Environment-only deployment example (no config file mounted):
+
+```bash
+docker run -d --name whois -p 8043:8043 \
+  -e WHOIS_REDIS_ADDR=redis:6379 \
+  -e WHOIS_BOOTSTRAP_INTERVAL=86400 \
+  -e WHOIS_AUTH_KEYS=secret1,secret2 \
+  --link redis:redis jinzeyang/whois
+```
 
 **Configuration Notes:**
 - **Redis Configuration**: Redis is recommended for better performance and multi-instance cache sharing
