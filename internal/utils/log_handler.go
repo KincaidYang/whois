@@ -5,15 +5,16 @@ import (
 	"log/slog"
 )
 
-// ContextHandler wraps a slog.Handler and appends a request_id attribute to
-// records whose context carries one (see WithRequestID), so all logs emitted
-// on a request path can be correlated. Log calls must use the *Context slog
-// variants for the ID to flow through.
+// ContextHandler wraps a slog.Handler and appends request_id and client
+// attributes to records whose context carries them (see WithRequestID and
+// WithClient), so all logs emitted on a request path can be correlated and
+// attributed to a caller. Log calls must use the *Context slog variants for
+// the attributes to flow through.
 type ContextHandler struct {
 	slog.Handler
 }
 
-// NewContextHandler wraps h with request-id extraction.
+// NewContextHandler wraps h with request-id and client extraction.
 func NewContextHandler(h slog.Handler) *ContextHandler {
 	return &ContextHandler{Handler: h}
 }
@@ -21,6 +22,9 @@ func NewContextHandler(h slog.Handler) *ContextHandler {
 func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
 	if id, ok := RequestIDFromContext(ctx); ok {
 		r.AddAttrs(slog.String("request_id", id))
+	}
+	if name, ok := ClientFromContext(ctx); ok {
+		r.AddAttrs(slog.String("client", name))
 	}
 	return h.Handler.Handle(ctx, r)
 }

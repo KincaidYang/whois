@@ -25,6 +25,18 @@ var (
 		[]string{"type"},
 	)
 
+	// ClientRequestsTotal counts completed HTTP requests by authenticated
+	// client name and status code. Only populated when API key authentication
+	// is enabled; requests that fail authentication are counted under the
+	// client label "unauthenticated".
+	ClientRequestsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "whois_client_requests_total",
+			Help: "Total HTTP requests by authenticated client and status code (auth enabled only).",
+		},
+		[]string{"client", "status_code"},
+	)
+
 	// CacheRequestsTotal counts cache lookups by backend (memory/redis) and result (hit/miss).
 	CacheRequestsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{

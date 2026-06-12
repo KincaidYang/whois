@@ -63,28 +63,86 @@ func TestParseConfigYAML(t *testing.T) {
 	if !cfg.MCP.LocalhostProtection {
 		t.Errorf("mcp.localhostProtection: false")
 	}
-	if len(cfg.Auth.Keys) != 2 || cfg.Auth.Keys[0] != "key-one" {
+	if len(cfg.Auth.Keys) != 2 || cfg.Auth.Keys[0].Key != "key-one" {
 		t.Errorf("auth.keys: %+v", cfg.Auth.Keys)
 	}
 }
 
-func TestNormalizeAuthKeys(t *testing.T) {
-	keys, err := normalizeAuthKeys([]string{" padded ", "plain"})
+func TestParseConfigAuthKeyObjects(t *testing.T) {
+	cfg, err := parseConfig([]byte(`
+auth:
+  keys:
+    - "bare-secret"
+    - key: "named-secret"
+      name: "ci"
+      rateLimit: 120
+`), ".yaml")
 	if err != nil {
-		t.Fatalf("normalizeAuthKeys: %v", err)
+		t.Fatalf("parseConfig: %v", err)
 	}
-	if keys[0] != "padded" || keys[1] != "plain" {
-		t.Errorf("got %+v", keys)
+	if len(cfg.Auth.Keys) != 2 {
+		t.Fatalf("auth.keys: %+v", cfg.Auth.Keys)
+	}
+	if cfg.Auth.Keys[0] != (AuthKeySpec{Key: "bare-secret"}) {
+		t.Errorf("bare entry: %+v", cfg.Auth.Keys[0])
+	}
+	if cfg.Auth.Keys[1] != (AuthKeySpec{Key: "named-secret", Name: "ci", RateLimit: 120}) {
+		t.Errorf("object entry: %+v", cfg.Auth.Keys[1])
+	}
+}
+
+func TestParseConfigAuthKeyObjectUnknownField(t *testing.T) {
+	_, err := parseConfig([]byte("auth:\n  keys:\n    - key: \"k\"\n      limit: 5\n"), ".yaml")
+	if err == nil || !strings.Contains(err.Error(), `unknown field "limit"`) {
+		t.Errorf("expected unknown-field error, got %v", err)
+	}
+}
+
+func TestParseConfigAuthKeyObjectsJSON(t *testing.T) {
+	cfg, err := parseConfig([]byte(`{"auth": {"keys": ["bare", {"key": "k2", "name": "ci", "rateLimit": 60}]}}`), ".json")
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
+	if cfg.Auth.Keys[0].Key != "bare" || cfg.Auth.Keys[1] != (AuthKeySpec{Key: "k2", Name: "ci", RateLimit: 60}) {
+		t.Errorf("auth.keys from json: %+v", cfg.Auth.Keys)
 	}
 
-	for _, bad := range [][]string{{""}, {"   "}, {"ok", ""}} {
-		if _, err := normalizeAuthKeys(bad); err == nil {
-			t.Errorf("normalizeAuthKeys(%q): expected error", bad)
+	if _, err := parseConfig([]byte(`{"auth": {"keys": [{"key": "k", "limit": 5}]}}`), ".json"); err == nil {
+		t.Error("expected unknown-field error for json object entry")
+	}
+}
+
+func TestNormalizeAuthClients(t *testing.T) {
+	clients, err := normalizeAuthClients([]AuthKeySpec{
+		{Key: " padded "},
+		{Key: "plain", Name: "ci", RateLimit: 60},
+	})
+	if err != nil {
+		t.Fatalf("normalizeAuthClients: %v", err)
+	}
+	if clients[0] != (AuthClient{Key: "padded", Name: "key1"}) {
+		t.Errorf("auto-named client: %+v", clients[0])
+	}
+	if clients[1] != (AuthClient{Key: "plain", Name: "ci", RateLimit: 60}) {
+		t.Errorf("named client: %+v", clients[1])
+	}
+
+	for name, bad := range map[string][]AuthKeySpec{
+		"empty key":          {{Key: ""}},
+		"blank key":          {{Key: "   "}},
+		"empty among ok":     {{Key: "ok"}, {Key: ""}},
+		"duplicate key":      {{Key: "same"}, {Key: "same"}},
+		"duplicate name":     {{Key: "a", Name: "ci"}, {Key: "b", Name: "ci"}},
+		"name with space":    {{Key: "a", Name: "my ci"}},
+		"negative rateLimit": {{Key: "a", RateLimit: -1}},
+	} {
+		if _, err := normalizeAuthClients(bad); err == nil {
+			t.Errorf("%s: expected error", name)
 		}
 	}
 
-	if keys, err := normalizeAuthKeys(nil); err != nil || len(keys) != 0 {
-		t.Errorf("nil keys: got %+v, %v", keys, err)
+	if clients, err := normalizeAuthClients(nil); err != nil || len(clients) != 0 {
+		t.Errorf("nil specs: got %+v, %v", clients, err)
 	}
 }
 
@@ -92,7 +150,7 @@ func TestEnvOverrideAuthKeys(t *testing.T) {
 	t.Setenv("WHOIS_AUTH_KEYS", "k1, k2 ,,k3")
 	var cfg Config
 	overrideConfigWithEnv(&cfg)
-	if len(cfg.Auth.Keys) != 3 || cfg.Auth.Keys[0] != "k1" || cfg.Auth.Keys[1] != "k2" || cfg.Auth.Keys[2] != "k3" {
+	if len(cfg.Auth.Keys) != 3 || cfg.Auth.Keys[0].Key != "k1" || cfg.Auth.Keys[1].Key != "k2" || cfg.Auth.Keys[2].Key != "k3" {
 		t.Errorf("auth.keys from env: %+v", cfg.Auth.Keys)
 	}
 }

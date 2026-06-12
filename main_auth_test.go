@@ -1,20 +1,32 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/KincaidYang/whois/internal/config"
+	"github.com/KincaidYang/whois/internal/utils"
 )
 
-// withTestAuthKeys configures API keys for the duration of a test.
+// withTestAuthKeys configures anonymous API keys for the duration of a test.
 func withTestAuthKeys(t *testing.T, keys ...string) {
 	t.Helper()
-	old := config.AuthKeys
-	config.AuthKeys = keys
-	t.Cleanup(func() { config.AuthKeys = old })
+	clients := make([]config.AuthClient, len(keys))
+	for i, key := range keys {
+		clients[i] = config.AuthClient{Key: key, Name: fmt.Sprintf("key%d", i+1)}
+	}
+	withTestAuthClients(t, clients)
+}
+
+// withTestAuthClients configures full auth clients for the duration of a test.
+func withTestAuthClients(t *testing.T, clients []config.AuthClient) {
+	t.Helper()
+	old := config.AuthClients
+	config.AuthClients = clients
+	t.Cleanup(func() { config.AuthClients = old })
 }
 
 // authRequest runs a request through the full production middleware chain.
@@ -139,6 +151,49 @@ func TestAuthProbesExempt(t *testing.T) {
 	w = authRequest(httptest.NewRequest("GET", "/ready", nil))
 	if w.Code != http.StatusOK && w.Code != http.StatusServiceUnavailable {
 		t.Errorf("/ready: expected 200 or 503, got %d", w.Code)
+	}
+}
+
+// TestAuthClientInContext verifies the matched client's name reaches the
+// request context, where logs (and later per-key rate limiting) pick it up.
+func TestAuthClientInContext(t *testing.T) {
+	withTestAuthClients(t, []config.AuthClient{
+		{Key: "test-key-1", Name: "ci"},
+		{Key: "test-key-2", Name: "monitor"},
+	})
+
+	var gotName string
+	var gotOK bool
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotName, gotOK = utils.ClientFromContext(r.Context())
+	})
+
+	req := httptest.NewRequest("GET", "/info", nil)
+	req.Header.Set("X-API-Key", "test-key-2")
+	withAuth(inner).ServeHTTP(httptest.NewRecorder(), req)
+
+	if !gotOK || gotName != "monitor" {
+		t.Errorf("client in context: got %q (ok=%v), want \"monitor\"", gotName, gotOK)
+	}
+}
+
+// TestAuthStatusWriterFlush verifies http.ResponseController can reach the
+// underlying writer's Flush through the metrics statusWriter wrapper — the
+// MCP endpoint's SSE stream relies on it to deliver the initial response.
+func TestAuthStatusWriterFlush(t *testing.T) {
+	withTestAuthKeys(t, "test-key-1")
+
+	var flushErr error
+	inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		flushErr = http.NewResponseController(w).Flush()
+	})
+
+	req := httptest.NewRequest("GET", "/mcp", nil)
+	req.Header.Set("X-API-Key", "test-key-1")
+	withAuth(inner).ServeHTTP(httptest.NewRecorder(), req)
+
+	if flushErr != nil {
+		t.Errorf("Flush through statusWriter: %v", flushErr)
 	}
 }
 
