@@ -16,22 +16,26 @@ import (
 )
 
 // HandleIP function is used to handle the HTTP request for querying the RDAP information for a given IP.
-func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cacheKeyPrefix string) {
+// When refresh is true the cache read is skipped: the query goes upstream and
+// its result overwrites the cached entry (X-Cache: REFRESH).
+func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cacheKeyPrefix string, refresh bool) {
 	// Check cache first before doing any lookups
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, resource)
-	cacheResult, err := utils.GetFromCache(ctx, config.CacheManager, key)
-	if err != nil {
-		utils.HandleInternalError(ctx, w, err)
-		return
-	}
-	if cacheResult.Found {
-		w.Header().Set("X-Cache", "HIT")
-		if utils.IsNegativeCacheHit(w, cacheResult.Data) {
+	if !refresh {
+		cacheResult, err := utils.GetFromCache(ctx, config.CacheManager, key)
+		if err != nil {
+			utils.HandleInternalError(ctx, w, err)
 			return
 		}
-		setCacheControl(w)
-		utils.HandleCacheResponse(w, cacheResult.Data, "application/json")
-		return
+		if cacheResult.Found {
+			w.Header().Set("X-Cache", "HIT")
+			if utils.IsNegativeCacheHit(w, cacheResult.Data) {
+				return
+			}
+			setCacheControl(w)
+			utils.HandleCacheResponse(w, cacheResult.Data, "application/json")
+			return
+		}
 	}
 
 	// Parse the IP (for CIDR input, the prefix base address) and find the
@@ -72,7 +76,7 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 	}
 
 	// Return the RDAP information
-	w.Header().Set("X-Cache", "MISS")
+	w.Header().Set("X-Cache", missLabel(refresh))
 	setCacheControl(w)
 	w.Header().Set("Content-Type", outcome.contentType)
 	_, _ = fmt.Fprint(w, outcome.body)

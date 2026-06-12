@@ -39,6 +39,14 @@ config) and the request carried no valid key. Send a configured key as
 `Authorization: Bearer <key>` or `X-API-Key: <key>`. Only `/health` and
 `/ready` are exempt from authentication.
 
+## refresh-requires-auth
+
+**Status: 403.** The `?refresh` parameter (force a fresh upstream query,
+bypassing the cache) was used on an instance that does not have API key
+authentication enabled. Refresh is only honored on authenticated instances,
+because on an open instance it would let anyone bypass the cache and hammer
+upstream registries.
+
 ## rate-limited
 
 **Status: 429.** Either the server's concurrent-request limit

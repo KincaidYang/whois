@@ -220,6 +220,13 @@ func serve(w http.ResponseWriter, r *http.Request, resource, want string) {
 	rawValue := r.URL.Query().Get("raw")
 	raw := r.URL.Query().Has("raw") && rawValue != "0" && rawValue != "false"
 
+	// ?refresh bypasses the cache read and overwrites the cached entry with a
+	// fresh upstream result. Only honored when authentication is enabled: on
+	// an open instance it would let anyone bypass the cache and hammer
+	// upstream registries.
+	refreshValue := r.URL.Query().Get("refresh")
+	refresh := r.URL.Query().Has("refresh") && refreshValue != "0" && refreshValue != "false"
+
 	cacheKeyPrefix := handlers.CacheKeyPrefix
 
 	// GET responses are buffered so a 200 gets an ETag and an If-None-Match
@@ -246,20 +253,22 @@ func serve(w http.ResponseWriter, r *http.Request, resource, want string) {
 	switch {
 	case want != "" && resourceType != want:
 		utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, typedPathError[want])
+	case refresh && len(config.AuthClients) == 0:
+		utils.WriteRefreshRequiresAuth(sw)
 	case resourceType == "ip":
 		if raw {
 			utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Raw output is only supported for domain queries.")
 		} else {
-			handlers.HandleIP(ctx, sw, resource, cacheKeyPrefix)
+			handlers.HandleIP(ctx, sw, resource, cacheKeyPrefix, refresh)
 		}
 	case resourceType == "asn":
 		if raw {
 			utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Raw output is only supported for domain queries.")
 		} else {
-			handlers.HandleASN(ctx, sw, resource, cacheKeyPrefix)
+			handlers.HandleASN(ctx, sw, resource, cacheKeyPrefix, refresh)
 		}
 	case resourceType == "domain":
-		handlers.HandleDomain(ctx, sw, resource, cacheKeyPrefix, raw)
+		handlers.HandleDomain(ctx, sw, resource, cacheKeyPrefix, raw, refresh)
 	default:
 		utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Invalid input. Please provide a valid domain, IP, or ASN.")
 	}

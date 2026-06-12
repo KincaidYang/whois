@@ -76,7 +76,9 @@ var whoisParsers = map[string]func(string, string) (model.DomainInfo, error){
 // When raw is true, the unparsed WHOIS response is returned as text/plain
 // (RDAP is skipped, since RDAP has no raw-text form), cached under a separate
 // "raw:" key namespace so parsed and raw results never mix.
-func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, cacheKeyPrefix string, raw bool) {
+// When refresh is true the cache read is skipped: the query goes upstream and
+// its result overwrites the cached entry (X-Cache: REFRESH).
+func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, cacheKeyPrefix string, raw, refresh bool) {
 	// Convert the domain to Punycode encoding (supports IDN domains)
 	punycodeDomain, err := idna.ToASCII(resource)
 	if err != nil {
@@ -113,24 +115,26 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	}
 
 	// Check if the RDAP or WHOIS information for the domain is cached
-	cacheResult, err := utils.GetFromCache(ctx, config.CacheManager, key)
-	if err != nil {
-		utils.HandleInternalError(ctx, w, err)
-		return
-	}
-
-	if cacheResult.Found {
-		w.Header().Set("X-Cache", "HIT")
-		if utils.IsNegativeCacheHit(w, cacheResult.Data) {
+	if !refresh {
+		cacheResult, err := utils.GetFromCache(ctx, config.CacheManager, key)
+		if err != nil {
+			utils.HandleInternalError(ctx, w, err)
 			return
 		}
-		contentType := "application/json"
-		if len(cacheResult.Data) == 0 || cacheResult.Data[0] != '{' {
-			contentType = "text/plain; charset=utf-8"
+
+		if cacheResult.Found {
+			w.Header().Set("X-Cache", "HIT")
+			if utils.IsNegativeCacheHit(w, cacheResult.Data) {
+				return
+			}
+			contentType := "application/json"
+			if len(cacheResult.Data) == 0 || cacheResult.Data[0] != '{' {
+				contentType = "text/plain; charset=utf-8"
+			}
+			setCacheControl(w)
+			utils.HandleCacheResponse(w, cacheResult.Data, contentType)
+			return
 		}
-		setCacheControl(w)
-		utils.HandleCacheResponse(w, cacheResult.Data, contentType)
-		return
 	}
 
 	// Select the query path: RDAP preferred, WHOIS as fallback (raw output
@@ -164,7 +168,7 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 		return
 	}
 
-	w.Header().Set("X-Cache", "MISS")
+	w.Header().Set("X-Cache", missLabel(refresh))
 	setCacheControl(w)
 	w.Header().Set("Content-Type", outcome.contentType)
 	_, _ = fmt.Fprint(w, outcome.body)
