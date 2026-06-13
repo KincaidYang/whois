@@ -12,6 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- The service now logs a startup warning when no `auth.keys` are configured,
+  noting that the instance accepts requests from anyone who can reach it (and,
+  when `mcp.localhostProtection` is off, that `/mcp` has no DNS-rebinding
+  protection). An open instance behind a trusted reverse proxy or on a private
+  network is unaffected in behavior; only the warning is new.
+
 ### Fixed
 - IANA RDAP bootstrap fetches are now capped at 2 MiB, matching the limit
   already applied to WHOIS/RDAP upstream reads; an oversized response is
