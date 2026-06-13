@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of crashing later or silently misbehaving
   (`cache.negativeExpiration` keeps its documented negative "disable"
   semantics).
+- `WHOIS_PROXY_SUFFIXES` values are now trimmed of surrounding whitespace and
+  empty entries are dropped, matching how `WHOIS_AUTH_KEYS` is parsed; a value
+  like `"com, net"` now matches the `net` TLD instead of the unmatchable
+  `" net"`.
 
 ## [0.10.0] - 2026-06-12
 

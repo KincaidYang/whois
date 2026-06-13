@@ -617,7 +617,13 @@ func overrideConfigWithEnv(config *Config) {
 		config.Proxy.Password = proxyPassword
 	}
 	if proxySuffixes := os.Getenv("WHOIS_PROXY_SUFFIXES"); proxySuffixes != "" {
-		config.Proxy.Suffixes = strings.Split(proxySuffixes, ",")
+		suffixes := []string{}
+		for _, s := range strings.Split(proxySuffixes, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				suffixes = append(suffixes, s)
+			}
+		}
+		config.Proxy.Suffixes = suffixes
 	}
 
 	// Override batch configuration

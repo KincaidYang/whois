@@ -161,6 +161,21 @@ func TestEnvOverrideAuthKeys(t *testing.T) {
 	}
 }
 
+func TestEnvOverrideProxySuffixes(t *testing.T) {
+	t.Setenv("WHOIS_PROXY_SUFFIXES", "com, net ,,org")
+	var cfg Config
+	overrideConfigWithEnv(&cfg)
+	want := []string{"com", "net", "org"}
+	if len(cfg.Proxy.Suffixes) != len(want) {
+		t.Fatalf("proxy.suffixes from env: %+v, want %+v", cfg.Proxy.Suffixes, want)
+	}
+	for i, s := range want {
+		if cfg.Proxy.Suffixes[i] != s {
+			t.Errorf("proxy.suffixes[%d]: got %q, want %q", i, cfg.Proxy.Suffixes[i], s)
+		}
+	}
+}
+
 func TestEnvOverrideBootstrapInterval(t *testing.T) {
 	t.Setenv("WHOIS_BOOTSTRAP_INTERVAL", "3600")
 	var cfg Config
