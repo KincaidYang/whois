@@ -75,9 +75,12 @@ func requestClient(r *http.Request) *config.AuthClient {
 }
 
 // clientForKey returns the configured client whose key matches, comparing
-// every entry in constant time so the comparison itself leaks nothing about
-// the configured keys. The empty key never matches: it is what a request with
-// no credentials presents.
+// every entry with subtle.ConstantTimeCompare so the match outcome leaks
+// nothing about a key's contents through timing. The length of a configured
+// key is not constant-time-protected (ConstantTimeCompare returns early when
+// the lengths differ), which is acceptable: key length is not a useful secret.
+// The empty key never matches: it is what a request with no credentials
+// presents.
 func clientForKey(key string) *config.AuthClient {
 	if key == "" {
 		return nil

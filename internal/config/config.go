@@ -266,6 +266,19 @@ func load() {
 			names[i] = c.Name
 		}
 		slog.Info("API key authentication enabled", "clients", names)
+	} else {
+		// No keys configured: the instance answers queries from anyone who can
+		// reach it. That is fine behind a trusted reverse proxy or on a private
+		// network, but a publicly exposed open instance can be used as a free
+		// WHOIS/RDAP proxy against upstream registries.
+		if MCPLocalhostProtection {
+			slog.Warn("no API key authentication configured: this instance accepts requests from anyone who can reach it; set auth.keys (with rateLimit) for public deployments")
+		} else {
+			// Without localhost protection the /mcp endpoint has no
+			// DNS-rebinding guard, so a browser that can reach the address can
+			// drive it — only safe behind a trusted proxy or on a private net.
+			slog.Warn("no API key authentication configured and /mcp DNS-rebinding protection is off: this instance accepts requests from anyone who can reach it; set auth.keys (with rateLimit) for public deployments, or enable mcp.localhostprotection when not behind a trusted reverse proxy")
+		}
 	}
 }
 
