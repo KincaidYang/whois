@@ -445,6 +445,18 @@ curl http://localhost:8043/205794
 
 **MCP 服务器地址：** `http://ip:端口/mcp`
 
+## 版本与稳定性
+
+自 v1.0.0 起，本项目遵循[语义化版本](https://semver.org/lang/zh-CN/)。以下面向用户的契约在 1.x 内保持稳定，不兼容变更只会出现在下一个主版本（2.0.0）：
+
+- **HTTP API**：端点路径与语义、成功响应的 JSON 字段（RDAP 词汇，RFC 9083）、错误格式（RFC 9457 problem+json），以及缓存与条件请求相关的响应头（`X-Cache`、`Cache-Control`、`ETag`）。
+- **配置文件**：`config.yaml` 的分组结构与键名，以及 `WHOIS_*` 环境变量。
+- **MCP 工具**：`whois_lookup` / `whois_batch_lookup` 的名称与输入参数。
+
+不在稳定承诺范围内：注册局上游数据本身的内容与可用字段（随各注册局而变）、Prometheus 指标名称、日志格式，以及 Go 包的内部结构（本模块不对外暴露可导入的 API）。
+
+0.x 阶段的破坏性变更已结束，完整历史见 [CHANGELOG](CHANGELOG.md)。
+
 ## 已知问题
 程序向注册局查询 Whois 信息主要依靠 RDAP 协议查询，但由于大部分 ccTLD 不支持 RDAP 协议，程序会对其原始的 Whois 信息格式化后返回 JSON 数据。由于本人精力有限，未对所有的 ccTLD 后缀进行适配，未适配的后缀会返回 `{"objectClassName": "domain", "unparsed": true, "rawText": "..."}`，如您常用的后缀没有被覆盖，可以提交 Issue 或者贡献匹配规则至 `internal/whois/whois_parsers.go` 文件中，在此表示感谢！
 

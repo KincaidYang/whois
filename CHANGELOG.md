@@ -5,12 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> ⚠️ **Heads-up:** the 0.x releases leading up to v1.0.0 will include
-> **breaking changes** to the API response format and the configuration file.
-> Each breaking change is listed under a **Breaking** heading below. After
-> v1.0.0 the API and configuration format will remain stable.
+> ✅ **v1.0.0 is the first stable release.** The HTTP API, error format,
+> configuration file layout and `WHOIS_*` environment variables now follow
+> [Semantic Versioning](https://semver.org/): incompatible changes will only
+> land in a future major release. The 0.x history below includes the breaking
+> changes made on the way to 1.0.0 (each under a **Breaking** heading).
 
-## [Unreleased]
+## [1.0.0] - 2026-06-13
+
+First stable release. From this version on, the HTTP API, error format,
+configuration file layout and `WHOIS_*` environment variables are covered by
+[Semantic Versioning](https://semver.org/) — see "Versioning & Stability" in
+the README. There are no API or configuration-format changes since 0.10.0; the
+entries below are operational hardening.
 
 ### Security
 - The service now logs a startup warning when no `auth.keys` are configured,
@@ -230,6 +237,8 @@ See the [release notes](https://github.com/KincaidYang/whois/releases/tag/v0.6.0
 See the [GitHub releases page](https://github.com/KincaidYang/whois/releases)
 for 0.5.x and earlier.
 
+[1.0.0]: https://github.com/KincaidYang/whois/compare/v0.10.0...v1.0.0
+[0.10.0]: https://github.com/KincaidYang/whois/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/KincaidYang/whois/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/KincaidYang/whois/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/KincaidYang/whois/compare/v0.6.0...v0.7.0
