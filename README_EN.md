@@ -438,6 +438,18 @@ Returns per-query results, matching the behavior of `POST /batch` (subject to th
 
 **MCP server URL:** `http://ip:port/mcp`
 
+## Versioning & Stability
+
+From v1.0.0 on, this project follows [Semantic Versioning](https://semver.org/). The following user-facing contract is stable within the 1.x line and may only change incompatibly in the next major release (2.0.0):
+
+- **HTTP API**: endpoint paths and semantics, the JSON fields of successful responses (RDAP vocabulary, RFC 9083), the error format (RFC 9457 problem+json), and the caching / conditional-request headers (`X-Cache`, `Cache-Control`, `ETag`).
+- **Configuration**: the grouped structure and key names of `config.yaml`, and the `WHOIS_*` environment variables.
+- **MCP tools**: the names and input parameters of `whois_lookup` / `whois_batch_lookup`.
+
+Not covered by the stability promise: the content and available fields of upstream registry data (which vary by registry), Prometheus metric names, the log format, and the internal structure of the Go packages (the module exposes no importable API).
+
+The 0.x breaking-change period is over; see the [CHANGELOG](CHANGELOG.md) for the full history.
+
 ## Known Issues
 
 The program queries WHOIS information from registries primarily using the RDAP protocol. However, since most ccTLDs do not support RDAP, the program will format and return the original WHOIS information as JSON data. Due to limited resources, not all ccTLD suffixes have been adapted; unadapted suffixes return `{"objectClassName": "domain", "unparsed": true, "rawText": "..."}`. If your commonly used suffix is not covered, please submit an Issue or contribute matching rules to `internal/whois/whois_parsers.go`. Thank you!
