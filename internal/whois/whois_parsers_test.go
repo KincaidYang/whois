@@ -784,3 +784,110 @@ This request domain name is restricted to specifically qualified registrants for
 		t.Errorf("expected ErrDomainNotFound, got %v", err)
 	}
 }
+
+func TestParseDSRecord(t *testing.T) {
+	cases := []struct {
+		name   string
+		in     string
+		want   model.DSData
+		wantOK bool
+	}{
+		{
+			name:   "single-line DS record",
+			in:     "12345 8 2 49FD46E6C4B45C55D4AC",
+			want:   model.DSData{KeyTag: 12345, Algorithm: 8, DigestType: 2, Digest: "49FD46E6C4B45C55D4AC"},
+			wantOK: true,
+		},
+		{
+			name:   "digest split across fields is concatenated",
+			in:     "7240 8 2 E147A85589E24FE0 DBB5980C73501B5D",
+			want:   model.DSData{KeyTag: 7240, Algorithm: 8, DigestType: 2, Digest: "E147A85589E24FE0DBB5980C73501B5D"},
+			wantOK: true,
+		},
+		{
+			name:   "too few fields",
+			in:     "12345 8 2",
+			wantOK: false,
+		},
+		{
+			name:   "non-numeric keyTag",
+			in:     "abc 8 2 DEADBEEF",
+			wantOK: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := parseDSRecord(tc.in)
+			if ok != tc.wantOK {
+				t.Fatalf("ok: got %v, want %v", ok, tc.wantOK)
+			}
+			if ok && got != tc.want {
+				t.Errorf("DSData: got %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseWhoisResponseSO_DSData(t *testing.T) {
+	// A signed .so domain carries a single-line DS record in "DNSSEC DS Data".
+	response := `Registrar: Example SO Registrar
+Domain Status: active
+Registrar IANA ID: 1234
+Creation Date: 2010-03-01T00:00:00Z
+Registry Expiry Date: 2026-03-01T00:00:00Z
+Name Server: ns1.example.so
+DNSSEC: signedDelegation
+DNSSEC DS Data: 12345 8 2 49FD46E6C4B45C55D4AC1BFB1B2C3D4E5F60718293A4B5C6`
+
+	info, err := ParseWhoisResponseSO(response, "example.so")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.SecureDNS == nil || !info.SecureDNS.DelegationSigned {
+		t.Fatalf("SecureDNS: got %+v, want signed", info.SecureDNS)
+	}
+	want := []model.DSData{{KeyTag: 12345, Algorithm: 8, DigestType: 2, Digest: "49FD46E6C4B45C55D4AC1BFB1B2C3D4E5F60718293A4B5C6"}}
+	if !reflect.DeepEqual(info.SecureDNS.DSData, want) {
+		t.Errorf("DSData: got %+v, want %+v", info.SecureDNS.DSData, want)
+	}
+}
+
+func TestParseWhoisResponseJP_Signed(t *testing.T) {
+	// Excerpt of the real default (Japanese-label) JPRS response for a
+	// DNSSEC-signed domain. [Signing Key] carries a DS record
+	// ("keyTag algorithm digestType digest") with the digest wrapped in
+	// parentheses across continuation lines.
+	response := `Domain Information: [ドメイン情報]
+[Domain Name]                   JPRS.JP
+
+[登録者名]                      株式会社日本レジストリサービス
+[Registrant]                    Japan Registry Services Co.,Ltd.
+
+[Name Server]                   ns1.jprs.jp
+[Name Server]                   ns2.jprs.jp
+[Signing Key]                   7240 8 2 (
+                                E147A85589E24FE0DBB5980C73501B5D
+                                D656BE5550714F150BE574AE8777B77D )
+
+[登録年月日]                    2001/02/02
+[有効期限]                      2027/02/28
+[状態]                          Active
+[最終更新]                      2026/03/01 01:05:03 (JST)`
+
+	info, err := ParseWhoisResponseJP(response, "jprs.jp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.SecureDNS == nil || !info.SecureDNS.DelegationSigned {
+		t.Fatalf("SecureDNS: got %+v, want signed", info.SecureDNS)
+	}
+	want := []model.DSData{{
+		KeyTag:     7240,
+		Algorithm:  8,
+		DigestType: 2,
+		Digest:     "E147A85589E24FE0DBB5980C73501B5DD656BE5550714F150BE574AE8777B77D",
+	}}
+	if !reflect.DeepEqual(info.SecureDNS.DSData, want) {
+		t.Errorf("DSData: got %+v, want %+v", info.SecureDNS.DSData, want)
+	}
+}
