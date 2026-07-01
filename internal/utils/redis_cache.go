@@ -59,7 +59,14 @@ func (rc *RedisCache) Get(ctx context.Context, key string) (CacheResult, error) 
 		metrics.CacheRequestsTotal.WithLabelValues("redis", "miss").Inc()
 		return CacheResult{Found: false}, nil
 	default:
-		// Redis error occurred, mark as unhealthy
+		// A cancelled or expired caller context is not a Redis fault. Don't let
+		// one client's abort mark the shared connection unhealthy for every
+		// other in-flight request.
+		if ctx.Err() != nil {
+			return CacheResult{Found: false}, err
+		}
+		slog.Warn("Redis GET failed", "key", key, "err", err)
+		metrics.CacheRequestsTotal.WithLabelValues("redis", "error").Inc()
 		rc.setHealthy(false)
 		return CacheResult{Found: false}, err
 	}
@@ -73,6 +80,13 @@ func (rc *RedisCache) Set(ctx context.Context, key string, value string, expirat
 
 	err := rc.client.Set(ctx, key, value, expiration).Err()
 	if err != nil {
+		// As in Get: a cancelled/expired caller context must not be attributed
+		// to Redis and flip the shared health flag.
+		if ctx.Err() != nil {
+			return err
+		}
+		slog.Warn("Redis SET failed", "key", key, "err", err)
+		metrics.CacheRequestsTotal.WithLabelValues("redis", "error").Inc()
 		rc.setHealthy(false)
 		return err
 	}

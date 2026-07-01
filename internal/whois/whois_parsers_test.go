@@ -157,6 +157,29 @@ URL of the ICANN Whois Inaccuracy Complaint Form: https://www.icann.org/wicf/
 	}
 }
 
+// TestParseWhoisResponseLA_RegistrarIANAID guards against the regex regression
+// where a trailing `$` anchor (or a newline-crossing `\s*`) stopped the field
+// from being captured when it is present and followed by more lines.
+func TestParseWhoisResponseLA_RegistrarIANAID(t *testing.T) {
+	response := `Domain Name: EXAMPLE.LA
+Creation Date: 2000-11-20T01:00:00.0Z
+Registry Expiry Date: 2026-11-20T23:59:59.0Z
+Registrar: TLD Registrar Solutions Ltd
+Registrar IANA ID: 1234
+Domain Status: serverTransferProhibited https://icann.org/epp#serverTransferProhibited
+Name Server: ns1.example.la
+DNSSEC: unsigned
+>>> Last update of WHOIS database: 2024-01-01T00:00:00.0Z <<<`
+
+	domainInfo, err := ParseWhoisResponseLA(response, "example.la")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if domainInfo.RegistrarIANAID != "1234" {
+		t.Errorf("Expected Registrar IANA ID 1234, got %q", domainInfo.RegistrarIANAID)
+	}
+}
+
 func TestParseWhoisResponseLA_DomainNotFound(t *testing.T) {
 	response := `Domain Name: NOTFOUND.LA
 Registry Domain ID:

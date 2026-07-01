@@ -37,7 +37,7 @@ var (
 		[]string{"client", "status_code"},
 	)
 
-	// CacheRequestsTotal counts cache lookups by backend (memory/redis) and result (hit/miss).
+	// CacheRequestsTotal counts cache lookups by backend (memory/redis) and result (hit/miss/error).
 	CacheRequestsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "whois_cache_requests_total",
@@ -66,7 +66,7 @@ var (
 		[]string{"protocol", "tld"},
 	)
 
-	// BootstrapRefreshTotal counts IANA bootstrap refresh attempts by result (success/failure).
+	// BootstrapRefreshTotal counts IANA bootstrap refresh attempts by result (success/failure/partial).
 	BootstrapRefreshTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "whois_bootstrap_refresh_total",
