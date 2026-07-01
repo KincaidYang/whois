@@ -103,7 +103,7 @@ var (
 
 	// LA
 	reLARegistrar          = regexp.MustCompile(`Registrar:\s+(.+)`)
-	reLARegistrarIANAID    = regexp.MustCompile(`Registrar IANA ID:\s*(.*)$`)
+	reLARegistrarIANAID    = regexp.MustCompile(`Registrar IANA ID:[ \t]*(.*)`)
 	reLADomainStatus       = regexp.MustCompile(`Domain Status:\s+(.+)`)
 	reLACreationDate       = regexp.MustCompile(`Creation Date:\s+(.+)`)
 	reLAExpiryDate         = regexp.MustCompile(`Registry Expiry Date:\s+(.+)`)
@@ -278,6 +278,9 @@ func ParseWhoisResponseCN(response string, domain string) (model.DomainInfo, err
 func ParseWhoisResponseHK(response string, domain string) (model.DomainInfo, error) {
 	domainInfo := newDomainInfo(domain)
 
+	// Normalize CRLF so the blank-line-terminated nameserver block regex matches.
+	response = strings.ReplaceAll(response, "\r", "")
+
 	// 解析创建日期（HKIRC 只给日期，保持 RFC 3339 full-date）
 	matchCreationDate := reHKCreationDate.FindStringSubmatch(response)
 	if len(matchCreationDate) > 1 {
@@ -327,6 +330,9 @@ func ParseWhoisResponseHK(response string, domain string) (model.DomainInfo, err
 
 func ParseWhoisResponseTW(response string, domain string) (model.DomainInfo, error) {
 	domainInfo := newDomainInfo(domain)
+
+	// Normalize CRLF so the blank-line-terminated nameserver block regex matches.
+	response = strings.ReplaceAll(response, "\r", "")
 
 	// 解析注册商
 	matchRegistrar := reTWRegistrar.FindStringSubmatch(response)
@@ -591,6 +597,9 @@ func ParseWhoisResponseSB(response string, domain string) (model.DomainInfo, err
 
 func ParseWhoisResponseMO(response string, domain string) (model.DomainInfo, error) {
 	domainInfo := newDomainInfo(domain)
+
+	// Normalize CRLF so the blank-line-terminated nameserver block regex matches.
+	response = strings.ReplaceAll(response, "\r", "")
 
 	// Parse creation date (MONIC local time is UTC+8)
 	matchCreationDate := reMOCreationDate.FindStringSubmatch(response)

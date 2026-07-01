@@ -151,6 +151,19 @@ func withCORS(next http.Handler) http.Handler {
 }
 
 // registerRoutes attaches all endpoints to mux.
+// maxMCPBody bounds the /mcp request body. MCP JSON-RPC calls (including
+// whois_batch_lookup) are small; 256 KiB leaves generous headroom while
+// preventing an unbounded read.
+const maxMCPBody = 256 << 10 // 256 KiB
+
+// maxBytes wraps a handler so its request body is capped at n bytes.
+func maxBytes(next http.Handler, n int64) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, n)
+		next.ServeHTTP(w, r)
+	})
+}
+
 func registerRoutes(mux *http.ServeMux) {
 	// Health check endpoints
 	mux.HandleFunc("/health", handlers.HandleHealth)
@@ -163,8 +176,10 @@ func registerRoutes(mux *http.ServeMux) {
 	// OpenAPI 3.1 service description
 	mux.HandleFunc("/openapi.json", handlers.HandleOpenAPI)
 
-	// MCP Streamable HTTP endpoint
-	mux.Handle("/mcp", mcp.NewHandler(config.Version))
+	// MCP Streamable HTTP endpoint. Cap the body like /batch does: the go-sdk
+	// transport reads the whole request into memory, so an unbounded POST would
+	// otherwise be an easy amplification vector.
+	mux.Handle("/mcp", maxBytes(mcp.NewHandler(config.Version), maxMCPBody))
 
 	// Bulk query endpoint (off unless batch.enabled is set)
 	mux.HandleFunc("/batch", batchHandler)

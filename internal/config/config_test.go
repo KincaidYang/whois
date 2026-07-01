@@ -193,6 +193,30 @@ func TestEnvOverrideBootstrapInterval(t *testing.T) {
 	}
 }
 
+func TestEnvOverrideBoolValues(t *testing.T) {
+	// Recognized true/false values (including mixed case) apply.
+	for _, tc := range []struct {
+		val  string
+		want bool
+	}{{"true", true}, {"True", true}, {"1", true}, {"false", false}, {"0", false}, {" TRUE ", true}} {
+		t.Setenv("WHOIS_REDIS_TLS", tc.val)
+		cfg := Config{}
+		overrideConfigWithEnv(&cfg)
+		if cfg.Redis.TLS != tc.want {
+			t.Errorf("WHOIS_REDIS_TLS=%q: got %v, want %v", tc.val, cfg.Redis.TLS, tc.want)
+		}
+	}
+
+	// An unrecognized value must not silently flip a flag that is already on.
+	t.Setenv("WHOIS_REDIS_TLS", "yes")
+	cfg := Config{}
+	cfg.Redis.TLS = true
+	overrideConfigWithEnv(&cfg)
+	if !cfg.Redis.TLS {
+		t.Error("unrecognized WHOIS_REDIS_TLS=yes must keep the existing true value, not force false")
+	}
+}
+
 func TestParseConfigJSON(t *testing.T) {
 	cfg, err := parseConfig([]byte(`{"server": {"port": 8080}, "log": {"level": "warn"}}`), ".json")
 	if err != nil {

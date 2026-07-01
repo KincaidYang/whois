@@ -542,6 +542,24 @@ func parseConfig(data []byte, ext string) (Config, error) {
 	return config, nil
 }
 
+// parseBoolEnv interprets a boolean environment variable. "true"/"1" mean true
+// and "false"/"0" mean false (case-insensitive, surrounding whitespace ignored).
+// Any other value keeps the current setting and is logged, so a typo like "True"
+// (now accepted) — or "yes"/"on" (rejected) — can't silently flip a
+// security-relevant flag such as redis.tls off.
+func parseBoolEnv(name, val string, current bool) bool {
+	switch strings.ToLower(strings.TrimSpace(val)) {
+	case "true", "1":
+		return true
+	case "false", "0":
+		return false
+	default:
+		slog.Warn("ignoring unrecognized boolean env var; keeping current value",
+			"env", name, "value", val, "current", current)
+		return current
+	}
+}
+
 func overrideConfigWithEnv(config *Config) {
 	// Override Redis configuration
 	if redisAddr := os.Getenv("WHOIS_REDIS_ADDR"); redisAddr != "" {
@@ -556,10 +574,10 @@ func overrideConfigWithEnv(config *Config) {
 		}
 	}
 	if redisTLS := os.Getenv("WHOIS_REDIS_TLS"); redisTLS != "" {
-		config.Redis.TLS = redisTLS == "true" || redisTLS == "1"
+		config.Redis.TLS = parseBoolEnv("WHOIS_REDIS_TLS", redisTLS, config.Redis.TLS)
 	}
 	if redisTLSSkipVerify := os.Getenv("WHOIS_REDIS_TLS_SKIP_VERIFY"); redisTLSSkipVerify != "" {
-		config.Redis.TLSSkipVerify = redisTLSSkipVerify == "true" || redisTLSSkipVerify == "1"
+		config.Redis.TLSSkipVerify = parseBoolEnv("WHOIS_REDIS_TLS_SKIP_VERIFY", redisTLSSkipVerify, config.Redis.TLSSkipVerify)
 	}
 
 	// Override cache configuration
@@ -569,7 +587,7 @@ func overrideConfigWithEnv(config *Config) {
 		}
 	}
 	if requireRedis := os.Getenv("WHOIS_REQUIRE_REDIS"); requireRedis != "" {
-		config.Cache.RequireRedis = requireRedis == "true" || requireRedis == "1"
+		config.Cache.RequireRedis = parseBoolEnv("WHOIS_REQUIRE_REDIS", requireRedis, config.Cache.RequireRedis)
 	}
 	if memoryMaxSize := os.Getenv("WHOIS_MEMORY_MAX_SIZE"); memoryMaxSize != "" {
 		if maxSize, err := strconv.Atoi(memoryMaxSize); err == nil {
@@ -628,7 +646,7 @@ func overrideConfigWithEnv(config *Config) {
 
 	// Override batch configuration
 	if batchEnabled := os.Getenv("WHOIS_BATCH_ENABLED"); batchEnabled != "" {
-		config.Batch.Enabled = batchEnabled == "true" || batchEnabled == "1"
+		config.Batch.Enabled = parseBoolEnv("WHOIS_BATCH_ENABLED", batchEnabled, config.Batch.Enabled)
 	}
 	if batchMaxItems := os.Getenv("WHOIS_BATCH_MAX_ITEMS"); batchMaxItems != "" {
 		if maxItems, err := strconv.Atoi(batchMaxItems); err == nil {
@@ -640,7 +658,7 @@ func overrideConfigWithEnv(config *Config) {
 		config.Log.Level = logLevel
 	}
 	if mcpProtection := os.Getenv("WHOIS_MCP_LOCALHOST_PROTECTION"); mcpProtection != "" {
-		config.MCP.LocalhostProtection = mcpProtection == "true" || mcpProtection == "1"
+		config.MCP.LocalhostProtection = parseBoolEnv("WHOIS_MCP_LOCALHOST_PROTECTION", mcpProtection, config.MCP.LocalhostProtection)
 	}
 
 	// Override API authentication keys (comma-separated bare keys; the

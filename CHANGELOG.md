@@ -11,6 +11,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > land in a future major release. The 0.x history below includes the breaking
 > changes made on the way to 1.0.0 (each under a **Breaking** heading).
 
+## [Unreleased]
+
+### Fixed
+- Redis cache no longer treats a caller's cancelled/expired request context as a
+  Redis failure. Previously a single client disconnecting mid-request could flip
+  the shared connection to "unhealthy", forcing every other in-flight request onto
+  the memory-only fallback until the next 30s health check. Genuine Redis command
+  errors are now also logged and counted (`whois_cache_requests_total{result="error"}`).
+- Boolean environment overrides (`WHOIS_REDIS_TLS`, `WHOIS_REDIS_TLS_SKIP_VERIFY`,
+  `WHOIS_REQUIRE_REDIS`, `WHOIS_BATCH_ENABLED`, `WHOIS_MCP_LOCALHOST_PROTECTION`) no
+  longer silently coerce an unrecognized value to `false`. Values are now parsed
+  case-insensitively (`true`/`1`/`false`/`0`); anything else keeps the existing
+  setting and logs a warning, so a typo like `True`/`yes` can't quietly disable a
+  security-relevant flag such as `redis.tls`.
+- The `.la` `Registrar IANA ID` field is now parsed correctly. A stray end-of-input
+  anchor in the regex meant the field was only ever captured when it happened to be
+  the last line of the response, so it was effectively always empty.
+- `.hk`, `.tw` and `.mo` responses now have CRLF line endings normalized before
+  parsing (as `.au` already did), so the nameserver list is no longer silently
+  dropped when the registry uses `\r\n`.
+- The `/mcp` endpoint now caps its request body (256 KiB), matching the existing
+  limit on `/batch`; previously the MCP transport read the whole request into
+  memory without bound.
+
+### Changed
+- A partial IANA RDAP bootstrap refresh (some categories fetched, others failed) is
+  now logged as a partial update and recorded as
+  `whois_bootstrap_refresh_total{result="partial"}` rather than `success`, since the
+  failed categories fall back to the compiled baseline for that cycle.
+
 ## [1.0.0] - 2026-06-13
 
 First stable release. From this version on, the HTTP API, error format,
