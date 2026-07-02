@@ -150,7 +150,6 @@ func withCORS(next http.Handler) http.Handler {
 	})
 }
 
-// registerRoutes attaches all endpoints to mux.
 // maxMCPBody bounds the /mcp request body. MCP JSON-RPC calls (including
 // whois_batch_lookup) are small; 256 KiB leaves generous headroom while
 // preventing an unbounded read.
@@ -164,6 +163,7 @@ func maxBytes(next http.Handler, n int64) http.Handler {
 	})
 }
 
+// registerRoutes attaches all endpoints to mux.
 func registerRoutes(mux *http.ServeMux) {
 	// Health check endpoints
 	mux.HandleFunc("/health", handlers.HandleHealth)
