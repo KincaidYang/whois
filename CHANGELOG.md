@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- `/openapi.json` now reflects the running instance's authentication mode:
+  when `auth.keys` is configured, the anonymous alternative is dropped from
+  the document's `security` requirements, so a generated client knows a
+  credential is required rather than merely possible. Open instances serve
+  the document unchanged; its `Cache-Control` also switches to `private`
+  when authentication is enabled, matching the query endpoints.
+
 ### Fixed
 - A deduplicated upstream query whose waiters all disconnect now holds exactly
   one concurrency slot, no matter how many waiters canceled. Previously every
