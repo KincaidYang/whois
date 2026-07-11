@@ -13,6 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Builds now require Go 1.26.5, picking up the upstream `crypto/tls` fix for
+  [GO-2026-5856](https://pkg.go.dev/vuln/GO-2026-5856), which was reachable from
+  this binary.
+- Responses carry `Cache-Control: private` (instead of `public`) when API key
+  authentication is enabled, so a shared cache such as a CDN in front of an
+  authenticated instance cannot serve cached results to clients that never
+  presented a key. Open instances keep `public`.
+- An invalid `proxy.server` URL now fails startup instead of being silently
+  dropped at first use, which sent traffic the operator meant to route through
+  the proxy over the direct connection instead. `proxy.suffixes` entries are
+  lowercased on load to match the lookup side; an uppercase suffix could never
+  match before.
+
 ### Fixed
 - Redis cache no longer treats a caller's cancelled/expired request context as a
   Redis failure. Previously a single client disconnecting mid-request could flip
@@ -34,12 +48,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `/mcp` endpoint now caps its request body (256 KiB), matching the existing
   limit on `/batch`; previously the MCP transport read the whole request into
   memory without bound.
+- Graceful shutdown now stops accepting new requests before waiting for in-flight
+  ones. The previous order waited on the in-flight counter while the listener was
+  still admitting requests, so under sustained traffic shutdown could hang
+  indefinitely; both waits are now bounded.
+- A request whose client disconnects (or whose batch item deadline passes) while
+  waiting on a deduplicated upstream query now releases its concurrency slot
+  immediately instead of blocking for the full query timeout. The shared upstream
+  query still runs to completion and populates the cache.
+- `/batch` rejects request bodies with trailing data after the JSON object;
+  previously a valid object followed by a second JSON document was accepted with
+  the remainder silently ignored.
+- The OpenAPI document now declares that every endpoint accepts anonymous, bearer
+  or `X-API-Key` access (enforced only when `auth.keys` is configured) — it
+  previously defined the security schemes without any security requirement — and
+  CIDR queries are described by a dedicated `/ip/{address}/{prefixlen}` entry
+  instead of a path parameter containing a slash, which OpenAPI does not allow.
+  Runtime routing is unchanged.
 
 ### Changed
-- A partial IANA RDAP bootstrap refresh (some categories fetched, others failed) is
-  now logged as a partial update and recorded as
-  `whois_bootstrap_refresh_total{result="partial"}` rather than `success`, since the
-  failed categories fall back to the compiled baseline for that cycle.
+- The `/mcp` endpoint now runs in stateless mode and answers tool calls with plain
+  `application/json` instead of a server-sent-events stream. The endpoint only
+  exposes tools, so sessions carried no state; idle stateful sessions were never
+  cleaned up and could be created without bound, and the SSE responses conflicted
+  with the server's write timeout. MCP clients following the Streamable HTTP
+  specification are unaffected.
+- When an IANA RDAP bootstrap category fails to refresh, it now keeps serving its
+  most recent successful fetch (at most one refresh interval stale) instead of
+  reverting to the compiled-in baseline from build time. A partial refresh (some
+  categories fetched, others failed) is logged as a partial update and recorded as
+  `whois_bootstrap_refresh_total{result="partial"}` rather than `success`, and
+  `whois_bootstrap_last_fetch_timestamp_seconds` is only advanced on a full
+  success.
 
 ## [1.0.0] - 2026-06-13
 
