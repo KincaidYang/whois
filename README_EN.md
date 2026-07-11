@@ -2,27 +2,11 @@
 
 [中文文档](README.md)
 
-# whois
+## Introduction
 
-**A self-hosted WHOIS/RDAP API and MCP server for domains, IPv4/v6, CIDR prefixes and ASNs — one endpoint, consistent JSON.**
+A domain WHOIS query tool implemented in Golang, supporting WHOIS information queries for all publicly queryable TLD domains, IPv4/v6, and ASN.
 
-```bash
-docker run -d --name whois -p 8043:8043 jinzeyang/whois
-```
-
-Try it against the demo instance:
-
-```bash
-curl https://whois.ddnsip.cn/example.com   # domain
-curl https://whois.ddnsip.cn/8.8.8.8       # IP (CIDR prefixes work too, e.g. 1.0.0.0/24)
-curl https://whois.ddnsip.cn/AS13335       # ASN
-```
-
-- **One endpoint for domains / IPs / CIDRs / ASNs**: RDAP first with classic WHOIS fallback, normalized to RDAP-style (RFC 9083) JSON
-- **REST API + OpenAPI 3.1 + MCP**: AI assistants can call WHOIS lookups directly through the `/mcp` endpoint ([client setup](docs/mcp.md))
-- **Zero-dependency start**: a single binary / container, no third-party API keys; in-memory cache by default, Redis optional for production
-- **Production-ready**: API key auth, per-key rate limits, batch queries, Prometheus metrics, ETag / cache headers, health probes
-- **Compliant**: follows ICANN's Temporary Specification for gTLD Registration Data and the GDPR — domain responses omit the owner's contact information, address, phone number and email
+In compliance with ICANN's "Temporary Specification for gTLD Registration Data" and the EU's "General Data Protection Regulation" (GDPR), when querying domain information, the program only returns essential information (see response examples below) and does not return the owner's `contact information`, `address`, `phone number`, `email`, and other personal fields.
 
 Demo Sites:
 - [https://whois.ddnsip.cn](https://whois.ddnsip.cn)
@@ -33,14 +17,9 @@ Demo Sites:
 ### Docker Deployment
 
 ```bash
-# One-line start (in-memory cache; fine for trying it out and single-instance deployments)
-docker run -d --name whois -p 8043:8043 jinzeyang/whois
-```
-
-For production or multi-instance deployments, add Redis (persistent cache, shared across instances):
-
-```bash
+# Install Redis
 docker run -d --name redis -p 6379:6379 redis:latest
+# Run whois
 docker run -d --name whois -p 8043:8043 --link redis:redis jinzeyang/whois
 ```
 
@@ -57,6 +36,10 @@ git clone https://github.com/KincaidYang/whois.git
 cd whois
 go build
 ```
+
+### Install Dependencies
+
+This program runs on its in-memory cache by default, with no extra dependencies; Redis is recommended for production and multi-instance deployments. You can refer to https://redis.io/docs/install/install-redis/install-redis-on-linux/ for installation.
 
 ### Edit Configuration File
 
@@ -82,7 +65,7 @@ cache:
   memoryCleanInterval: 300     # Memory cache cleanup interval in seconds (default: 300)
 
 redis:
-  addr: "redis:6379"           # Redis server address; leave empty to run without Redis on the in-memory cache alone (enough for single instances)
+  addr: "redis:6379"           # Redis server address
   password: ""                 # Redis password, leave empty if none
   db: 0                        # Redis database number
   tls: false                   # Enable TLS when Redis is reached over an untrusted network
@@ -128,7 +111,7 @@ Every configuration option can be overridden via environment variables (which ta
 | `WHOIS_REQUIRE_REDIS` | `cache.requireRedis` | `false` | `true`/`1` makes startup fail when Redis is unavailable |
 | `WHOIS_MEMORY_MAX_SIZE` | `cache.memoryMaxSize` | `10000` | Max entries in the in-memory cache |
 | `WHOIS_MEMORY_CLEAN_INTERVAL` | `cache.memoryCleanInterval` | `300` | In-memory cache cleanup interval in seconds |
-| `WHOIS_REDIS_ADDR` | `redis.addr` | unset | Redis address; unset keeps the config-file value, **explicitly empty** (`WHOIS_REDIS_ADDR=`) disables Redis (memory-only cache); when set, the service falls back to the in-memory cache if Redis is unreachable (unless requireRedis) |
+| `WHOIS_REDIS_ADDR` | `redis.addr` | unset | Redis address; explicitly empty (`WHOIS_REDIS_ADDR=`) disables Redis (memory-only cache), when set the service falls back to the in-memory cache when unreachable (unless requireRedis) |
 | `WHOIS_REDIS_PASSWORD` | `redis.password` | empty | Redis password |
 | `WHOIS_REDIS_DB` | `redis.db` | `0` | Redis database number |
 | `WHOIS_REDIS_TLS` | `redis.tls` | `false` | `true`/`1` enables TLS for Redis |
@@ -156,7 +139,7 @@ docker run -d --name whois -p 8043:8043 \
 ```
 
 **Configuration Notes:**
-- **Redis Configuration**: Optional. An empty `redis.addr` runs the service on the in-memory cache alone; Redis is recommended for production and multi-instance deployments (persistent, shared cache)
+- **Redis Configuration**: Redis is recommended for better performance and multi-instance cache sharing
 - **Cache Expiration**: Adjust based on query frequency, 3600 seconds recommended
 - **Memory Cache**: Fallback when Redis is unavailable; evicts least-recently-used (LRU) entries once full
 - **Negative Cache**: Briefly caches "not found / denied" results to avoid repeatedly hitting upstream for missing resources; defaults to 60 seconds
@@ -455,7 +438,7 @@ Returns per-query results, matching the behavior of `POST /batch` (subject to th
 
 **MCP server URL:** `http://ip:port/mcp`
 
-See [docs/mcp.md](docs/mcp.md) for client setup (Claude Code, Claude Desktop, Cursor, …) and authentication.
+See [docs/mcp.md](docs/mcp.md) for client setup and authentication.
 
 ## Versioning & Stability
 
@@ -473,11 +456,43 @@ The 0.x breaking-change period is over; see the [CHANGELOG](CHANGELOG.md) for th
 
 The program queries WHOIS information from registries primarily using the RDAP protocol. However, since most ccTLDs do not support RDAP, the program will format and return the original WHOIS information as JSON data. Due to limited resources, not all ccTLD suffixes have been adapted; unadapted suffixes return `{"objectClassName": "domain", "unparsed": true, "rawText": "..."}`. If your commonly used suffix is not covered, please submit an Issue or contribute matching rules to `internal/whois/whois_parsers.go`. Thank you!
 
-## Acknowledgements & Data Sources
+## Dependencies
 
-This project uses [go-redis](https://github.com/redis/go-redis), [prometheus/client_golang](https://github.com/prometheus/client_golang), the [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk), [golang.org/x/net](https://pkg.go.dev/golang.org/x/net) (idna, publicsuffix) and [yaml.v3](https://gopkg.in/yaml.v3).
+This project uses the following Go standard libraries:
 
-WHOIS/RDAP server lists are sourced from the [IANA root zone database](https://www.iana.org/domains/root/db) and the [IANA RDAP Bootstrap registries](https://data.iana.org/rdap/) (domains, IPv4/v6, ASN).
+- [`bytes`](https://golang.org/pkg/bytes/): Functions for byte slice operations
+- [`context`](https://golang.org/pkg/context/): Context type for passing deadlines, cancellation signals, and request-scoped values
+- [`encoding/json`](https://golang.org/pkg/encoding/json/): JSON encoding and decoding
+- [`errors`](https://golang.org/pkg/errors/): Error creation and manipulation
+- [`fmt`](https://golang.org/pkg/fmt/): Formatted I/O functions
+- [`io`](https://golang.org/pkg/io/): I/O primitives
+- [`log/slog`](https://golang.org/pkg/log/slog/): Structured logging
+- [`net`](https://golang.org/pkg/net/): Network I/O primitives
+- [`net/http`](https://golang.org/pkg/net/http/): HTTP client and server implementation
+- [`os`](https://golang.org/pkg/os/): OS functionality
+- [`os/signal`](https://golang.org/pkg/os/signal/): OS signal handling
+- [`regexp`](https://golang.org/pkg/regexp/): Regular expression search
+- [`strconv`](https://golang.org/pkg/strconv/): String conversion functions
+- [`strings`](https://golang.org/pkg/strings/): String manipulation functions
+- [`sync`](https://golang.org/pkg/sync/): Basic synchronization primitives
+- [`syscall`](https://golang.org/pkg/syscall/): Low-level OS calls
+- [`time`](https://golang.org/pkg/time/): Time measurement and display
+
+This project also uses the following third-party libraries:
+
+- [`github.com/redis/go-redis/v9`](https://github.com/go-redis/redis): Redis client for Go
+- [`github.com/prometheus/client_golang`](https://github.com/prometheus/client_golang): Prometheus metrics instrumentation and exposition
+- [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk): MCP (Model Context Protocol) Go SDK
+- [`golang.org/x/net/idna`](https://pkg.go.dev/golang.org/x/net/idna): IDNA (Internationalized Domain Names in Applications) implementation
+- [`golang.org/x/net/publicsuffix`](https://pkg.go.dev/golang.org/x/net/publicsuffix): Public Suffix List implementation
+- [`gopkg.in/yaml.v3`](https://gopkg.in/yaml.v3): YAML parsing library
+
+WHOIS/RDAP server lists are sourced from:
+- [IANA](https://www.iana.org/domains/root/db)
+- [IANA RDAP Bootstrap](https://data.iana.org/rdap/)
+- [IANA RDAP Bootstrap (IPv4)](https://data.iana.org/rdap/ipv4.json)
+- [IANA RDAP Bootstrap (IPv6)](https://data.iana.org/rdap/ipv6.json)
+- [IANA RDAP Bootstrap (AS)](https://data.iana.org/rdap/asn.json)
 
 ## License
 
