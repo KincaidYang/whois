@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -237,11 +238,13 @@ func load() {
 	RateLimit = config.Server.RateLimit
 	ConcurrencyLimiter = make(chan struct{}, RateLimit)
 
-	// Set the proxy server
+	// Set the proxy server. Suffixes are lowercased to match the lookup
+	// side, which normalizes every queried resource to lowercase — an
+	// uppercase suffix in the config would otherwise never match.
 	ProxyServer = config.Proxy.Server
 	ProxyUsername = config.Proxy.Username
 	ProxyPassword = config.Proxy.Password
-	ProxySuffixes = config.Proxy.Suffixes
+	ProxySuffixes = lowercaseAll(config.Proxy.Suffixes)
 
 	// Set the bootstrap interval
 	BootstrapInterval = time.Duration(config.Bootstrap.Interval) * time.Second
@@ -372,6 +375,11 @@ func applyDefaults(config *Config) {
 // cache.memoryCleanInterval panics the memory cache's cleanup ticker, a
 // negative batch.maxItems rejects every batch request). cache.negativeExpiration
 // is exempt: negative is its documented "disable" value.
+//
+// A configured proxy.server must be a usable proxy URL. An invalid one used
+// to be dropped silently at first use, quietly sending traffic the operator
+// meant to proxy over the direct route instead; failing startup keeps that
+// traffic from ever leaking.
 func validateConfig(config *Config) error {
 	checks := []struct {
 		name  string
@@ -389,6 +397,38 @@ func validateConfig(config *Config) error {
 		if c.value < 0 {
 			return fmt.Errorf("%s must not be negative (got %d)", c.name, c.value)
 		}
+	}
+	if config.Proxy.Server != "" {
+		if err := validateProxyURL(config.Proxy.Server); err != nil {
+			return fmt.Errorf("proxy.server: %w", err)
+		}
+	}
+	return nil
+}
+
+// lowercaseAll returns a copy of items with every entry lowercased.
+func lowercaseAll(items []string) []string {
+	out := make([]string, len(items))
+	for i, s := range items {
+		out[i] = strings.ToLower(s)
+	}
+	return out
+}
+
+// validateProxyURL checks that s is an absolute URL with a host and a scheme
+// http.Transport's Proxy function supports.
+func validateProxyURL(s string) error {
+	u, err := url.Parse(s)
+	if err != nil {
+		return fmt.Errorf("invalid URL %q: %w", s, err)
+	}
+	switch u.Scheme {
+	case "http", "https", "socks5", "socks5h":
+	default:
+		return fmt.Errorf("unsupported scheme %q in %q (use http, https, socks5 or socks5h)", u.Scheme, s)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("missing host in %q", s)
 	}
 	return nil
 }

@@ -36,6 +36,9 @@ var proxyOnce sync.Once
 
 func initProxy() {
 	if config.ProxyServer != "" {
+		// config.Load validated the URL at startup (an invalid proxy.server
+		// fails the process rather than silently sending traffic direct), so
+		// the error branch here is purely defensive.
 		proxyURL, err := url.Parse(config.ProxyServer)
 		if err == nil {
 			if config.ProxyUsername != "" && config.ProxyPassword != "" {
