@@ -2,9 +2,27 @@
 
 [English](README_EN.md)
 
-## 介绍
-基于 Golang 实现的域名 Whois 查询工具，支持所有允许公开查询的 TLD 后缀的域名、IPv4/v6、ASN 的 Whois 信息查询。
-根据 ICANN 《通用顶级域名注册数据临时政策细则（Temporary Specification for gTLD Registration Data）》和欧盟《通用数据保护条例》合规要求，在查询域名信息时，程序只返回了部分必要的信息（详见下方返回结果示例），不会返回所有者的`联系方式`、`地址`、`电话`、`邮箱`等字段。
+# whois
+
+**可自托管的 WHOIS/RDAP API 与 MCP 服务：统一查询域名、IPv4/v6、CIDR 前缀和 ASN，返回一致的 JSON。**
+
+```bash
+docker run -d --name whois -p 8043:8043 jinzeyang/whois
+```
+
+用演示站直接试一试：
+
+```bash
+curl https://whois.ddnsip.cn/example.com   # 域名
+curl https://whois.ddnsip.cn/8.8.8.8       # IP（也支持 CIDR，如 1.0.0.0/24）
+curl https://whois.ddnsip.cn/AS13335       # ASN
+```
+
+- **域名 / IP / CIDR / ASN 统一入口**：RDAP 优先、传统 WHOIS 兜底，字段统一为 RDAP（RFC 9083）风格
+- **REST API + OpenAPI 3.1 + MCP**：AI 助手可通过 `/mcp` 端点直接调用 WHOIS 查询（[接入方法](docs/mcp.md)）
+- **开箱即用**：单二进制 / 单容器，无需第三方 API Key；默认内存缓存，生产可选 Redis
+- **面向生产**：API Key 认证、按 key 限流、批量查询、Prometheus 指标、ETag / 缓存头、健康检查端点
+- **合规**：遵循 ICANN《gTLD 注册数据临时政策细则》与 GDPR，域名结果不返回联系人、地址、电话、邮箱等隐私字段
 
 演示站点：
 - [https://whois.ddnsip.cn](https://whois.ddnsip.cn)
@@ -13,12 +31,17 @@
 ## 使用方法
 ### Docker部署
 ```bash
-# 安装 Redis
+# 一行启动（内存缓存，适合体验和单实例部署）
+docker run -d --name whois -p 8043:8043 jinzeyang/whois
+# 大陆推荐镜像源
+docker run -d --name whois -p 8043:8043 docker.cnb.cool/kincaidyang/whois
+```
+
+生产环境或多实例部署建议接入 Redis（缓存持久化、多实例共享）：
+
+```bash
 docker run -d --name redis -p 6379:6379 redis:latest
-# 运行 whois
 docker run -d --name whois -p 8043:8043 --link redis:redis jinzeyang/whois
-# 运行 whois（大陆推荐）
-docker run -d --name whois -p 8043:8043 --link redis:redis docker.cnb.cool/kincaidyang/whois
 ```
 
 ### 下载
@@ -30,8 +53,6 @@ git clone https://github.com/KincaidYang/whois.git
 cd whois
 go build
 ```
-### 安装依赖
-本程序需要 Redis 服务支持，您可参照 https://redis.io/docs/install/install-redis/install-redis-on-linux/ 进行安装。
 
 ### 编辑配置文件
 ```bash
@@ -55,7 +76,7 @@ cache:
   memoryCleanInterval: 300     # 内存缓存过期数据清理间隔，单位：秒（默认: 300）
 
 redis:
-  addr: "redis:6379"           # Redis服务器地址
+  addr: "redis:6379"           # Redis服务器地址；留空则完全不使用 Redis，仅用内存缓存（单实例部署足够）
   password: ""                 # Redis密码，如无密码则留空
   db: 0                        # Redis数据库编号
   tls: false                   # 通过不可信网络连接 Redis 时建议开启 TLS
@@ -101,7 +122,7 @@ mcp:
 | `WHOIS_REQUIRE_REDIS` | `cache.requireRedis` | `false` | `true`/`1` 时 Redis 不可用则启动失败 |
 | `WHOIS_MEMORY_MAX_SIZE` | `cache.memoryMaxSize` | `10000` | 内存缓存最大条目数 |
 | `WHOIS_MEMORY_CLEAN_INTERVAL` | `cache.memoryCleanInterval` | `300` | 内存缓存清理间隔（秒） |
-| `WHOIS_REDIS_ADDR` | `redis.addr` | 空 | Redis 地址；不可用时自动降级到内存缓存（除非开启 requireRedis） |
+| `WHOIS_REDIS_ADDR` | `redis.addr` | 空 | Redis 地址；留空则不使用 Redis（纯内存缓存），配置后连接失败时自动降级到内存缓存（除非开启 requireRedis） |
 | `WHOIS_REDIS_PASSWORD` | `redis.password` | 空 | Redis 密码 |
 | `WHOIS_REDIS_DB` | `redis.db` | `0` | Redis 数据库编号 |
 | `WHOIS_REDIS_TLS` | `redis.tls` | `false` | `true`/`1` 启用 Redis TLS |
@@ -129,7 +150,7 @@ docker run -d --name whois -p 8043:8043 \
 ```
 
 **配置说明：**
-- **Redis配置**：建议使用Redis以获得更好的性能和多实例缓存共享能力
+- **Redis配置**：可选。留空 `redis.addr` 则以纯内存缓存运行；生产环境或多实例部署建议接入 Redis，以获得缓存持久化和多实例共享能力
 - **缓存过期时间**：根据查询频率调整，建议3600秒
 - **内存缓存**：Redis 不可用时的兜底，达到上限后按 LRU（最近最少使用）淘汰
 - **负向缓存**：将“未找到/被拒”的查询结果短时间缓存，避免对不存在的资源反复请求上游；默认 60 秒
@@ -445,6 +466,8 @@ curl http://localhost:8043/205794
 
 **MCP 服务器地址：** `http://ip:端口/mcp`
 
+Claude Code / Claude Desktop / Cursor 等客户端的具体接入配置、认证方式见 [docs/mcp.md](docs/mcp.md)。
+
 ## 版本与稳定性
 
 自 v1.0.0 起，本项目遵循[语义化版本](https://semver.org/lang/zh-CN/)。以下面向用户的契约在 1.x 内保持稳定，不兼容变更只会出现在下一个主版本（2.0.0）：
@@ -460,40 +483,8 @@ curl http://localhost:8043/205794
 ## 已知问题
 程序向注册局查询 Whois 信息主要依靠 RDAP 协议查询，但由于大部分 ccTLD 不支持 RDAP 协议，程序会对其原始的 Whois 信息格式化后返回 JSON 数据。由于本人精力有限，未对所有的 ccTLD 后缀进行适配，未适配的后缀会返回 `{"objectClassName": "domain", "unparsed": true, "rawText": "..."}`，如您常用的后缀没有被覆盖，可以提交 Issue 或者贡献匹配规则至 `internal/whois/whois_parsers.go` 文件中，在此表示感谢！
 
-## 项目依赖
+## 致谢与数据来源
 
-本项目使用了以下Go标准库：
+本项目使用了 [go-redis](https://github.com/redis/go-redis)、[prometheus/client_golang](https://github.com/prometheus/client_golang)、[MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk)、[golang.org/x/net](https://pkg.go.dev/golang.org/x/net)（idna、publicsuffix）和 [yaml.v3](https://gopkg.in/yaml.v3)。
 
-- [`bytes`](https://golang.org/pkg/bytes/)：操作字节切片的函数。
-- [`context`](https://golang.org/pkg/context/)：定义了Context类型，用于在API边界和进程之间传递截止日期、取消信号和其他请求范围的值。
-- [`encoding/json`](https://golang.org/pkg/encoding/json/)：编码和解码JSON对象的函数。
-- [`errors`](https://golang.org/pkg/errors/)：创建错误和操作错误的函数。
-- [`fmt`](https://golang.org/pkg/fmt/)：格式化I/O函数。
-- [`io`](https://golang.org/pkg/io/)：I/O原语函数。
-- [`log/slog`](https://golang.org/pkg/log/slog/)：结构化日志服务。
-- [`net`](https://golang.org/pkg/net/)：网络I/O原语的函数。
-- [`net/http`](https://golang.org/pkg/net/http/)：HTTP客户端和服务器实现。
-- [`os`](https://golang.org/pkg/os/)：操作系统功能的函数。
-- [`os/signal`](https://golang.org/pkg/os/signal/)：接收操作系统信号的函数。
-- [`regexp`](https://golang.org/pkg/regexp/)：正则表达式搜索。
-- [`strconv`](https://golang.org/pkg/strconv/)：将字符串转换为基本类型的函数。
-- [`strings`](https://golang.org/pkg/strings/)：操作字符串的函数。
-- [`sync`](https://golang.org/pkg/sync/)：基本的同步原语。
-- [`syscall`](https://golang.org/pkg/syscall/)：访问操作系统底层调用的函数。
-- [`time`](https://golang.org/pkg/time/)：测量和显示时间的函数。
-
-本项目还使用了以下第三方库：
-
-- [`github.com/redis/go-redis/v9`](https://github.com/go-redis/redis)：Go语言Redis客户端。
-- [`github.com/prometheus/client_golang`](https://github.com/prometheus/client_golang)：Prometheus 指标采集与暴露。
-- [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk)：MCP（Model Context Protocol）Go SDK。
-- [`golang.org/x/net/idna`](https://pkg.go.dev/golang.org/x/net/idna)：实现了IDNA（国际化域名在应用程序）规范。
-- [`golang.org/x/net/publicsuffix`](https://pkg.go.dev/golang.org/x/net/publicsuffix)：实现了公共后缀列表规范。
-- [`gopkg.in/yaml.v3`](https://gopkg.in/yaml.v3)：YAML 解析库。
-
-WHOIS/RDAP 服务器列表来自于：
-- [IANA](https://www.iana.org/domains/root/db)
-- [IANA RDAP Bootstrap](https://data.iana.org/rdap/)
-- [IANA RDAP Bootstrap (IPv4)](https://data.iana.org/rdap/ipv4.json)
-- [IANA RDAP Bootstrap (IPv6)](https://data.iana.org/rdap/ipv6.json)
-- [IANA RDAP Bootstrap (AS)](https://data.iana.org/rdap/asn.json)
+WHOIS/RDAP 服务器列表来自 [IANA 根域数据库](https://www.iana.org/domains/root/db)与 [IANA RDAP Bootstrap](https://data.iana.org/rdap/)（域名、IPv4/v6、ASN）。

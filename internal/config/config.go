@@ -191,33 +191,37 @@ func load() {
 		os.Exit(1)
 	}
 
-	// Initialize the Redis client with custom options
-	options := &redis.Options{
-		Addr:            config.Redis.Addr,
-		Password:        config.Redis.Password,
-		DB:              config.Redis.DB,
-		PoolSize:        10,
-		MinIdleConns:    0,
-		MaxRetries:      1,
-		MinRetryBackoff: 8 * time.Millisecond,
-		MaxRetryBackoff: 512 * time.Millisecond,
-		DialTimeout:     2 * time.Second,
-		ReadTimeout:     2 * time.Second,
-		WriteTimeout:    2 * time.Second,
-		PoolTimeout:     2 * time.Second,
-	}
-	if config.Redis.TLS {
-		options.TLSConfig = &tls.Config{
-			MinVersion:         tls.VersionTLS12,
-			InsecureSkipVerify: config.Redis.TLSSkipVerify,
+	// Initialize the Redis client with custom options. An empty redis.addr
+	// means Redis is deliberately not used: no client is created (RedisClient
+	// stays nil) and the service runs on the in-memory cache alone.
+	if config.Redis.Addr != "" {
+		options := &redis.Options{
+			Addr:            config.Redis.Addr,
+			Password:        config.Redis.Password,
+			DB:              config.Redis.DB,
+			PoolSize:        10,
+			MinIdleConns:    0,
+			MaxRetries:      1,
+			MinRetryBackoff: 8 * time.Millisecond,
+			MaxRetryBackoff: 512 * time.Millisecond,
+			DialTimeout:     2 * time.Second,
+			ReadTimeout:     2 * time.Second,
+			WriteTimeout:    2 * time.Second,
+			PoolTimeout:     2 * time.Second,
 		}
+		if config.Redis.TLS {
+			options.TLSConfig = &tls.Config{
+				MinVersion:         tls.VersionTLS12,
+				InsecureSkipVerify: config.Redis.TLSSkipVerify,
+			}
+		}
+
+		RedisClient = redis.NewClient(options)
+
+		// Suppress Redis client's internal error logging by setting a discard logger
+		// The client will still work, but won't spam logs on connection failures
+		redis.SetLogger(&discardLogger{})
 	}
-
-	RedisClient = redis.NewClient(options)
-
-	// Suppress Redis client's internal error logging by setting a discard logger
-	// The client will still work, but won't spam logs on connection failures
-	redis.SetLogger(&discardLogger{})
 
 	// Set the cache expiration time
 	CacheExpiration = time.Duration(config.Cache.Expiration) * time.Second
@@ -403,6 +407,9 @@ func validateConfig(config *Config) error {
 			return fmt.Errorf("proxy.server: %w", err)
 		}
 	}
+	if config.Cache.RequireRedis && config.Redis.Addr == "" {
+		return fmt.Errorf("cache.requireRedis is true but redis.addr is empty (Redis disabled); set redis.addr or turn requireRedis off")
+	}
 	return nil
 }
 
@@ -433,15 +440,20 @@ func validateProxyURL(s string) error {
 	return nil
 }
 
-// initializeCacheManager sets up the cache with Redis primary and memory fallback
+// initializeCacheManager sets up the cache: Redis primary with memory fallback,
+// or memory alone when Redis is disabled (empty redis.addr).
 func initializeCacheManager() {
-	// Create Redis cache
-	redisCache := utils.NewRedisCache(RedisClient)
-
-	// Create memory cache as fallback
 	memoryCache := utils.NewMemoryCache(MemoryMaxSize, MemoryCleanInterval)
 
+	if RedisClient == nil {
+		CacheManager = memoryCache
+		slog.Info("Redis disabled (empty redis.addr), using in-memory cache only")
+		slog.Info("cache configuration", "memory_max_entries", MemoryMaxSize, "clean_interval", MemoryCleanInterval)
+		return
+	}
+
 	// Create fallback cache that tries Redis first, then memory
+	redisCache := utils.NewRedisCache(RedisClient)
 	CacheManager = utils.NewFallbackCache(redisCache, memoryCache)
 
 	// Log cache configuration
