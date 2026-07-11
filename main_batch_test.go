@@ -66,10 +66,12 @@ func TestBatchBadRequests(t *testing.T) {
 	withTestBatch(t, true, 2)
 
 	for name, body := range map[string]string{
-		"not json":      `not json at all`,
-		"unknown field": `{"queris": ["example.com"]}`,
-		"empty list":    `{"queries": []}`,
-		"over maxItems": `{"queries": ["a.com", "b.com", "c.com"]}`,
+		"not json":       `not json at all`,
+		"unknown field":  `{"queris": ["example.com"]}`,
+		"empty list":     `{"queries": []}`,
+		"over maxItems":  `{"queries": ["a.com", "b.com", "c.com"]}`,
+		"trailing value": `{"queries": ["a.com"]}{"queries": ["b.com"]}`,
+		"trailing junk":  `{"queries": ["a.com"]} extra`,
 	} {
 		w := postBatch(t, body)
 		if w.Code != http.StatusBadRequest {
