@@ -35,8 +35,7 @@ func (sw *statusWriter) WriteHeader(code int) {
 }
 
 // Unwrap exposes the underlying writer to http.ResponseController, so
-// optional interfaces like http.Flusher keep working through the wrapper —
-// the MCP endpoint's SSE stream needs Flush to deliver its initial response.
+// optional interfaces like http.Flusher keep working through the wrapper.
 func (sw *statusWriter) Unwrap() http.ResponseWriter {
 	return sw.ResponseWriter
 }

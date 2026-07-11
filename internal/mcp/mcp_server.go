@@ -165,5 +165,14 @@ func NewHandler(version string) http.Handler {
 		// localhost. Behind a reverse proxy the Host header is the public
 		// domain, so protection is off unless mcp.localhostprotection is set.
 		DisableLocalhostProtection: !config.MCPLocalhostProtection,
+		// The server only exposes tools — it never sends notifications or
+		// server-initiated requests — so sessions carry no state worth keeping.
+		// Stateless mode closes the per-request session when the request ends
+		// (idle stateful sessions are otherwise never cleaned up, since
+		// SessionTimeout's zero value disables cleanup), and JSONResponse
+		// answers tool calls with plain application/json instead of an SSE
+		// stream, which the server's global WriteTimeout would cut short.
+		Stateless:    true,
+		JSONResponse: true,
 	})
 }
