@@ -18,18 +18,27 @@
       "url": "/"
     }
   ],
+  "security": [
+    {},
+    {
+      "bearerAuth": []
+    },
+    {
+      "apiKeyHeader": []
+    }
+  ],
   "paths": {
     "/{resource}": {
       "get": {
         "operationId": "query",
         "summary": "Query a domain, IP address/CIDR prefix, or ASN (auto-detected)",
-        "description": "The resource type is detected automatically: an IP address or CIDR prefix is looked up as an IP network, a number with optional `as`/`asn` prefix as an autnum, anything else as a domain name. Unicode (IDN) domain names are accepted and converted to punycode. For explicit typing use /domain/, /ip/ or /autnum/.",
+        "description": "The resource type is detected automatically: an IP address or CIDR prefix is looked up as an IP network, a number with optional `as`/`asn` prefix as an autnum, anything else as a domain name. Unicode (IDN) domain names are accepted and converted to punycode. For explicit typing use /domain/, /ip/ or /autnum/. CIDR prefixes contain a slash and therefore span two path segments (`/192.0.2.0/24`); that form is documented as /ip/{address}/{prefixlen}.",
         "parameters": [
           {
             "name": "resource",
             "in": "path",
             "required": true,
-            "description": "Domain name (`example.com`, `例子.cn`), IP address (`192.0.2.1`, `2001:db8::`), CIDR prefix (`192.0.2.0/24`), or ASN (`205794`, `as205794`).",
+            "description": "Domain name (`example.com`, `例子.cn`), IP address (`192.0.2.1`, `2001:db8::`), or ASN (`205794`, `as205794`).",
             "schema": {
               "type": "string"
             }
@@ -150,15 +159,90 @@
       "get": {
         "operationId": "queryIP",
         "summary": "Query an IP network (RFC 9082-style typed path)",
-        "description": "Accepts a single IPv4/IPv6 address or a CIDR prefix whose slash is part of the path, e.g. `/ip/192.0.2.0/24` or `/ip/2001:db8::/32`. Returns 400 when the resource is not a valid IP or prefix.",
+        "description": "Accepts a single IPv4/IPv6 address; for a CIDR prefix, whose slash adds a second path segment, see /ip/{address}/{prefixlen}. Returns 400 when the resource is not a valid IP.",
         "parameters": [
           {
             "name": "address",
             "in": "path",
             "required": true,
-            "description": "IP address (`192.0.2.1`) or CIDR prefix (`192.0.2.0/24`).",
+            "description": "IP address (`192.0.2.1`, `2001:db8::`).",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/refresh"
+          },
+          {
+            "$ref": "#/components/parameters/ifNoneMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "IP network registration data.",
+            "headers": {
+              "X-Cache": {
+                "$ref": "#/components/headers/X-Cache"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/Cache-Control"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IPNetwork"
+                }
+              }
+            }
+          },
+          "304": {
+            "$ref": "#/components/responses/NotModified"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/QueryDenied"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/ip/{address}/{prefixlen}": {
+      "get": {
+        "operationId": "queryIPPrefix",
+        "summary": "Query a CIDR prefix (RFC 9082-style typed path)",
+        "description": "The CIDR form of /ip/{address}: the prefix length follows the network address as its own path segment, e.g. `/ip/192.0.2.0/24` or `/ip/2001:db8::/32`. Returns 400 when the two segments do not form a valid CIDR prefix.",
+        "parameters": [
+          {
+            "name": "address",
+            "in": "path",
+            "required": true,
+            "description": "Network address (`192.0.2.0`, `2001:db8::`).",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "prefixlen",
+            "in": "path",
+            "required": true,
+            "description": "Prefix length in bits (`24`, `32`).",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]{1,3}$"
             }
           },
           {
