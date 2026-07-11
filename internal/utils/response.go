@@ -121,7 +121,14 @@ func HandleQueryError(ctx context.Context, w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrQueryDenied):
 		writeProblem(w, http.StatusForbidden, "query-denied", "The registry denied the query", "")
 	default:
-		slog.ErrorContext(ctx, "query failed", "err", err)
+		// A canceled or expired context is the request's own lifecycle
+		// (client disconnect, request timeout), not an upstream failure;
+		// log it below error level so disconnects don't page anyone.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			slog.WarnContext(ctx, "query aborted", "err", err)
+		} else {
+			slog.ErrorContext(ctx, "query failed", "err", err)
+		}
 		writeProblem(w, http.StatusInternalServerError, "query-failed",
 			"Query failed", "Please try again later.")
 	}
