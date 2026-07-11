@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > land in a future major release. The 0.x history below includes the breaking
 > changes made on the way to 1.0.0 (each under a **Breaking** heading).
 
+## [Unreleased]
+
+### Fixed
+- A deduplicated upstream query whose waiters all disconnect now holds exactly
+  one concurrency slot, no matter how many waiters canceled. Previously every
+  canceled waiter transferred its own slot to the same shared flight, so many
+  clients querying one slow resource and disconnecting could occupy the entire
+  `server.rateLimit` capacity with a single real upstream request.
+- Detached upstream queries are now covered by the graceful-shutdown drain, so
+  shutdown waits for their upstream fetch and cache writes (within the existing
+  bounded drain window) instead of possibly closing the cache and Redis client
+  while a background query was still writing to them.
+
 ## [1.1.0] - 2026-07-11
 
 ### Added
