@@ -1,7 +1,7 @@
 # 此文件为远程开发环境配置文件
 FROM debian:bookworm
 
-ENV GO_VERSION=1.24.1
+ENV GO_VERSION=1.26.5
 
 RUN apt update &&\
     apt install -y wget rsync unzip openssh-server vim lsof git git-lfs locales locales-all libgit2-1.5 libgit2-dev net-tools jq curl &&\
