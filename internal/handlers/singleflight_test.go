@@ -16,9 +16,10 @@ import (
 // flight itself keeps running detached and delivers its result to the
 // remaining waiters.
 func TestDedupedQueryWaiterCancel(t *testing.T) {
-	oldCache := config.CacheManager
+	oldCache, oldLimiter := config.CacheManager, config.ConcurrencyLimiter
 	config.CacheManager = utils.NewMemoryCache(10, time.Minute)
-	t.Cleanup(func() { config.CacheManager = oldCache })
+	config.ConcurrencyLimiter = make(chan struct{}, 4)
+	t.Cleanup(func() { config.CacheManager, config.ConcurrencyLimiter = oldCache, oldLimiter })
 
 	var flights atomic.Int32
 	release := make(chan struct{})
@@ -59,6 +60,13 @@ func TestDedupedQueryWaiterCancel(t *testing.T) {
 		t.Fatal("canceled waiter did not return until the flight finished")
 	}
 
+	// While the flight is detached, the canceled waiter's accounting
+	// goroutine must hold one concurrency slot on its behalf, so the
+	// configured limit stays a true cap on concurrent upstream work.
+	waitFor(t, "detached flight to be counted against the limiter", func() bool {
+		return len(config.ConcurrencyLimiter) == 1
+	})
+
 	close(release)
 	select {
 	case out := <-outCh:
@@ -69,7 +77,24 @@ func TestDedupedQueryWaiterCancel(t *testing.T) {
 		t.Fatal("surviving waiter never received the flight result")
 	}
 
+	// The flight is done; its slot must be released again.
+	waitFor(t, "the flight's limiter slot to be released", func() bool {
+		return len(config.ConcurrencyLimiter) == 0
+	})
+
 	if n := flights.Load(); n != 1 {
 		t.Errorf("flight ran %d times, want 1 (waiters must share one flight)", n)
+	}
+}
+
+// waitFor polls cond until it holds, failing the test after two seconds.
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

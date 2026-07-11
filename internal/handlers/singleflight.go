@@ -47,6 +47,20 @@ func dedupedQuery(ctx context.Context, key string, fn func(context.Context) (que
 		}
 		return res.Val.(queryOutcome), nil
 	case <-ctx.Done():
+		// The handler's defer frees its concurrency slot as soon as we
+		// return, but the detached flight's upstream request is still
+		// running. Hold a slot on its behalf until it completes, so
+		// server.rateLimit stays a true cap on concurrent upstream work —
+		// otherwise a client could disconnect repeatedly to stack detached
+		// flights beyond the configured limit. (nil only in tests that
+		// bypass config.Load.)
+		if limiter := config.ConcurrencyLimiter; limiter != nil {
+			go func() {
+				limiter <- struct{}{}
+				<-ch
+				<-limiter
+			}()
+		}
 		return queryOutcome{}, ctx.Err()
 	}
 }

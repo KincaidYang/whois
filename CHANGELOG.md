@@ -53,9 +53,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still admitting requests, so under sustained traffic shutdown could hang
   indefinitely; both waits are now bounded.
 - A request whose client disconnects (or whose batch item deadline passes) while
-  waiting on a deduplicated upstream query now releases its concurrency slot
-  immediately instead of blocking for the full query timeout. The shared upstream
-  query still runs to completion and populates the cache.
+  waiting on a deduplicated upstream query now returns immediately instead of
+  blocking for the full query timeout. The shared upstream query still runs to
+  completion and populates the cache, and keeps a concurrency slot occupied until
+  it finishes, so `server.rateLimit` remains a true cap on concurrent upstream
+  work.
 - `/batch` rejects request bodies with trailing data after the JSON object;
   previously a valid object followed by a second JSON document was accepted with
   the remainder silently ignored.
