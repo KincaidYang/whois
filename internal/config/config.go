@@ -613,8 +613,11 @@ func parseBoolEnv(name, val string, current bool) bool {
 }
 
 func overrideConfigWithEnv(config *Config) {
-	// Override Redis configuration
-	if redisAddr := os.Getenv("WHOIS_REDIS_ADDR"); redisAddr != "" {
+	// Override Redis configuration. WHOIS_REDIS_ADDR distinguishes "set to
+	// empty" from "unset": an explicitly empty value disables Redis (memory-only
+	// mode), which is otherwise unreachable in deployments whose baked-in config
+	// file carries a non-empty address (the shipped Docker image does).
+	if redisAddr, ok := os.LookupEnv("WHOIS_REDIS_ADDR"); ok {
 		config.Redis.Addr = redisAddr
 	}
 	if redisPassword := os.Getenv("WHOIS_REDIS_PASSWORD"); redisPassword != "" {

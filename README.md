@@ -122,7 +122,7 @@ mcp:
 | `WHOIS_REQUIRE_REDIS` | `cache.requireRedis` | `false` | `true`/`1` 时 Redis 不可用则启动失败 |
 | `WHOIS_MEMORY_MAX_SIZE` | `cache.memoryMaxSize` | `10000` | 内存缓存最大条目数 |
 | `WHOIS_MEMORY_CLEAN_INTERVAL` | `cache.memoryCleanInterval` | `300` | 内存缓存清理间隔（秒） |
-| `WHOIS_REDIS_ADDR` | `redis.addr` | 空 | Redis 地址；留空则不使用 Redis（纯内存缓存），配置后连接失败时自动降级到内存缓存（除非开启 requireRedis） |
+| `WHOIS_REDIS_ADDR` | `redis.addr` | 未设置 | Redis 地址；未设置时沿用配置文件，**显式设为空**（`WHOIS_REDIS_ADDR=`）则禁用 Redis（纯内存缓存）；配置后连接失败时自动降级到内存缓存（除非开启 requireRedis） |
 | `WHOIS_REDIS_PASSWORD` | `redis.password` | 空 | Redis 密码 |
 | `WHOIS_REDIS_DB` | `redis.db` | `0` | Redis 数据库编号 |
 | `WHOIS_REDIS_TLS` | `redis.tls` | `false` | `true`/`1` 启用 Redis TLS |

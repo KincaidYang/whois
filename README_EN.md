@@ -128,7 +128,7 @@ Every configuration option can be overridden via environment variables (which ta
 | `WHOIS_REQUIRE_REDIS` | `cache.requireRedis` | `false` | `true`/`1` makes startup fail when Redis is unavailable |
 | `WHOIS_MEMORY_MAX_SIZE` | `cache.memoryMaxSize` | `10000` | Max entries in the in-memory cache |
 | `WHOIS_MEMORY_CLEAN_INTERVAL` | `cache.memoryCleanInterval` | `300` | In-memory cache cleanup interval in seconds |
-| `WHOIS_REDIS_ADDR` | `redis.addr` | empty | Redis address; empty disables Redis (memory-only cache), when set the service falls back to the in-memory cache if Redis is unreachable (unless requireRedis) |
+| `WHOIS_REDIS_ADDR` | `redis.addr` | unset | Redis address; unset keeps the config-file value, **explicitly empty** (`WHOIS_REDIS_ADDR=`) disables Redis (memory-only cache); when set, the service falls back to the in-memory cache if Redis is unreachable (unless requireRedis) |
 | `WHOIS_REDIS_PASSWORD` | `redis.password` | empty | Redis password |
 | `WHOIS_REDIS_DB` | `redis.db` | `0` | Redis database number |
 | `WHOIS_REDIS_TLS` | `redis.tls` | `false` | `true`/`1` enables TLS for Redis |
