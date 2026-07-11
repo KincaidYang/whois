@@ -23,6 +23,8 @@ cache:
   memoryCleanInterval: 300
 
 redis:
+  # Redis server address. Leave empty to run without Redis entirely, on the
+  # in-memory cache alone (fine for single-instance deployments).
   addr: "127.0.0.1:6379"
   password: ""
   db: 0

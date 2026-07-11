@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Memory-only mode: leaving `redis.addr` empty now disables Redis outright — no
+  client is created, no connection attempts are made, and `/health` reports the
+  `memory` backend. Previously an empty address made the client dial the
+  implicit `localhost:6379` and fall back on failure. `cache.requireRedis: true`
+  combined with an empty `redis.addr` is now rejected at startup as
+  contradictory. `WHOIS_REDIS_ADDR` distinguishes unset (keep the config-file
+  value) from explicitly empty (disable Redis), so container deployments can
+  opt into memory-only mode without mounting a config file.
+
 ### Changed
 - `/openapi.json` now reflects the running instance's authentication mode:
   when `auth.keys` is configured, the anonymous alternative is dropped from

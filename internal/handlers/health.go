@@ -36,7 +36,8 @@ func isRedisHealthy() bool {
 	if fc, ok := config.CacheManager.(*utils.FallbackCache); ok {
 		return fc.IsPrimaryHealthy()
 	}
-	return config.CacheManager.IsHealthy()
+	// Not a Redis-backed manager: memory-only mode (empty redis.addr).
+	return false
 }
 
 // getCacheCheck returns the cache health check result

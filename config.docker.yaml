@@ -13,6 +13,9 @@ cache:
   memoryCleanInterval: 300
 
 redis:
+  # Redis server address; override with WHOIS_REDIS_ADDR (set it to an empty
+  # value to disable Redis entirely and run memory-only). When no Redis is
+  # reachable the service falls back to the in-memory cache.
   addr: "redis:6379"
   password: ""
   db: 0
