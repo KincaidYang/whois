@@ -26,6 +26,7 @@ builds:
       - arm
       - arm64
       - ppc64
+      - loong64
     goarm:
       - "7"
     ignore:
