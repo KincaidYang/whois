@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -88,6 +89,12 @@ func HandleBatch(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
 		utils.HandleHTTPError(w, utils.ErrorTypeBadRequest, "Invalid request body: expected {\"queries\": [\"example.com\", ...]}.")
+		return
+	}
+	// Decode only reads the first JSON value; reject trailing data so a body
+	// like `{"queries":[...]}{"queries":[...]}` is not silently half-read.
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
+		utils.HandleHTTPError(w, utils.ErrorTypeBadRequest, "Invalid request body: unexpected data after the JSON object.")
 		return
 	}
 	if len(req.Queries) == 0 {

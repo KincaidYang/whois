@@ -22,10 +22,13 @@ type queryOutcome struct {
 
 // dedupedQuery runs fn through sfGroup under the given key. The flight gets
 // its own timeout, detached from the first caller's context, so one client
-// disconnecting does not fail the other requests waiting on the same key.
+// disconnecting does not fail the other requests waiting on the same key —
+// but each waiter honors its own context and stops waiting (releasing its
+// concurrency slot) when that context ends, while the flight runs to
+// completion and still populates the cache for later requests.
 // Stable not-found/denied errors are negative-cached once per flight.
 func dedupedQuery(ctx context.Context, key string, fn func(context.Context) (queryOutcome, error)) (queryOutcome, error) {
-	v, err, _ := sfGroup.Do(key, func() (any, error) {
+	ch := sfGroup.DoChan(key, func() (any, error) {
 		qctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), config.RequestTimeout)
 		defer cancel()
 
@@ -36,8 +39,28 @@ func dedupedQuery(ctx context.Context, key string, fn func(context.Context) (que
 		}
 		return outcome, nil
 	})
-	if err != nil {
-		return queryOutcome{}, err
+
+	select {
+	case res := <-ch:
+		if res.Err != nil {
+			return queryOutcome{}, res.Err
+		}
+		return res.Val.(queryOutcome), nil
+	case <-ctx.Done():
+		// The handler's defer frees its concurrency slot as soon as we
+		// return, but the detached flight's upstream request is still
+		// running. Hold a slot on its behalf until it completes, so
+		// server.rateLimit stays a true cap on concurrent upstream work —
+		// otherwise a client could disconnect repeatedly to stack detached
+		// flights beyond the configured limit. (nil only in tests that
+		// bypass config.Load.)
+		if limiter := config.ConcurrencyLimiter; limiter != nil {
+			go func() {
+				limiter <- struct{}{}
+				<-ch
+				<-limiter
+			}()
+		}
+		return queryOutcome{}, ctx.Err()
 	}
-	return v.(queryOutcome), nil
 }

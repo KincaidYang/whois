@@ -35,8 +35,7 @@ func (sw *statusWriter) WriteHeader(code int) {
 }
 
 // Unwrap exposes the underlying writer to http.ResponseController, so
-// optional interfaces like http.Flusher keep working through the wrapper —
-// the MCP endpoint's SSE stream needs Flush to deliver its initial response.
+// optional interfaces like http.Flusher keep working through the wrapper.
 func (sw *statusWriter) Unwrap() http.ResponseWriter {
 	return sw.ResponseWriter
 }
@@ -376,19 +375,34 @@ func main() {
 		}
 	}()
 
-	// Wait for shutdown signal, then drain in-flight requests before exiting.
+	// Wait for shutdown signal, then stop accepting new requests before
+	// draining the in-flight ones: under sustained traffic the wait group
+	// never reaches zero while the listener keeps admitting requests (and
+	// waiting concurrently with new Add calls misuses the WaitGroup).
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 	<-sigCh
 
-	slog.Info("shutdown signal received, waiting for in-flight requests")
-	config.Wg.Wait()
-
-	slog.Info("all requests completed, shutting down")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	slog.Info("shutdown signal received, draining in-flight requests")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), config.RequestTimeout+5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("server shutdown error", "err", err)
+	}
+
+	// The listener is closed, so no new Wg.Add races this wait; it only
+	// covers requests Shutdown may have given up on, and is bounded so a
+	// hung upstream cannot stall the exit forever.
+	drained := make(chan struct{})
+	go func() {
+		config.Wg.Wait()
+		close(drained)
+	}()
+	select {
+	case <-drained:
+		slog.Info("all requests completed, shutting down")
+	case <-time.After(5 * time.Second):
+		slog.Warn("timed out waiting for in-flight requests, exiting anyway")
 	}
 
 	if c, ok := config.CacheManager.(io.Closer); ok {

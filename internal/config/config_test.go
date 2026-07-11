@@ -351,3 +351,58 @@ func TestApplyDefaults(t *testing.T) {
 		t.Errorf("negative NegativeExpiration overwritten: %d", cfg.Cache.NegativeExpiration)
 	}
 }
+
+// TestValidateConfigProxyServer verifies an unusable proxy.server fails
+// validation (it used to be dropped silently at first use, sending traffic
+// meant for the proxy over the direct route), while valid URLs and the
+// empty default pass.
+func TestValidateConfigProxyServer(t *testing.T) {
+	valid := []string{
+		"",
+		"http://proxy.example:8080",
+		"https://proxy.example",
+		"socks5://127.0.0.1:1080",
+		"socks5h://proxy.example:1080",
+	}
+	for _, server := range valid {
+		var cfg Config
+		applyDefaults(&cfg)
+		cfg.Proxy.Server = server
+		if err := validateConfig(&cfg); err != nil {
+			t.Errorf("proxy.server %q: unexpected error: %v", server, err)
+		}
+	}
+
+	invalid := []string{
+		"://missing-scheme",
+		"proxy.example:8080",       // scheme-less: parses as scheme "proxy.example"
+		"ftp://proxy.example:2121", // unsupported scheme
+		"http://",                  // missing host
+	}
+	for _, server := range invalid {
+		var cfg Config
+		applyDefaults(&cfg)
+		cfg.Proxy.Server = server
+		err := validateConfig(&cfg)
+		if err == nil {
+			t.Errorf("proxy.server %q: expected error", server)
+			continue
+		}
+		if !strings.Contains(err.Error(), "proxy.server") {
+			t.Errorf("proxy.server %q: error %q does not name the offending key", server, err)
+		}
+	}
+}
+
+// TestProxySuffixesLowercased verifies configured suffixes are normalized to
+// lowercase: the lookup side lowercases every queried resource, so an
+// uppercase suffix would never match.
+func TestProxySuffixesLowercased(t *testing.T) {
+	got := lowercaseAll([]string{"COM", "Org", "jp"})
+	want := []string{"com", "org", "jp"}
+	for i, s := range got {
+		if s != want[i] {
+			t.Errorf("suffix %d = %q, want %q", i, s, want[i])
+		}
+	}
+}

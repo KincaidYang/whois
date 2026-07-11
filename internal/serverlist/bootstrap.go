@@ -97,12 +97,12 @@ func fetchBootstrap(ctx context.Context, client *http.Client, url string) (map[s
 	return result, nil
 }
 
-// FetchIANA fetches all four IANA bootstrap files and merges them into one map.
-// Categories that fail to fetch are omitted from the result (caller uses compiled
-// fallback) and their names are returned so the caller can report a partial update
-// rather than a clean success.
-func FetchIANA(ctx context.Context, client *http.Client) (merged map[string]string, failed []string) {
-	merged = make(map[string]string)
+// FetchIANA fetches all four IANA bootstrap files. Results are keyed by
+// category so the caller can commit each independently; categories that fail
+// to fetch are absent from the map and listed in failed, so the caller can
+// report a partial update rather than a clean success.
+func FetchIANA(ctx context.Context, client *http.Client) (perCategory map[string]map[string]string, failed []string) {
+	perCategory = make(map[string]map[string]string)
 	for category, url := range ianaBootstrapURLs {
 		data, err := fetchBootstrap(ctx, client, url)
 		if err != nil {
@@ -110,12 +110,37 @@ func FetchIANA(ctx context.Context, client *http.Client) (merged map[string]stri
 			failed = append(failed, category)
 			continue
 		}
+		perCategory[category] = data
+		slog.Debug("RDAP bootstrap fetched", "category", category, "entries", len(data))
+	}
+	return perCategory, failed
+}
+
+// commitBootstrap folds one round of per-category fetch results into
+// lastGood and rebuilds the active index from every category's last-known-good
+// data, so a category whose refresh failed keeps serving its most recent
+// successful fetch (at most one interval stale) instead of reverting to the
+// compiled baseline. It returns the outcome label for the refresh metric —
+// "failure" (nothing fetched, index untouched), "partial" or "success" —
+// and the number of entries committed.
+func commitBootstrap(lastGood, perCategory map[string]map[string]string, failed []string) (outcome string, entries int) {
+	if len(perCategory) == 0 {
+		return "failure", 0
+	}
+	for category, data := range perCategory {
+		lastGood[category] = data
+	}
+	merged := make(map[string]string)
+	for _, data := range lastGood {
 		for k, v := range data {
 			merged[k] = v
 		}
-		slog.Debug("RDAP bootstrap fetched", "category", category, "entries", len(data))
 	}
-	return merged, failed
+	UpdateFromIANA(merged)
+	if len(failed) > 0 {
+		return "partial", len(merged)
+	}
+	return "success", len(merged)
 }
 
 // StartBootstrapRefresh fetches IANA data immediately on startup, then
@@ -125,29 +150,26 @@ func StartBootstrapRefresh(ctx context.Context, client *http.Client, interval ti
 	if interval <= 0 {
 		return
 	}
+	// lastGood holds each category's most recent successful fetch. refresh
+	// only ever runs on the single goroutine below, so no locking is needed.
+	lastGood := make(map[string]map[string]string)
 	refresh := func() {
 		fetchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
-		data, failed := FetchIANA(fetchCtx, client)
-		if len(data) == 0 {
+		perCategory, failed := FetchIANA(fetchCtx, client)
+		outcome, entries := commitBootstrap(lastGood, perCategory, failed)
+		metrics.BootstrapRefreshTotal.WithLabelValues(outcome).Inc()
+		switch outcome {
+		case "failure":
 			slog.Warn("RDAP bootstrap: no data fetched, retaining current index")
-			metrics.BootstrapRefreshTotal.WithLabelValues("failure").Inc()
-			return
+		case "partial":
+			slog.Warn("RDAP bootstrap partially updated; failed categories retain last-known-good data",
+				"failed", failed, "entries", entries)
+		default:
+			metrics.BootstrapLastFetchTimestamp.Set(float64(time.Now().Unix()))
+			slog.Info("RDAP bootstrap index updated", "entries", entries)
 		}
-		UpdateFromIANA(data)
-		metrics.BootstrapLastFetchTimestamp.Set(float64(time.Now().Unix()))
-		if len(failed) > 0 {
-			// The failed categories were not in `data`, so UpdateFromIANA just
-			// reverted them to the compiled baseline. Surface that instead of
-			// reporting a clean success.
-			slog.Warn("RDAP bootstrap partially updated; failed categories reverted to compiled baseline",
-				"failed", failed, "entries", len(data))
-			metrics.BootstrapRefreshTotal.WithLabelValues("partial").Inc()
-			return
-		}
-		metrics.BootstrapRefreshTotal.WithLabelValues("success").Inc()
-		slog.Info("RDAP bootstrap index updated", "entries", len(data))
 	}
 
 	// Initial fetch at startup (non-blocking).

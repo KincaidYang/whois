@@ -2,6 +2,9 @@ package mcp
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -93,5 +96,45 @@ func TestBatchToolMixedResults(t *testing.T) {
 	}
 	if !strings.Contains(payload, domain) {
 		t.Errorf("payload missing cached domain data: %s", payload)
+	}
+}
+
+// TestHandlerStatelessJSON drives the streamable HTTP handler end to end and
+// verifies its stateless + JSON configuration: a tools/call POST that carries
+// no Mcp-Session-Id header (and was never preceded by an initialize request
+// on this connection) is answered directly with application/json rather than
+// rejected for lacking a session or streamed over SSE.
+func TestHandlerStatelessJSON(t *testing.T) {
+	setupBatchTest(t, false, 10)
+
+	srv := httptest.NewServer(NewHandler("test"))
+	defer srv.Close()
+
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"whois_lookup","arguments":{"query":"!!invalid!!"}}}`
+	req, err := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	payload, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(payload), "Invalid input") {
+		t.Errorf("expected the tool's invalid-input error in the response, got: %s", payload)
 	}
 }
