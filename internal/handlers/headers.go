@@ -8,9 +8,15 @@ import (
 )
 
 // setCacheControl tells clients they may cache a successful response for as
-// long as the server itself caches it.
+// long as the server itself caches it. When API key authentication is
+// enabled the response is marked private: a shared cache (CDN) serving it
+// to other clients would bypass the key check and the per-key rate limit.
 func setCacheControl(w http.ResponseWriter) {
-	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", int(config.CacheExpiration.Seconds())))
+	scope := "public"
+	if len(config.AuthClients) > 0 {
+		scope = "private"
+	}
+	w.Header().Set("Cache-Control", fmt.Sprintf("%s, max-age=%d", scope, int(config.CacheExpiration.Seconds())))
 }
 
 // missLabel is the X-Cache value for a response that went upstream: REFRESH
