@@ -119,8 +119,10 @@ func FetchIANA(ctx context.Context, client *http.Client) (perCategory map[string
 // commitBootstrap folds one round of per-category fetch results into
 // lastGood and rebuilds the active index from every category's last-known-good
 // data, so a category whose refresh failed keeps serving its most recent
-// successful fetch (at most one interval stale) instead of reverting to the
-// compiled baseline. It returns the outcome label for the refresh metric —
+// successful fetch instead of reverting to the compiled baseline. With
+// consecutive failures that data can be several intervals stale — staleness
+// is unbounded, traded for availability; each failed round is visible in the
+// logs and the refresh metric. It returns the outcome label for the metric —
 // "failure" (nothing fetched, index untouched), "partial" or "success" —
 // and the number of entries committed.
 func commitBootstrap(lastGood, perCategory map[string]map[string]string, failed []string) (outcome string, entries int) {

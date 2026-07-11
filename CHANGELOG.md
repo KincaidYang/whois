@@ -99,8 +99,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the server's write timeout. MCP clients following the Streamable HTTP
   specification are unaffected.
 - When an IANA RDAP bootstrap category fails to refresh, it now keeps serving its
-  most recent successful fetch (at most one refresh interval stale) instead of
-  reverting to the compiled-in baseline from build time. A partial refresh (some
+  most recent successful fetch instead of reverting to the compiled-in baseline
+  from build time (under consecutive failures that data can be several refresh
+  intervals stale; every failed round is logged and counted). A partial refresh (some
   categories fetched, others failed) is logged as a partial update and recorded as
   `whois_bootstrap_refresh_total{result="partial"}` rather than `success`, and
   `whois_bootstrap_last_fetch_timestamp_seconds` is only advanced on a full
