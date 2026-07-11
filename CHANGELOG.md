@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Prebuilt release binaries for `linux/loong64` (LoongArch, new-world ABI).
+
 ### Security
 - Builds now require Go 1.26.5, picking up the upstream `crypto/tls` fix for
   [GO-2026-5856](https://pkg.go.dev/vuln/GO-2026-5856), which was reachable from
@@ -69,6 +72,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Runtime routing is unchanged.
 
 ### Changed
+- The compiled-in IANA baseline lists were regenerated from live IANA data
+  (July 2026): every root-zone TLD was re-verified against `whois.iana.org`.
+  This picks up registry migrations (Tucows TLDs to `registry.click`,
+  Chinese gTLDs consolidated on `zdns.cn`/`rdap.ngtld.cn`, `.link`, `.music`,
+  and others), the new `.merck` TLD, and three new RIPE ASN ranges. Instances
+  with `bootstrap.interval` enabled already receive the RDAP portion at
+  runtime; the WHOIS TLD map and offline fallbacks now match as well.
 - The `/mcp` endpoint now runs in stateless mode and answers tool calls with plain
   `application/json` instead of a server-sent-events stream. The endpoint only
   exposes tools, so sessions carried no state; idle stateful sessions were never
