@@ -1,6 +1,7 @@
 package rdap
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -178,5 +179,149 @@ func TestParseRDAPDomainDsDataWithoutBoolean(t *testing.T) {
 	}
 	if !info.SecureDNS.DelegationSigned || len(info.SecureDNS.DSData) != 1 {
 		t.Errorf("secureDNS: %+v", info.SecureDNS)
+	}
+}
+
+func TestParseRDAPDomainMalformed(t *testing.T) {
+	if _, err := ParseRDAPResponseforDomain(`{"ldhName": 42`); err == nil {
+		t.Fatal("expected error for malformed JSON")
+	}
+}
+
+// TestExtractRegistrarName covers the malformed-vCard branches: the function
+// must return "" rather than fail on any shape a misbehaving server sends.
+func TestExtractRegistrarName(t *testing.T) {
+	raw := func(parts ...string) []json.RawMessage {
+		out := make([]json.RawMessage, len(parts))
+		for i, p := range parts {
+			out[i] = json.RawMessage(p)
+		}
+		return out
+	}
+	tests := []struct {
+		name  string
+		vcard []json.RawMessage
+		want  string
+	}{
+		{"nil array", nil, ""},
+		{"too short", raw(`"vcard"`), ""},
+		{"properties not an array", raw(`"vcard"`, `{"fn": "x"}`), ""},
+		{"property not an array", raw(`"vcard"`, `[{"fn": "x"}]`), ""},
+		{"property too short", raw(`"vcard"`, `[["fn", {}, "text"]]`), ""},
+		{"property name not a string", raw(`"vcard"`, `[[1, {}, "text", "x"]]`), ""},
+		{"no fn property", raw(`"vcard"`, `[["version", {}, "text", "4.0"]]`), ""},
+		{"fn value not a string", raw(`"vcard"`, `[["fn", {}, "text", 42]]`), ""},
+		{"fn after skipped properties", raw(`"vcard"`, `[["version", {}, "text", "4.0"], ["fn", {}, "text", "Registrar Inc."]]`), "Registrar Inc."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := extractRegistrarName(tt.vcard); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestParseRDAPIP covers the common RIR shape (modeled on ARIN): v4 CIDR,
+// type, country, events and remarks.
+func TestParseRDAPIP(t *testing.T) {
+	response := `{
+		"objectClassName": "ip network",
+		"handle": "NET-192-0-2-0-1",
+		"startAddress": "192.0.2.0",
+		"endAddress": "192.0.2.255",
+		"name": "TEST-NET-1",
+		"cidr0_cidrs": [{"v4prefix": "192.0.2.0", "length": 24}],
+		"type": "ASSIGNMENT",
+		"country": "US",
+		"status": ["active"],
+		"events": [
+			{"eventAction": "registration", "eventDate": "2010-01-01T00:00:00Z"},
+			{"eventAction": "last changed", "eventDate": "2020-06-15T12:00:00Z"}
+		],
+		"remarks": [{"title": "Note", "description": ["Documentation range"]}]
+	}`
+
+	info, err := ParseRDAPResponseforIP(response)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := model.IPInfo{
+		ObjectClassName:  model.ObjectClassIPNetwork,
+		Handle:           "NET-192-0-2-0-1",
+		StartAddress:     "192.0.2.0",
+		EndAddress:       "192.0.2.255",
+		CIDR:             "192.0.2.0/24",
+		Name:             "TEST-NET-1",
+		Type:             "ASSIGNMENT",
+		Country:          "US",
+		Status:           []string{"active"},
+		RegistrationDate: "2010-01-01T00:00:00Z",
+		LastChangedDate:  "2020-06-15T12:00:00Z",
+		Remarks:          []model.Remark{{Title: "Note", Description: []string{"Documentation range"}}},
+	}
+	if !reflect.DeepEqual(info, expected) {
+		t.Errorf("expected %+v, got %+v", expected, info)
+	}
+}
+
+// TestParseRDAPIPV6Prefix verifies the v6prefix branch of CIDR extraction.
+func TestParseRDAPIPV6Prefix(t *testing.T) {
+	response := `{
+		"handle": "2001-DB8",
+		"cidr0_cidrs": [{"v6prefix": "2001:db8::", "length": 32}]
+	}`
+
+	info, err := ParseRDAPResponseforIP(response)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.CIDR != "2001:db8::/32" {
+		t.Errorf("cidr: %q", info.CIDR)
+	}
+}
+
+func TestParseRDAPIPMalformed(t *testing.T) {
+	if _, err := ParseRDAPResponseforIP(`not json`); err == nil {
+		t.Fatal("expected error for malformed JSON")
+	}
+}
+
+func TestParseRDAPASN(t *testing.T) {
+	response := `{
+		"objectClassName": "autnum",
+		"handle": "AS64500",
+		"name": "EXAMPLE-AS",
+		"status": ["active"],
+		"events": [
+			{"eventAction": "registration", "eventDate": "2005-03-01T00:00:00Z"},
+			{"eventAction": "last changed", "eventDate": "2021-11-30T08:00:00Z"}
+		],
+		"remarks": [{"title": "Note", "description": ["Documentation ASN"]}]
+	}`
+
+	info, err := ParseRDAPResponseforASN(response)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := model.ASNInfo{
+		ObjectClassName:  model.ObjectClassAutnum,
+		Handle:           "AS64500",
+		Name:             "EXAMPLE-AS",
+		Status:           []string{"active"},
+		RegistrationDate: "2005-03-01T00:00:00Z",
+		LastChangedDate:  "2021-11-30T08:00:00Z",
+		Remarks:          []model.Remark{{Title: "Note", Description: []string{"Documentation ASN"}}},
+	}
+	if !reflect.DeepEqual(info, expected) {
+		t.Errorf("expected %+v, got %+v", expected, info)
+	}
+}
+
+func TestParseRDAPASNMalformed(t *testing.T) {
+	if _, err := ParseRDAPResponseforASN(`[`); err == nil {
+		t.Fatal("expected error for malformed JSON")
 	}
 }
