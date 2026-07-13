@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/KincaidYang/whois/internal/config"
@@ -110,9 +111,10 @@ func TestRDAPQueryASNNoServer(t *testing.T) {
 
 func TestRDAPQueryIP(t *testing.T) {
 	const body = `{"objectClassName": "ip network", "handle": "NET-192-0-2-0-1"}`
-	var gotPath string
+	// Written by the httptest handler goroutine, read by the test goroutine.
+	var gotPath atomic.Value
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
+		gotPath.Store(r.URL.Path)
 		w.Header().Set("Content-Type", "application/rdap+json")
 		_, _ = w.Write([]byte(body))
 	}))
@@ -125,17 +127,17 @@ func TestRDAPQueryIP(t *testing.T) {
 	if got != body {
 		t.Errorf("response body: %q", got)
 	}
-	if gotPath != "/ip/192.0.2.1" {
-		t.Errorf("request path: %q", gotPath)
+	if got, _ := gotPath.Load().(string); got != "/ip/192.0.2.1" {
+		t.Errorf("request path: %q", got)
 	}
 }
 
 // TestRDAPQueryIPCIDR verifies the slash in a CIDR query survives as a path
 // separator (RFC 9082 ip/<prefix>/<length> form).
 func TestRDAPQueryIPCIDR(t *testing.T) {
-	var gotPath string
+	var gotPath atomic.Value
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
+		gotPath.Store(r.URL.Path)
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer srv.Close()
@@ -143,16 +145,16 @@ func TestRDAPQueryIPCIDR(t *testing.T) {
 	if _, err := RDAPQueryIP(context.Background(), "192.0.2.0/24", srv.URL+"/"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotPath != "/ip/192.0.2.0/24" {
-		t.Errorf("request path: %q", gotPath)
+	if got, _ := gotPath.Load().(string); got != "/ip/192.0.2.0/24" {
+		t.Errorf("request path: %q", got)
 	}
 }
 
 func TestRDAPQueryASN(t *testing.T) {
 	const body = `{"objectClassName": "autnum", "handle": "AS64500"}`
-	var gotPath string
+	var gotPath atomic.Value
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
+		gotPath.Store(r.URL.Path)
 		_, _ = w.Write([]byte(body))
 	}))
 	defer srv.Close()
@@ -164,7 +166,7 @@ func TestRDAPQueryASN(t *testing.T) {
 	if got != body {
 		t.Errorf("response body: %q", got)
 	}
-	if gotPath != "/autnum/64500" {
-		t.Errorf("request path: %q", gotPath)
+	if got, _ := gotPath.Load().(string); got != "/autnum/64500" {
+		t.Errorf("request path: %q", got)
 	}
 }

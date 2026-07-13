@@ -5,12 +5,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/KincaidYang/whois/internal/config"
 	"github.com/KincaidYang/whois/internal/handlers"
 	"github.com/KincaidYang/whois/internal/serverlist"
+	"github.com/KincaidYang/whois/internal/utils"
 )
 
 // withFakeRDAP registers a fake RDAP upstream for the given serverlist keys
@@ -35,9 +37,10 @@ func withFakeRDAP(t *testing.T, h http.HandlerFunc, keys ...string) *httptest.Se
 // TestHandleIPMissAndHit drives a full IP query: cache miss routed to the
 // fake upstream, then a second request served from cache.
 func TestHandleIPMissAndHit(t *testing.T) {
-	var gotPath string
+	// Written by the httptest handler goroutine, read by the test goroutine.
+	var gotPath atomic.Value
 	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
+		gotPath.Store(r.URL.Path)
 		w.Header().Set("Content-Type", "application/rdap+json")
 		_, _ = w.Write([]byte(`{"objectClassName":"ip network","handle":"NET-ZZIPTEST","startAddress":"192.0.2.128","endAddress":"192.0.2.255"}`))
 	}, "192.0.2.128/25")
@@ -52,8 +55,8 @@ func TestHandleIPMissAndHit(t *testing.T) {
 	if got := w.Header().Get("X-Cache"); got != "MISS" {
 		t.Errorf("X-Cache: got %q, want MISS", got)
 	}
-	if gotPath != "/ip/192.0.2.130" {
-		t.Errorf("upstream path: %q", gotPath)
+	if got, _ := gotPath.Load().(string); got != "/ip/192.0.2.130" {
+		t.Errorf("upstream path: %q", got)
 	}
 	if !strings.Contains(w.Body.String(), "NET-ZZIPTEST") {
 		t.Errorf("body missing upstream data: %s", w.Body.String())
@@ -139,9 +142,9 @@ func TestHandleIPRefresh(t *testing.T) {
 // using a range inside the RFC 6996 private 32-bit space that no RIR entry
 // covers.
 func TestHandleASNMissAndHit(t *testing.T) {
-	var gotPath string
+	var gotPath atomic.Value
 	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
+		gotPath.Store(r.URL.Path)
 		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS-ZZASNTEST"}`))
 	}, "4199999990-4199999999")
 
@@ -154,8 +157,8 @@ func TestHandleASNMissAndHit(t *testing.T) {
 	if got := w.Header().Get("X-Cache"); got != "MISS" {
 		t.Errorf("X-Cache: got %q, want MISS", got)
 	}
-	if gotPath != "/autnum/4199999995" {
-		t.Errorf("upstream path: %q", gotPath)
+	if got, _ := gotPath.Load().(string); got != "/autnum/4199999995" {
+		t.Errorf("upstream path: %q", got)
 	}
 	if !strings.Contains(w.Body.String(), "AS-ZZASNTEST") {
 		t.Errorf("body missing upstream data: %s", w.Body.String())
@@ -199,11 +202,20 @@ func TestHandleASNRefresh(t *testing.T) {
 }
 
 // TestHandleReadyRequireRedis verifies /ready reports 503 when Redis is
-// required but the instance runs on the memory cache.
+// required but the instance runs on the memory cache. The cache manager is
+// swapped to a memory-only instance so the result does not depend on whether
+// the machine running the tests happens to have Redis reachable.
 func TestHandleReadyRequireRedis(t *testing.T) {
 	orig := config.RequireRedis
+	origCache := config.CacheManager
+	mem := utils.NewMemoryCache(16, time.Minute)
 	config.RequireRedis = true
-	t.Cleanup(func() { config.RequireRedis = orig })
+	config.CacheManager = mem
+	t.Cleanup(func() {
+		config.RequireRedis = orig
+		config.CacheManager = origCache
+		mem.Close()
+	})
 
 	w := httptest.NewRecorder()
 	handlers.HandleReady(w, httptest.NewRequest("GET", "/ready", nil))
