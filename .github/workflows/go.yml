@@ -13,6 +13,9 @@ jobs:
 
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Codecov tokenless (OIDC) upload
     steps:
     - uses: actions/checkout@v7
 
@@ -36,4 +39,10 @@ jobs:
       run: go build -v ./...
 
     - name: Test
-      run: go test -v -coverpkg=./... -cover ./...
+      run: go test -v -coverpkg=./... -coverprofile=coverage.out ./...
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v7
+      with:
+        files: coverage.out
+        use_oidc: true
