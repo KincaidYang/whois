@@ -214,7 +214,7 @@ func TestHandleReadyRequireRedis(t *testing.T) {
 	t.Cleanup(func() {
 		config.RequireRedis = orig
 		config.CacheManager = origCache
-		mem.Close()
+		_ = mem.Close()
 	})
 
 	w := httptest.NewRecorder()
