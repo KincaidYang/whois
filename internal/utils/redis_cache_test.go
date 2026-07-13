@@ -77,33 +77,33 @@ func (s *fakeRedisServer) handleConn(conn net.Conn) {
 		fail := s.failCmds[cmd]
 		s.mu.Unlock()
 		if fail {
-			fmt.Fprintf(conn, "-ERR scripted failure for %s\r\n", cmd)
+			_, _ = fmt.Fprintf(conn, "-ERR scripted failure for %s\r\n", cmd)
 			continue
 		}
 
 		switch cmd {
 		case "HELLO":
 			// Force the client down to RESP2, like pre-6.0 servers.
-			fmt.Fprintf(conn, "-ERR unknown command 'HELLO'\r\n")
+			_, _ = fmt.Fprintf(conn, "-ERR unknown command 'HELLO'\r\n")
 		case "PING":
-			fmt.Fprintf(conn, "+PONG\r\n")
+			_, _ = fmt.Fprintf(conn, "+PONG\r\n")
 		case "GET":
 			s.mu.Lock()
 			v, ok := s.data[args[1]]
 			s.mu.Unlock()
 			if ok {
-				fmt.Fprintf(conn, "$%d\r\n%s\r\n", len(v), v)
+				_, _ = fmt.Fprintf(conn, "$%d\r\n%s\r\n", len(v), v)
 			} else {
-				fmt.Fprintf(conn, "$-1\r\n")
+				_, _ = fmt.Fprintf(conn, "$-1\r\n")
 			}
 		case "SET":
 			s.mu.Lock()
 			s.data[args[1]] = args[2]
 			s.mu.Unlock()
-			fmt.Fprintf(conn, "+OK\r\n")
+			_, _ = fmt.Fprintf(conn, "+OK\r\n")
 		default:
 			// CLIENT SETINFO, SELECT, ... — acknowledge and move on.
-			fmt.Fprintf(conn, "+OK\r\n")
+			_, _ = fmt.Fprintf(conn, "+OK\r\n")
 		}
 	}
 }
