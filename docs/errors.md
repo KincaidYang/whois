@@ -20,6 +20,10 @@ present, is human-readable context that may change between releases.
 registry returned no data for it. Not-found results are negatively cached for
 a short time (`cache.negativeExpiration`, default 60s).
 
+The same status is returned when the query is well-formed but this service
+knows no WHOIS or RDAP server for its TLD — the TLD is not in the root zone,
+or its registry publishes neither service.
+
 ## query-denied
 
 **Status: 403.** The upstream registry refused to answer the query (some

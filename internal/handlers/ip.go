@@ -48,7 +48,7 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 	serverURL, _ := serverlist.LookupIPKey(ip)
 
 	// Query and parse the RDAP information, deduplicating concurrent misses
-	outcome, err := dedupedQuery(ctx, key, func(qctx context.Context) (queryOutcome, error) {
+	outcome, err := dedupedQuery(ctx, key, refresh, func(qctx context.Context) (queryOutcome, error) {
 		queryResult, err := rdap.RDAPQueryIP(qctx, resource, serverURL)
 		if err != nil {
 			return queryOutcome{}, err

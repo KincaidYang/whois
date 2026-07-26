@@ -82,7 +82,7 @@ func TestBatchBadRequests(t *testing.T) {
 
 // TestBatchMixedResults verifies per-item successes and failures coexist in
 // one 200 response: a cached domain answers from cache, an invalid input gets
-// a per-item 400 problem, and an unknown TLD reports its per-item 500 — all
+// a per-item 400 problem, and an unknown TLD reports its per-item 404 — all
 // network-free.
 func TestBatchMixedResults(t *testing.T) {
 	withTestBatch(t, true, 10)
@@ -123,7 +123,7 @@ func TestBatchMixedResults(t *testing.T) {
 	}
 
 	noServer := resp.Results[2]
-	if noServer.Status != http.StatusInternalServerError || noServer.Data != nil {
+	if noServer.Status != http.StatusNotFound || noServer.Data != nil {
 		t.Errorf("no-server item: %+v", noServer)
 	}
 }

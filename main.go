@@ -185,9 +185,9 @@ func registerRoutes(mux *http.ServeMux) {
 
 	// RFC 9082-style typed query paths. The ip path uses a rest wildcard so
 	// CIDR prefixes ("/ip/192.0.2.0/24") keep their slash.
-	mux.HandleFunc("/domain/{resource}", typedHandler("domain"))
-	mux.HandleFunc("/ip/{resource...}", typedHandler("ip"))
-	mux.HandleFunc("/autnum/{resource}", typedHandler("asn"))
+	mux.HandleFunc("/domain/{resource}", typedHandler(utils.KindDomain))
+	mux.HandleFunc("/ip/{resource...}", typedHandler(utils.KindIP))
+	mux.HandleFunc("/autnum/{resource}", typedHandler(utils.KindASN))
 
 	// Main query handler (auto-detects the resource type)
 	mux.HandleFunc("/", handler)
@@ -245,9 +245,9 @@ func typedHandler(want string) http.HandlerFunc {
 // typedPathError maps a required resource type to the 400 message returned
 // when the supplied resource is not of that type.
 var typedPathError = map[string]string{
-	"domain": "The /domain/ path requires a valid domain name.",
-	"ip":     "The /ip/ path requires a valid IPv4 or IPv6 address.",
-	"asn":    "The /autnum/ path requires a valid AS number.",
+	utils.KindDomain: "The /domain/ path requires a valid domain name.",
+	utils.KindIP:     "The /ip/ path requires a valid IPv4 or IPv6 address.",
+	utils.KindASN:    "The /autnum/ path requires a valid AS number.",
 }
 
 func serve(w http.ResponseWriter, r *http.Request, resource, want string) {
@@ -268,7 +268,10 @@ func serve(w http.ResponseWriter, r *http.Request, resource, want string) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), config.RequestTimeout)
 	defer cancel()
-	resource = strings.ToLower(resource)
+
+	// Classify once, and query the canonical form: equivalent spellings of one
+	// IP or prefix must not each get their own cache entry and upstream query.
+	resourceType, resource := utils.ClassifyResource(strings.ToLower(resource))
 
 	// ?raw requests the unparsed WHOIS text (domains only; RDAP-backed IP
 	// and ASN lookups have no raw-text form). ?raw=0 / ?raw=false opt out.
@@ -294,35 +297,24 @@ func serve(w http.ResponseWriter, r *http.Request, resource, want string) {
 	sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
 	start := time.Now()
 
-	var resourceType string
-	if utils.IsIP(resource) || utils.IsCIDR(resource) {
-		resourceType = "ip"
-	} else if utils.IsASN(resource) {
-		resourceType = "asn"
-	} else if utils.IsDomain(resource) {
-		resourceType = "domain"
-	} else {
-		resourceType = "unknown"
-	}
-
 	switch {
 	case want != "" && resourceType != want:
 		utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, typedPathError[want])
 	case refresh && len(config.AuthClients) == 0:
 		utils.WriteRefreshRequiresAuth(sw)
-	case resourceType == "ip":
+	case resourceType == utils.KindIP:
 		if raw {
 			utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Raw output is only supported for domain queries.")
 		} else {
 			handlers.HandleIP(ctx, sw, resource, cacheKeyPrefix, refresh)
 		}
-	case resourceType == "asn":
+	case resourceType == utils.KindASN:
 		if raw {
 			utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Raw output is only supported for domain queries.")
 		} else {
 			handlers.HandleASN(ctx, sw, resource, cacheKeyPrefix, refresh)
 		}
-	case resourceType == "domain":
+	case resourceType == utils.KindDomain:
 		handlers.HandleDomain(ctx, sw, resource, cacheKeyPrefix, raw, refresh)
 	default:
 		utils.HandleHTTPError(sw, utils.ErrorTypeBadRequest, "Invalid input. Please provide a valid domain, IP, or ASN.")

@@ -15,14 +15,18 @@ import (
 
 // TestHandlerUnknownTLD exercises HandleDomain's server-selection logic for a
 // syntactically valid domain whose TLD has neither an RDAP nor a WHOIS server.
-// This path is network-free.
+// Having no server for the TLD is an answer about the requested resource, not
+// a server-side failure, so it is a 404. This path is network-free.
 func TestHandlerUnknownTLD(t *testing.T) {
 	req := httptest.NewRequest("GET", "/example.zzqqxxnotld", nil)
 	w := httptest.NewRecorder()
 	handler(w, req)
 
-	if w.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d", w.Code)
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "#not-found") {
+		t.Errorf("body missing not-found problem type: %s", w.Body.String())
 	}
 	if !strings.Contains(w.Body.String(), "No WHOIS or RDAP server known") {
 		t.Errorf("unexpected body: %s", w.Body.String())

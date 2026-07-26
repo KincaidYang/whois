@@ -158,11 +158,14 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 			return queryWhoisDomain(qctx, domain, tld, key)
 		}
 	} else {
-		utils.HandleHTTPError(w, utils.ErrorTypeInternalServer, "No WHOIS or RDAP server known for TLD: "+tld)
+		// Nothing to query for this TLD: that is an answer about the requested
+		// resource, not a server-side failure, so it must not be reported as
+		// one (the ?raw path above answers the same way).
+		utils.HandleHTTPError(w, utils.ErrorTypeNotFound, "No WHOIS or RDAP server known for TLD: "+tld)
 		return
 	}
 
-	outcome, err := dedupedQuery(ctx, key, query)
+	outcome, err := dedupedQuery(ctx, key, refresh, query)
 	if err != nil {
 		utils.HandleQueryError(ctx, w, err)
 		return

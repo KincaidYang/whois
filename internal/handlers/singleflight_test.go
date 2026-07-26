@@ -38,7 +38,7 @@ func TestDedupedQueryWaiterCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := dedupedQuery(ctx, key, fn)
+		_, err := dedupedQuery(ctx, key, false, fn)
 		errCh <- err
 	}()
 	<-started
@@ -46,7 +46,7 @@ func TestDedupedQueryWaiterCancel(t *testing.T) {
 	// Second waiter joins the same in-flight query with a healthy context.
 	outCh := make(chan queryOutcome, 1)
 	go func() {
-		out, _ := dedupedQuery(context.Background(), key, fn)
+		out, _ := dedupedQuery(context.Background(), key, false, fn)
 		outCh <- out
 	}()
 	time.Sleep(100 * time.Millisecond) // let the second waiter join the flight
@@ -117,7 +117,7 @@ func TestDedupedQueryCanceledWaitersShareOneSlot(t *testing.T) {
 	errs := make(chan error, waiters)
 	for i := 0; i < waiters; i++ {
 		go func() {
-			_, err := dedupedQuery(ctx, key, fn)
+			_, err := dedupedQuery(ctx, key, false, fn)
 			errs <- err
 		}()
 	}
@@ -174,7 +174,7 @@ func TestDedupedQueryShutdownDrainCoversFlight(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := dedupedQuery(ctx, "whois:sfdraintest", fn)
+		_, err := dedupedQuery(ctx, "whois:sfdraintest", false, fn)
 		errCh <- err
 	}()
 	<-started
@@ -197,6 +197,79 @@ func TestDedupedQueryShutdownDrainCoversFlight(t *testing.T) {
 	case <-drained:
 	case <-time.After(2 * time.Second):
 		t.Fatal("shutdown drain did not complete after the flight finished")
+	}
+}
+
+// TestDedupedQueryRefreshDoesNotJoinRegularFlight verifies a ?refresh query
+// runs its own upstream query instead of attaching to a regular flight
+// already in progress for the same cache key: a refresh caller asked for a
+// forced fetch, and would otherwise be handed a result it did not force while
+// the response still reported X-Cache: REFRESH.
+func TestDedupedQueryRefreshDoesNotJoinRegularFlight(t *testing.T) {
+	oldCache, oldLimiter := config.CacheManager, config.ConcurrencyLimiter
+	config.CacheManager = utils.NewMemoryCache(10, time.Minute)
+	config.ConcurrencyLimiter = make(chan struct{}, 4)
+	t.Cleanup(func() { config.CacheManager, config.ConcurrencyLimiter = oldCache, oldLimiter })
+
+	const key = "whois:sfrefreshtest"
+	var runs atomic.Int32
+	release := make(chan struct{})
+	regularStarted := make(chan struct{})
+
+	go func() {
+		_, _ = dedupedQuery(context.Background(), key, false, func(context.Context) (queryOutcome, error) {
+			runs.Add(1)
+			close(regularStarted)
+			<-release
+			return queryOutcome{body: "regular"}, nil
+		})
+	}()
+	<-regularStarted
+
+	// The refresh query starts while the regular flight is still running.
+	out, err := dedupedQuery(context.Background(), key, true, func(context.Context) (queryOutcome, error) {
+		runs.Add(1)
+		return queryOutcome{body: "refreshed"}, nil
+	})
+	if err != nil {
+		t.Fatalf("refresh query failed: %v", err)
+	}
+	if out.body != "refreshed" {
+		t.Errorf("refresh query body = %q, want %q (it joined the regular flight)", out.body, "refreshed")
+	}
+
+	close(release)
+	waitFor(t, "both flights to finish", func() bool { return runs.Load() == 2 })
+
+	// Two refresh queries for the same key still share one flight.
+	runs.Store(0)
+	release2 := make(chan struct{})
+	refreshStarted := make(chan struct{})
+	fn := func(context.Context) (queryOutcome, error) {
+		runs.Add(1)
+		close(refreshStarted)
+		<-release2
+		return queryOutcome{body: "refreshed"}, nil
+	}
+	go func() { _, _ = dedupedQuery(context.Background(), key, true, fn) }()
+	<-refreshStarted
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if out, _ := dedupedQuery(context.Background(), key, true, fn); out.body != "refreshed" {
+			t.Errorf("second refresh body = %q, want the shared flight result", out.body)
+		}
+	}()
+	waitFor(t, "the second refresh waiter to join", func() bool {
+		flightsMu.Lock()
+		defer flightsMu.Unlock()
+		f := flights[refreshFlightPrefix+key]
+		return f != nil && f.waiters == 2
+	})
+	close(release2)
+	<-done
+	if n := runs.Load(); n != 1 {
+		t.Errorf("refresh flight ran %d times, want 1 (refresh queries must share one flight)", n)
 	}
 }
 

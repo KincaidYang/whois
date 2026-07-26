@@ -53,7 +53,7 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	serverURL, _ := serverlist.LookupASNKey(asnInt)
 
 	// Query and parse the RDAP information, deduplicating concurrent misses
-	outcome, err := dedupedQuery(ctx, key, func(qctx context.Context) (queryOutcome, error) {
+	outcome, err := dedupedQuery(ctx, key, refresh, func(qctx context.Context) (queryOutcome, error) {
 		queryResult, err := rdap.RDAPQueryASN(qctx, asn, serverURL)
 		if err != nil {
 			return queryOutcome{}, err
