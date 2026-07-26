@@ -1,0 +1,78 @@
+# Regenerates the compiled-in IANA server tables and opens a pull request when
+# they have drifted. The RDAP table is refreshed at runtime from IANA anyway;
+# the WHOIS table is not (there is no bulk file for it — it takes one
+# whois.iana.org query per TLD), so without this it only changes when someone
+# remembers to regenerate it by hand.
+name: Server lists
+
+on:
+  schedule:
+    # 04:17 UTC on the 1st of each month. The tables drift by a handful of
+    # entries a month, and every change is reviewed in the pull request.
+    - cron: "17 4 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate:
+    name: Regenerate IANA server lists
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Regenerate
+        id: generate
+        run: |
+          set +e
+          go run ./tools/genserverlist -summary "$RUNNER_TEMP/summary.md"
+          status=$?
+          set -e
+          if [ -f "$RUNNER_TEMP/summary.md" ]; then
+            cat "$RUNNER_TEMP/summary.md" >> "$GITHUB_STEP_SUMMARY"
+            # The pull request only carries internal/serverlist; the CHANGELOG
+            # entry for a refresh is written by whoever reviews it.
+            printf '\n---\n\nOnly `internal/serverlist` is touched — add a CHANGELOG entry before merging.\n' \
+              >> "$RUNNER_TEMP/summary.md"
+          fi
+          # 3 means the tables were written but a custom RDAP entry now
+          # collides with IANA's own data. Carry on so the pull request still
+          # opens with that in its body, and fail the job at the end.
+          if [ "$status" -ne 0 ] && [ "$status" -ne 3 ]; then
+            exit "$status"
+          fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Build and test
+        run: |
+          go build ./...
+          go test ./...
+
+      - name: Open a pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: chore/serverlist-refresh
+          delete-branch: true
+          sign-commits: true
+          add-paths: internal/serverlist/*.go
+          commit-message: "chore: refresh the built-in IANA server lists"
+          title: "chore: refresh the built-in IANA server lists"
+          body-path: ${{ runner.temp }}/summary.md
+
+      # A pull request opened with GITHUB_TOKEN does not start the Go workflow,
+      # so the build and test above are the only automated check it gets.
+      - name: Fail if a custom entry collides with IANA data
+        if: steps.generate.outputs.status == '3'
+        run: |
+          echo "A custom RDAP entry now collides with IANA data — see the job summary."
+          exit 1

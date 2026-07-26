@@ -1,0 +1,5 @@
+# tools/ holds the generator for the built-in IANA server lists. It runs in CI
+# once a month and never inside the service, so its statements would move the
+# project figure without saying anything about the code that serves requests.
+ignore:
+  - "tools/**"
