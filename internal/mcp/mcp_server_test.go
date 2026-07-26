@@ -15,6 +15,7 @@ import (
 	"github.com/KincaidYang/whois/internal/utils"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"golang.org/x/time/rate"
 )
 
 // setupBatchTest wires up the minimal config state the batch tool needs
@@ -220,5 +221,64 @@ func TestToolCallsAreMetered(t *testing.T) {
 	// The successful lookup must also be timed; a rejected call must not be.
 	if n := testutil.CollectAndCount(metrics.HTTPRequestDuration, "whois_http_request_duration_seconds"); n == 0 {
 		t.Error("no latency observations recorded for tool calls")
+	}
+}
+
+// TestRejectedToolCallsAreMetered verifies calls turned away before any lookup
+// are counted too — a saturated concurrency limiter and an exhausted per-key
+// budget. These are exactly the conditions an operator needs to see in the
+// metrics, and they produce no latency observation because no query ran.
+func TestRejectedToolCallsAreMetered(t *testing.T) {
+	setupBatchTest(t, true, 10)
+
+	counter := func(toolType, status string) float64 {
+		return testutil.ToFloat64(metrics.HTTPRequestsTotal.WithLabelValues(toolType, status))
+	}
+	lookupBefore := counter(toolTypeLookup, "429")
+	batchBefore := counter(toolTypeBatch, "429")
+
+	// Saturate the limiter so both tools are rejected on entry.
+	full := make(chan struct{}, 1)
+	full <- struct{}{}
+	config.ConcurrencyLimiter = full
+
+	result, _, err := whoisLookup(context.Background(), nil, &WhoisInput{Query: "example.com"})
+	if err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if !result.IsError || !strings.Contains(toolText(t, result), "too many concurrent requests") {
+		t.Errorf("expected a concurrency rejection, got: %s", toolText(t, result))
+	}
+	if _, _, err := whoisBatchLookup(context.Background(), nil, &BatchInput{Queries: []string{"example.com"}}); err != nil {
+		t.Fatalf("batch: %v", err)
+	}
+
+	if got := counter(toolTypeLookup, "429"); got != lookupBefore+1 {
+		t.Errorf("lookup 429 count = %v, want %v", got, lookupBefore+1)
+	}
+	if got := counter(toolTypeBatch, "429"); got != batchBefore+1 {
+		t.Errorf("batch 429 count = %v, want %v", got, batchBefore+1)
+	}
+
+	// A batch larger than the key's whole budget is rejected as well.
+	config.ConcurrencyLimiter = make(chan struct{}, 4)
+	client := &config.AuthClient{
+		Key:       "tiny",
+		Name:      "tiny",
+		RateLimit: 2,
+		Limiter:   rate.NewLimiter(rate.Limit(2)/60, 2),
+	}
+	ctx := config.WithAuthClient(context.Background(), client)
+
+	batchBefore = counter(toolTypeBatch, "429")
+	result, _, err = whoisBatchLookup(ctx, nil, &BatchInput{Queries: []string{"a.cn", "b.cn", "c.cn", "d.cn"}})
+	if err != nil {
+		t.Fatalf("over-budget batch: %v", err)
+	}
+	if !result.IsError || !strings.Contains(toolText(t, result), "reduce the batch size") {
+		t.Errorf("expected an over-budget rejection, got: %s", toolText(t, result))
+	}
+	if got := counter(toolTypeBatch, "429"); got != batchBefore+1 {
+		t.Errorf("over-budget 429 count = %v, want %v", got, batchBefore+1)
 	}
 }

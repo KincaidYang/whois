@@ -69,7 +69,10 @@ Histogram of how long the registry took, labelled `protocol` (`rdap` or
 `whois`) and `tld`. IP queries use the pseudo-TLD `_ip` and ASN queries `_asn`.
 
 Only queries that actually left this instance are observed here, so comparing
-its count with `whois_http_requests_total` gives the effective cache hit ratio.
+its count with `whois_http_requests_total` gives the effective cache hit ratio
+— as long as batch queries are off. A batch request counts once in
+`whois_http_requests_total` but can produce one upstream query per item, so
+with batch traffic the two are no longer per-request comparable.
 
 > The `tld` label has one series per TLD queried — on a busy open instance that
 > is a few hundred series per protocol. That is deliberate (a single misbehaving
@@ -105,8 +108,21 @@ this gauge is the only thing that will tell you the data has stopped moving.
 ```yaml
 # The RDAP server list has stopped updating. Below one day this is normal
 # (the default bootstrap.interval is 86400s); a whole day past that is not.
+# The gauge is 0 both on an instance with bootstrap.interval: 0 and on one
+# that has never had a successful refresh, so it is guarded here and the
+# second alert covers the never-succeeded case.
 - alert: WhoisBootstrapStale
-  expr: time() - whois_bootstrap_last_fetch_timestamp_seconds > 172800
+  expr: |
+    whois_bootstrap_last_fetch_timestamp_seconds > 0
+      and time() - whois_bootstrap_last_fetch_timestamp_seconds > 172800
+  for: 1h
+
+# Refreshes are being attempted and none is succeeding. Silent on an instance
+# with refresh disabled, which attempts nothing.
+- alert: WhoisBootstrapNeverSucceeds
+  expr: |
+    sum(rate(whois_bootstrap_refresh_total[6h])) > 0
+      and sum(rate(whois_bootstrap_refresh_total{result="success"}[6h])) == 0
   for: 1h
 
 # The cache backend is failing, so every request is going upstream.
@@ -145,7 +161,11 @@ this gauge is the only thing that will tell you the data has stopped moving.
 ## Useful queries
 
 ```promql
-# Cache hit ratio (requests that never reached a registry).
+# Cache hit ratio (requests that never reached a registry). Only meaningful
+# while batch queries are off, which is the default: a batch counts as one
+# request but can issue one upstream query per item, so with batch traffic the
+# numerator and the denominator count different things and the ratio can even
+# come out negative.
 1 - (
   sum(rate(whois_upstream_duration_seconds_count[5m]))
     / sum(rate(whois_http_requests_total[5m]))
