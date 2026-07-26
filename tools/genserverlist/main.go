@@ -5,9 +5,10 @@
 // Both files are mirrors of what IANA publishes at the moment of the run.
 // An entry IANA no longer reports is dropped, never kept: a table that keeps
 // its own entries is no longer a mirror, and the drift it hides is exactly
-// what regenerating is supposed to surface. Conversely, nothing is written
-// unless every fetch and every lookup succeeded, so a network failure can
-// never be mistaken for a registry withdrawing its server.
+// what regenerating is supposed to surface. Conversely, both files are built
+// in full before either is written, and neither is written unless every fetch
+// and every lookup succeeded, so a network failure can never be mistaken for a
+// registry withdrawing its server.
 //
 // The RDAP baseline is derived through serverlist.FetchIANA — the same code
 // path the running service uses to refresh itself — so the compiled fallback
@@ -115,20 +116,36 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 
-	var summary strings.Builder
-	collisions := false
-
+	// Both tables are built and validated in full before either is written, so
+	// a failure halfway through — a WHOIS lookup giving up after the RDAP
+	// files are already prepared — leaves the working tree untouched instead
+	// of half refreshed.
+	var (
+		staged     []table
+		summary    strings.Builder
+		collisions bool
+	)
 	if *only != "whois" {
-		found, err := generateRDAP(ctx, *dir, &summary)
+		built, err := buildRDAP(ctx, *dir)
 		if err != nil {
 			fail(err)
 		}
-		collisions = found
+		staged = append(staged, built.table)
+		collisions = built.collisions
 	}
 	if *only != "rdap" {
-		if err := generateWhois(ctx, *dir, *workers, &summary); err != nil {
+		built, err := buildWhois(ctx, *dir, *workers)
+		if err != nil {
 			fail(err)
 		}
+		staged = append(staged, built)
+	}
+
+	for _, t := range staged {
+		if err := os.WriteFile(t.path, t.src, 0o644); err != nil {
+			fail(err)
+		}
+		summary.WriteString(t.summary)
 	}
 
 	fmt.Print(summary.String())
@@ -142,19 +159,34 @@ func main() {
 	}
 }
 
+// table is one generated file, held in memory until the whole run has
+// succeeded.
+type table struct {
+	path    string
+	src     []byte // gofmt-ed file contents
+	summary string // Markdown describing what this run changes
+}
+
 func fail(err error) {
 	fmt.Fprintln(os.Stderr, "genserverlist:", err)
 	os.Exit(1)
 }
 
-// generateRDAP rewrites rdap_servers.go from the four IANA bootstrap files and
+// rdapTable is the generated RDAP file, plus whether any custom entry collides
+// with the fresh IANA data.
+type rdapTable struct {
+	table
+	collisions bool
+}
+
+// buildRDAP renders rdap_servers.go from the four IANA bootstrap files and
 // reports whether any custom entry collides with them.
-func generateRDAP(ctx context.Context, dir string, summary *strings.Builder) (collisions bool, err error) {
+func buildRDAP(ctx context.Context, dir string) (built rdapTable, err error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	perCategory, failed := serverlist.FetchIANA(ctx, client)
 	if len(failed) > 0 {
 		sort.Strings(failed)
-		return false, fmt.Errorf("bootstrap fetch failed for %s: leaving the table untouched", strings.Join(failed, ", "))
+		return built, fmt.Errorf("bootstrap fetch failed for %s: leaving the tables untouched", strings.Join(failed, ", "))
 	}
 
 	var buf bytes.Buffer
@@ -174,34 +206,38 @@ func generateRDAP(ctx context.Context, dir string, summary *strings.Builder) (co
 	buf.WriteString("}\n")
 
 	path := filepath.Join(dir, "rdap_servers.go")
+	src, err := format.Source(buf.Bytes())
+	if err != nil {
+		return built, fmt.Errorf("%s: %w", path, err)
+	}
 	old, err := parseStringMap(path, "compiledRdapServers")
 	if err != nil {
-		return false, err
+		return built, err
 	}
-	if err := writeGoFile(path, buf.Bytes()); err != nil {
-		return false, err
-	}
-	writeDiff(summary, "rdap_servers.go", old, fresh)
-
 	custom, err := parseStringMap(filepath.Join(dir, "rdap_servers_custom.go"), "customRdapServers")
 	if err != nil {
-		return false, err
+		return built, err
 	}
-	return writeCollisions(summary, custom, fresh), nil
+
+	var summary strings.Builder
+	writeDiff(&summary, "rdap_servers.go", old, fresh)
+	built.collisions = writeCollisions(&summary, custom, fresh)
+	built.table = table{path: path, src: src, summary: summary.String()}
+	return built, nil
 }
 
-// generateWhois rewrites whois_servers.go from the root zone list, asking IANA
-// for each TLD's WHOIS server.
-func generateWhois(ctx context.Context, dir string, workers int, summary *strings.Builder) error {
+// buildWhois renders whois_servers.go from the root zone list, asking IANA for
+// each TLD's WHOIS server.
+func buildWhois(ctx context.Context, dir string, workers int) (table, error) {
 	client := &http.Client{Timeout: 30 * time.Second}
 	tlds, err := fetchRootZone(ctx, client)
 	if err != nil {
-		return err
+		return table{}, err
 	}
 
 	servers, err := lookupWhoisServers(ctx, tlds, workers)
 	if err != nil {
-		return err
+		return table{}, err
 	}
 
 	var buf bytes.Buffer
@@ -217,16 +253,19 @@ func generateWhois(ctx context.Context, dir string, workers int, summary *string
 	buf.WriteString("}\n")
 
 	path := filepath.Join(dir, "whois_servers.go")
+	src, err := format.Source(buf.Bytes())
+	if err != nil {
+		return table{}, fmt.Errorf("%s: %w", path, err)
+	}
 	old, err := parseStringMap(path, "TLDToWhoisServer")
 	if err != nil {
-		return err
+		return table{}, err
 	}
-	if err := writeGoFile(path, buf.Bytes()); err != nil {
-		return err
-	}
-	fmt.Fprintf(summary, "Queried %d root-zone TLDs; %d report a WHOIS server.\n\n", len(tlds), len(servers))
-	writeDiff(summary, "whois_servers.go", old, servers)
-	return nil
+
+	var summary strings.Builder
+	fmt.Fprintf(&summary, "Queried %d root-zone TLDs; %d report a WHOIS server.\n\n", len(tlds), len(servers))
+	writeDiff(&summary, "whois_servers.go", old, servers)
+	return table{path: path, src: src, summary: summary.String()}, nil
 }
 
 // fetchRootZone returns every TLD in the root zone, lowercased, in the order
@@ -360,23 +399,30 @@ func queryIANA(ctx context.Context, addr, tld string) (string, error) {
 	}
 
 	record := strings.ToLower(string(body))
+	complete := false
 	for _, line := range strings.Split(record, "\n") {
-		rest, ok := strings.CutPrefix(strings.TrimSpace(line), "whois:")
-		if !ok {
-			continue
+		line = strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(line, "whois:"); ok {
+			// A record with an empty whois: field is IANA saying the registry
+			// publishes no WHOIS server, which is an answer, not a failure.
+			return strings.TrimSpace(rest), nil
 		}
-		// A record with an empty whois: field is IANA saying the registry
-		// publishes no WHOIS server, which is an answer, not a failure.
-		return strings.TrimSpace(rest), nil
+		// Every IANA record ends with its source, so seeing that line is what
+		// distinguishes "this TLD has no whois: field" from a record cut short
+		// before reaching one.
+		if rest, ok := strings.CutPrefix(line, "source:"); ok && strings.TrimSpace(rest) == "iana" {
+			complete = true
+		}
 	}
 
-	// No whois: line. Only a recognizably complete answer may be read as "this
-	// TLD has no WHOIS server" — an empty or truncated response says nothing,
-	// and taking it at face value would delete the entry from the table.
-	if strings.Contains(record, "domain:") || strings.Contains(record, "this query returned 0 objects") {
+	// No whois: line. Only a complete record — or IANA saying it has no record
+	// at all — may be read as "this TLD has no WHOIS server". A response that
+	// ended early says nothing, and taking it at face value would delete the
+	// entry from the table.
+	if complete || strings.Contains(record, "this query returned 0 objects") {
 		return "", nil
 	}
-	return "", fmt.Errorf("unrecognized response (%d bytes)", len(body))
+	return "", fmt.Errorf("response ended before the record did (%d bytes)", len(body))
 }
 
 // sortByURLThenKey orders one section's keys by server URL first, so entries
@@ -394,15 +440,6 @@ func sortByURLThenKey(entries map[string]string) []string {
 		return keys[i] < keys[j]
 	})
 	return keys
-}
-
-// writeGoFile gofmts src and writes it to path.
-func writeGoFile(path string, src []byte) error {
-	formatted, err := format.Source(src)
-	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
-	}
-	return os.WriteFile(path, formatted, 0o644)
 }
 
 // parseStringMap reads the named map[string]string variable out of a Go

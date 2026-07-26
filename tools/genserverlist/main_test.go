@@ -22,13 +22,16 @@ func TestQueryIANA(t *testing.T) {
 		want     string
 		wantErr  bool
 	}{
-		"server":            {response: "domain:       CN\nwhois:        whois.cnnic.cn\nstatus:       ACTIVE\n", want: "whois.cnnic.cn"},
-		"empty whois field": {response: "domain:       SAFETY\nwhois:        \nstatus:       ACTIVE\n"},
-		"no whois field":    {response: "domain:       AQ\nstatus:       ACTIVE\n"},
-		"unknown TLD":       {response: "This query returned 0 objects.\n"},
-		"uppercase server":  {response: "domain:       EXAMPLE\nwhois:        WHOIS.NIC.EXAMPLE\n", want: "whois.nic.example"},
+		"server":            {response: "domain:       CN\nwhois:        whois.cnnic.cn\nsource:       IANA\n", want: "whois.cnnic.cn"},
+		"empty whois field": {response: "domain:       SAFETY\nwhois:        \nsource:       IANA\n"},
+		"no whois field":    {response: "domain:       AQ\nstatus:       ACTIVE\nsource:       IANA\n"},
+		"unknown TLD":       {response: "% This query returned 0 objects.\n"},
+		"uppercase server":  {response: "domain:       EXAMPLE\nwhois:        WHOIS.NIC.EXAMPLE\nsource:       IANA\n", want: "whois.nic.example"},
 		"empty response":    {response: "", wantErr: true},
-		"truncated":         {response: "% IANA WHOIS server\n", wantErr: true},
+		"truncated banner":  {response: "% IANA WHOIS server\n", wantErr: true},
+		// The dangerous one: enough of the record arrived to look like an
+		// answer, but it ended before the whois: field it would have carried.
+		"truncated record": {response: "domain:       CN\norganisation: CNNIC\n", wantErr: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			addr, gotQuery := fakeWhoisServer(t, tc.response)
@@ -76,7 +79,7 @@ func TestLookupWhoisServerRetries(t *testing.T) {
 			}
 			buf := make([]byte, 256)
 			_, _ = conn.Read(buf) // drain the query so the close is graceful
-			_, _ = conn.Write([]byte("domain:       EXAMPLE\nwhois:        whois.nic.example\n"))
+			_, _ = conn.Write([]byte("domain:       EXAMPLE\nwhois:        whois.nic.example\nsource:       IANA\n"))
 			_ = conn.Close()
 		}
 	}()
