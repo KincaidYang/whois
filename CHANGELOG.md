@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > land in a future major release. The 0.x history below includes the breaking
 > changes made on the way to 1.0.0 (each under a **Breaking** heading).
 
-## [Unreleased]
+## [1.2.0] - 2026-07-26
 
 ### Added
 - Memory-only mode: leaving `redis.addr` empty now disables Redis outright — no
@@ -381,6 +381,7 @@ See the [release notes](https://github.com/KincaidYang/whois/releases/tag/v0.6.0
 See the [GitHub releases page](https://github.com/KincaidYang/whois/releases)
 for 0.5.x and earlier.
 
+[1.2.0]: https://github.com/KincaidYang/whois/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/KincaidYang/whois/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/KincaidYang/whois/compare/v0.10.0...v1.0.0
 [0.10.0]: https://github.com/KincaidYang/whois/compare/v0.9.0...v0.10.0
