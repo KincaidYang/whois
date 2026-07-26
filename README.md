@@ -159,7 +159,7 @@ docker run -d --name whois -p 8043:8043 \
 | `GET /health` | 存活检查 - 服务运行即返回 200 |
 | `GET /ready` | 就绪检查 - 检查缓存和并发容量状态 |
 | `GET /info` | 运行时信息 - 版本、运行时间、Go 版本等 |
-| `GET /metrics` | Prometheus 指标 - 请求计数、延迟、缓存命中率、上游查询耗时 |
+| `GET /metrics` | Prometheus 指标 - 请求计数、延迟、缓存命中率、上游查询耗时（指标清单与告警建议见 [docs/metrics.md](docs/metrics.md)） |
 | `GET /openapi.json` | OpenAPI 3.1 规范 - 全部端点与响应 schema 的机器可读描述 |
 | `POST /mcp` | MCP Streamable HTTP 端点 - 供 AI 助手集成使用 |
 | `POST /batch` | 批量查询 - 一次提交多个域名/IP/ASN（默认关闭，见 `batch.enabled`） |

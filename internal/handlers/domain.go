@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/KincaidYang/whois/internal/config"
 	"github.com/KincaidYang/whois/internal/model"
 	"github.com/KincaidYang/whois/internal/rdap"
 	"github.com/KincaidYang/whois/internal/serverlist"
@@ -114,26 +113,8 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	}
 
 	// Check if the RDAP or WHOIS information for the domain is cached
-	if !refresh {
-		cacheResult, err := utils.GetFromCache(ctx, config.CacheManager, key)
-		if err != nil {
-			utils.HandleInternalError(ctx, w, err)
-			return
-		}
-
-		if cacheResult.Found {
-			w.Header().Set("X-Cache", "HIT")
-			if utils.IsNegativeCacheHit(w, cacheResult.Data) {
-				return
-			}
-			contentType := "application/json"
-			if len(cacheResult.Data) == 0 || cacheResult.Data[0] != '{' {
-				contentType = "text/plain; charset=utf-8"
-			}
-			setCacheControl(w)
-			utils.HandleCacheResponse(w, cacheResult.Data, contentType)
-			return
-		}
+	if serveFromCache(ctx, w, key, refresh) != cacheMiss {
+		return
 	}
 
 	// Select the query path: RDAP preferred, WHOIS as fallback (raw output
@@ -170,10 +151,7 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 		return
 	}
 
-	w.Header().Set("X-Cache", missLabel(refresh))
-	setCacheControl(w)
-	w.Header().Set("Content-Type", outcome.contentType)
-	_, _ = fmt.Fprint(w, outcome.body)
+	writeUpstreamResult(w, outcome, refresh)
 }
 
 // queryRDAPDomain queries RDAP for a domain and parses the response.

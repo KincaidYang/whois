@@ -245,3 +245,53 @@ func fakeWhoisServer(t *testing.T, response string) (addr string, query <-chan s
 	}()
 	return listener.Addr().String(), received
 }
+
+// TestBuildersDoNotWrite verifies the two builders only render: a run that
+// fails partway leaves the existing tables untouched, instead of committing
+// whichever one happened to finish first. main writes the rendered files only
+// after every build has succeeded, so this is the half of that guarantee that
+// can be tested without the network.
+func TestBuildersDoNotWrite(t *testing.T) {
+	dir := t.TempDir()
+	existing := map[string]string{
+		"rdap_servers.go": `package serverlist
+
+var compiledRdapServers = map[string]string{
+	"cn": "https://rdap.example/",
+}
+`,
+		"whois_servers.go": `package serverlist
+
+var TLDToWhoisServer = map[string]string{
+	"cn": "whois.cnnic.cn",
+}
+`,
+	}
+	for name, src := range existing {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A cancelled context fails every fetch and every lookup, which is the
+	// same shape of failure as IANA being unreachable mid-run.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := buildRDAP(ctx, dir); err == nil {
+		t.Error("buildRDAP: expected an error when nothing can be fetched")
+	}
+	if _, err := buildWhois(ctx, dir, 4); err == nil {
+		t.Error("buildWhois: expected an error when nothing can be looked up")
+	}
+
+	for name, want := range existing {
+		got, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != want {
+			t.Errorf("%s was modified by a failed run:\n%s", name, got)
+		}
+	}
+}

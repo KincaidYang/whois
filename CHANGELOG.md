@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > land in a future major release. The 0.x history below includes the breaking
 > changes made on the way to 1.0.0 (each under a **Breaking** heading).
 
+## [Unreleased]
+
+### Added
+- MCP tool calls are now recorded in `whois_http_requests_total` and
+  `whois_http_request_duration_seconds` under the resource types `mcp` and
+  `mcp_batch`, with the status the query itself produced. Previously the
+  endpoint was invisible in the request metrics — only the per-key counter saw
+  it, and only on instances with authentication enabled.
+- [docs/metrics.md](docs/metrics.md) documents every exported metric, its
+  labels and their values, with suggested alerts (bootstrap staleness, cache
+  backend errors, 5xx rate, concurrency rejections, slow registries) and a few
+  ready-made queries such as the effective cache hit ratio.
+
 ## [1.2.0] - 2026-07-26
 
 ### Added
