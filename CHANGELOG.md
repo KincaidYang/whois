@@ -46,7 +46,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in flight for the same resource: the caller asked for a forced upstream
   fetch, but could be handed a result it did not force while the response
   still reported `X-Cache: REFRESH`. Concurrent refreshes still share one
-  upstream query with each other.
+  upstream query with each other, and a refresh owns the cache entry while it
+  runs: an ordinary query overlapping it no longer writes that entry, so its
+  older result — or its not-found marker — cannot land on top of the refreshed
+  one and be served for a full TTL.
 - A deduplicated upstream query whose waiters all disconnect now holds exactly
   one concurrency slot, no matter how many waiters canceled. Previously every
   canceled waiter transferred its own slot to the same shared flight, so many

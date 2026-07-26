@@ -128,6 +128,37 @@ func TestBatchMixedResults(t *testing.T) {
 	}
 }
 
+// TestBatchClassifiesIPAndASN verifies batch items are classified and
+// canonicalized like single queries: an expanded IPv6 address, a prefix with
+// host bits set and an "AS"-prefixed number all answer from the cache entry of
+// their canonical form instead of missing it and going upstream.
+func TestBatchClassifiesIPAndASN(t *testing.T) {
+	withTestBatch(t, true, 10)
+
+	seeded := map[string]string{
+		"2001:db8:ffff::1": `{"objectClassName":"ip network","handle":"seeded-ip"}`,
+		"203.0.113.0/24":   `{"objectClassName":"ip network","handle":"seeded-cidr"}`,
+		"64500":            `{"objectClassName":"autnum","handle":"seeded-asn"}`,
+	}
+	for k, v := range seeded {
+		if err := config.CacheManager.Set(context.Background(), handlers.CacheKeyPrefix+k, v, time.Minute); err != nil {
+			t.Fatalf("failed to seed cache: %v", err)
+		}
+	}
+
+	results := handlers.RunBatch(context.Background(), []string{"2001:0DB8:FFFF:0:0:0:0:1", "203.0.113.7/24", "AS64500"})
+	for i, want := range []string{"seeded-ip", "seeded-cidr", "seeded-asn"} {
+		item := results[i]
+		if item.Status != http.StatusOK {
+			t.Errorf("%s: expected 200, got %d (%s)", item.Query, item.Status, item.Error)
+			continue
+		}
+		if !strings.Contains(string(item.Data), want) {
+			t.Errorf("%s: expected the cached %s entry, got: %s", item.Query, want, item.Data)
+		}
+	}
+}
+
 // TestBatchExpiredDeadline verifies queries still queued when the batch
 // deadline expires are reported as per-item errors instead of starting late —
 // the singleflight layer would otherwise give them a fresh detached timeout

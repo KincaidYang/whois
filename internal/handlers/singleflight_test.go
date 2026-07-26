@@ -17,10 +17,7 @@ import (
 // waiter remains, no extra concurrency slot is transferred to the flight
 // (the surviving waiter's handler slot already covers it).
 func TestDedupedQueryWaiterCancel(t *testing.T) {
-	oldCache, oldLimiter := config.CacheManager, config.ConcurrencyLimiter
-	config.CacheManager = utils.NewMemoryCache(10, time.Minute)
-	config.ConcurrencyLimiter = make(chan struct{}, 4)
-	t.Cleanup(func() { config.CacheManager, config.ConcurrencyLimiter = oldCache, oldLimiter })
+	setupFlightTest(t)
 
 	var flights atomic.Int32
 	release := make(chan struct{})
@@ -97,10 +94,7 @@ func TestDedupedQueryWaiterCancel(t *testing.T) {
 // would let clients drain the limiter by querying one slow resource and
 // disconnecting.
 func TestDedupedQueryCanceledWaitersShareOneSlot(t *testing.T) {
-	oldCache, oldLimiter := config.CacheManager, config.ConcurrencyLimiter
-	config.CacheManager = utils.NewMemoryCache(10, time.Minute)
-	config.ConcurrencyLimiter = make(chan struct{}, 4)
-	t.Cleanup(func() { config.CacheManager, config.ConcurrencyLimiter = oldCache, oldLimiter })
+	setupFlightTest(t)
 
 	release := make(chan struct{})
 	started := make(chan struct{})
@@ -158,10 +152,7 @@ func TestDedupedQueryCanceledWaitersShareOneSlot(t *testing.T) {
 // drain in main waits for its upstream query and cache writes before the
 // cache and Redis clients are closed.
 func TestDedupedQueryShutdownDrainCoversFlight(t *testing.T) {
-	oldCache, oldLimiter := config.CacheManager, config.ConcurrencyLimiter
-	config.CacheManager = utils.NewMemoryCache(10, time.Minute)
-	config.ConcurrencyLimiter = make(chan struct{}, 4)
-	t.Cleanup(func() { config.CacheManager, config.ConcurrencyLimiter = oldCache, oldLimiter })
+	setupFlightTest(t)
 
 	release := make(chan struct{})
 	started := make(chan struct{})
@@ -206,10 +197,7 @@ func TestDedupedQueryShutdownDrainCoversFlight(t *testing.T) {
 // forced fetch, and would otherwise be handed a result it did not force while
 // the response still reported X-Cache: REFRESH.
 func TestDedupedQueryRefreshDoesNotJoinRegularFlight(t *testing.T) {
-	oldCache, oldLimiter := config.CacheManager, config.ConcurrencyLimiter
-	config.CacheManager = utils.NewMemoryCache(10, time.Minute)
-	config.ConcurrencyLimiter = make(chan struct{}, 4)
-	t.Cleanup(func() { config.CacheManager, config.ConcurrencyLimiter = oldCache, oldLimiter })
+	setupFlightTest(t)
 
 	const key = "whois:sfrefreshtest"
 	var runs atomic.Int32
@@ -271,6 +259,111 @@ func TestDedupedQueryRefreshDoesNotJoinRegularFlight(t *testing.T) {
 	if n := runs.Load(); n != 1 {
 		t.Errorf("refresh flight ran %d times, want 1 (refresh queries must share one flight)", n)
 	}
+}
+
+// TestRefreshFlightOwnsCacheEntry verifies a regular flight overlapping a
+// refresh does not write the cache: whichever of the two finishes last, the
+// forced result is what stays cached. Otherwise the regular query — issued
+// before the refresh, and possibly answering not-found — would land on top of
+// the refreshed entry and be served for a whole TTL.
+func TestRefreshFlightOwnsCacheEntry(t *testing.T) {
+	setupFlightTest(t)
+
+	cached := func(t *testing.T, key string) string {
+		t.Helper()
+		got, err := config.CacheManager.Get(context.Background(), key)
+		if err != nil {
+			t.Fatalf("cache read: %v", err)
+		}
+		if !got.Found {
+			return ""
+		}
+		return got.Data
+	}
+
+	// The regular flight starts first and finishes last, with an error: its
+	// negative marker must not replace the refreshed result.
+	const key = "whois:sfrefreshowner"
+	release := make(chan struct{})
+	regularStarted := make(chan struct{})
+	regularDone := make(chan error, 1)
+	go func() {
+		_, err := dedupedQuery(context.Background(), key, false, func(context.Context) (queryOutcome, error) {
+			close(regularStarted)
+			<-release
+			return queryOutcome{}, utils.ErrDomainNotFound
+		})
+		regularDone <- err
+	}()
+	<-regularStarted
+
+	if _, err := dedupedQuery(context.Background(), key, true, func(context.Context) (queryOutcome, error) {
+		return queryOutcome{body: "refreshed"}, nil
+	}); err != nil {
+		t.Fatalf("refresh query failed: %v", err)
+	}
+	if got := cached(t, key); got != "refreshed" {
+		t.Fatalf("after refresh, cache holds %q, want %q", got, "refreshed")
+	}
+
+	close(release)
+	if err := <-regularDone; !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("regular waiter error = %v, want its own flight's error", err)
+	}
+	if got := cached(t, key); got != "refreshed" {
+		t.Errorf("the superseded flight overwrote the refreshed entry with %q", got)
+	}
+
+	// The reverse order: a regular flight started while a refresh is running
+	// is superseded too, so its result cannot outlive the refresh either.
+	const key2 = "whois:sfrefreshowner2"
+	release2 := make(chan struct{})
+	refreshStarted := make(chan struct{})
+	refreshDone := make(chan struct{})
+	go func() {
+		defer close(refreshDone)
+		_, _ = dedupedQuery(context.Background(), key2, true, func(context.Context) (queryOutcome, error) {
+			close(refreshStarted)
+			<-release2
+			return queryOutcome{body: "refreshed"}, nil
+		})
+	}()
+	<-refreshStarted
+
+	if _, err := dedupedQuery(context.Background(), key2, false, func(context.Context) (queryOutcome, error) {
+		return queryOutcome{body: "regular"}, nil
+	}); err != nil {
+		t.Fatalf("regular query failed: %v", err)
+	}
+	if got := cached(t, key2); got != "" {
+		t.Errorf("the superseded regular flight wrote %q while a refresh was in flight", got)
+	}
+
+	close(release2)
+	<-refreshDone
+	if got := cached(t, key2); got != "refreshed" {
+		t.Errorf("after the refresh finished, cache holds %q, want %q", got, "refreshed")
+	}
+}
+
+// setupFlightTest gives a flight test its own cache and concurrency limiter
+// without running config.Load. The cleanup waits for the flight registry to
+// drain first: a detached flight still writes the cache after its callers are
+// gone, and restoring config.CacheManager under it would be a data race.
+func setupFlightTest(t *testing.T) {
+	t.Helper()
+	oldCache, oldLimiter, oldTTL := config.CacheManager, config.ConcurrencyLimiter, config.CacheExpiration
+	config.CacheManager = utils.NewMemoryCache(10, time.Minute)
+	config.ConcurrencyLimiter = make(chan struct{}, 4)
+	config.CacheExpiration = time.Minute
+	t.Cleanup(func() {
+		waitFor(t, "the flight registry to drain", func() bool {
+			flightsMu.Lock()
+			defer flightsMu.Unlock()
+			return len(flights) == 0
+		})
+		config.CacheManager, config.ConcurrencyLimiter, config.CacheExpiration = oldCache, oldLimiter, oldTTL
+	})
 }
 
 // waitFor polls cond until it holds, failing the test after two seconds.

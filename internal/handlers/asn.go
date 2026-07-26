@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -69,11 +68,7 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 			return queryOutcome{}, err
 		}
 
-		result := string(resultBytes)
-		if err := utils.SetToCache(qctx, config.CacheManager, key, result, config.CacheExpiration); err != nil {
-			slog.WarnContext(qctx, "cache write error", "key", key, "err", err)
-		}
-		return queryOutcome{body: result, contentType: "application/json"}, nil
+		return queryOutcome{body: string(resultBytes), contentType: "application/json"}, nil
 	})
 	if err != nil {
 		utils.HandleQueryError(ctx, w, err)
