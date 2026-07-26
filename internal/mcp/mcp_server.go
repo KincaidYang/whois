@@ -55,18 +55,19 @@ func whoisLookup(ctx context.Context, _ *mcp.CallToolRequest, input *WhoisInput)
 	ctx, cancel := context.WithTimeout(ctx, config.RequestTimeout)
 	defer cancel()
 
-	query := strings.TrimSpace(strings.ToLower(input.Query))
+	kind, query := utils.ClassifyResource(strings.TrimSpace(strings.ToLower(input.Query)))
 
 	rc := handlers.NewResponseCapture()
 	const cacheKeyPrefix = handlers.CacheKeyPrefix
 
-	if utils.IsIP(query) || utils.IsCIDR(query) {
+	switch kind {
+	case utils.KindIP:
 		handlers.HandleIP(ctx, rc, query, cacheKeyPrefix, false)
-	} else if utils.IsASN(query) {
+	case utils.KindASN:
 		handlers.HandleASN(ctx, rc, query, cacheKeyPrefix, false)
-	} else if utils.IsDomain(query) {
+	case utils.KindDomain:
 		handlers.HandleDomain(ctx, rc, query, cacheKeyPrefix, false, false)
-	} else {
+	default:
 		return errorResult("Invalid input: please provide a valid domain, IP address, or ASN"), nil, nil
 	}
 

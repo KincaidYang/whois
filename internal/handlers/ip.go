@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -48,7 +47,7 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 	serverURL, _ := serverlist.LookupIPKey(ip)
 
 	// Query and parse the RDAP information, deduplicating concurrent misses
-	outcome, err := dedupedQuery(ctx, key, func(qctx context.Context) (queryOutcome, error) {
+	outcome, err := dedupedQuery(ctx, key, refresh, func(qctx context.Context) (queryOutcome, error) {
 		queryResult, err := rdap.RDAPQueryIP(qctx, resource, serverURL)
 		if err != nil {
 			return queryOutcome{}, err
@@ -64,11 +63,7 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 			return queryOutcome{}, err
 		}
 
-		result := string(resultBytes)
-		if err := utils.SetToCache(qctx, config.CacheManager, key, result, config.CacheExpiration); err != nil {
-			slog.WarnContext(qctx, "cache write error", "key", key, "err", err)
-		}
-		return queryOutcome{body: result, contentType: "application/json"}, nil
+		return queryOutcome{body: string(resultBytes), contentType: "application/json"}, nil
 	})
 	if err != nil {
 		utils.HandleQueryError(ctx, w, err)

@@ -60,8 +60,8 @@ func TestRefreshOptOut(t *testing.T) {
 // TestRefreshBypassesCache verifies an authenticated ?refresh skips the cache
 // read. The domain's TLD has no WHOIS/RDAP server, so the cached entry is the
 // only thing that could serve a 200: without refresh the seeded cache answers
-// (HIT); with refresh the handler must go upstream and fails with the
-// "no server known" 500 — proving the cache was bypassed, without network.
+// (HIT); with refresh the handler must take the upstream path and answer
+// "no server known" (404) — proving the cache was bypassed, without network.
 func TestRefreshBypassesCache(t *testing.T) {
 	withTestAuthKeys(t, "refresh-test-key")
 
@@ -81,7 +81,7 @@ func TestRefreshBypassesCache(t *testing.T) {
 	req = httptest.NewRequest("GET", "/"+domain+"?refresh=1", nil)
 	req.Header.Set("X-API-Key", "refresh-test-key")
 	w = authRequest(req)
-	if w.Code != http.StatusInternalServerError || !strings.Contains(w.Body.String(), "No WHOIS or RDAP server known") {
-		t.Errorf("with refresh: expected the upstream path (500 no server known), got %d: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "No WHOIS or RDAP server known") {
+		t.Errorf("with refresh: expected the upstream path (404 no server known), got %d: %s", w.Code, w.Body.String())
 	}
 }

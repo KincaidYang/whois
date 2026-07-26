@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	"github.com/KincaidYang/whois/internal/config"
@@ -26,15 +27,25 @@ type flight struct {
 	err     error         // written before done is closed
 
 	// The fields below are guarded by flightsMu.
-	waiters  int  // callers currently waiting on done
-	finished bool // set just before done is closed
-	slotHeld bool // a concurrency slot has been transferred to this flight
+	waiters    int  // callers currently waiting on done
+	finished   bool // set just before done is closed
+	slotHeld   bool // a concurrency slot has been transferred to this flight
+	superseded bool // an overlapping refresh flight owns the cache entry
 }
 
 var (
 	flightsMu sync.Mutex
 	flights   = make(map[string]*flight)
 )
+
+// refreshFlightPrefix separates the flights of ?refresh queries from those of
+// regular ones. A refresh query asked for a forced upstream fetch, so joining
+// a regular flight already in progress would hand it a result it did not
+// force while the response still claimed X-Cache: REFRESH. Refresh queries
+// still share one flight with each other, and both kinds write the same cache
+// key. The NUL byte cannot occur in a cache key built from a validated
+// resource name, so the two namespaces cannot collide.
+const refreshFlightPrefix = "refresh\x00"
 
 // dedupedQuery runs fn once per key across concurrent callers. The flight gets
 // its own timeout, detached from the first caller's context, so one client
@@ -52,17 +63,34 @@ var (
 // configured limit. Each flight also holds an entry in the shutdown wait
 // group for its whole lifetime, so draining on shutdown waits for detached
 // flights (and their cache writes), not just for their former callers.
-func dedupedQuery(ctx context.Context, key string, fn func(context.Context) (queryOutcome, error)) (queryOutcome, error) {
+func dedupedQuery(ctx context.Context, key string, refresh bool, fn func(context.Context) (queryOutcome, error)) (queryOutcome, error) {
+	fkey := key
+	if refresh {
+		fkey = refreshFlightPrefix + key
+	}
+
 	flightsMu.Lock()
-	f, ok := flights[key]
+	f, ok := flights[fkey]
 	if !ok {
 		f = &flight{done: make(chan struct{})}
-		flights[key] = f
+		// A refresh flight owns the cache entry for as long as it runs: a
+		// regular flight overlapping it skips its own write, whichever of the
+		// two started first. Otherwise the regular query — issued seconds
+		// earlier, and possibly answering not-found — could land on top of the
+		// forced result and survive there for a whole TTL.
+		if refresh {
+			if regular, running := flights[key]; running {
+				regular.superseded = true
+			}
+		} else if _, refreshing := flights[refreshFlightPrefix+key]; refreshing {
+			f.superseded = true
+		}
+		flights[fkey] = f
 		// The caller's own wait-group entry is still held here (handlers Add
 		// before querying), so the counter cannot be observed at zero by a
 		// concurrent Wait; adding the flight's entry does not race the drain.
 		config.Wg.Add(1)
-		go f.run(ctx, key, fn)
+		go f.run(ctx, key, fkey, fn)
 	}
 	f.waiters++
 	flightsMu.Unlock()
@@ -98,22 +126,38 @@ func dedupedQuery(ctx context.Context, key string, fn func(context.Context) (que
 	}
 }
 
-// run executes the flight and publishes its result. ctx is the first caller's
-// context: canceled callers must not cancel the shared query, but its values
-// (request ID) are kept for upstream logging via WithoutCancel.
-func (f *flight) run(ctx context.Context, key string, fn func(context.Context) (queryOutcome, error)) {
+// run executes the flight, records its result in the cache and publishes it to
+// the waiters. ctx is the first caller's context: canceled callers must not
+// cancel the shared query, but its values (request ID) are kept for upstream
+// logging via WithoutCancel. cacheKey is the entry this flight writes — the
+// result, or a short-TTL negative marker for a stable not-found/denied error;
+// fkey is this flight's registry key, which differs for refresh queries.
+func (f *flight) run(ctx context.Context, cacheKey, fkey string, fn func(context.Context) (queryOutcome, error)) {
 	defer config.Wg.Done()
 
 	qctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), config.RequestTimeout)
 	defer cancel()
 
 	outcome, err := fn(qctx)
-	if err != nil {
-		utils.CacheNegativeResult(qctx, config.CacheManager, key, err, config.NegativeCacheExpiration)
+
+	flightsMu.Lock()
+	superseded := f.superseded
+	flightsMu.Unlock()
+
+	// Write before publishing the result, so a caller that has seen the
+	// response can rely on the cache being populated.
+	switch {
+	case superseded:
+	case err != nil:
+		utils.CacheNegativeResult(qctx, config.CacheManager, cacheKey, err, config.NegativeCacheExpiration)
+	default:
+		if err := utils.SetToCache(qctx, config.CacheManager, cacheKey, outcome.body, config.CacheExpiration); err != nil {
+			slog.WarnContext(qctx, "cache write error", "key", cacheKey, "err", err)
+		}
 	}
 
 	flightsMu.Lock()
-	delete(flights, key)
+	delete(flights, fkey)
 	f.outcome, f.err = outcome, err
 	f.finished = true
 	flightsMu.Unlock()

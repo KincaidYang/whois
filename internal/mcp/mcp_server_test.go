@@ -99,6 +99,38 @@ func TestBatchToolMixedResults(t *testing.T) {
 	}
 }
 
+// TestLookupToolClassifiesIPAndASN verifies the single-lookup tool routes IP,
+// CIDR and ASN queries to their handlers on the canonical form of the input,
+// the same way the HTTP endpoint does — each one answers from the cache entry
+// of that canonical form, network-free.
+func TestLookupToolClassifiesIPAndASN(t *testing.T) {
+	setupBatchTest(t, false, 10)
+
+	for _, tc := range []struct{ name, cacheKey, query, handle string }{
+		{"expanded IPv6", "2001:db8::1", "2001:0DB8:0:0:0:0:0:1", "seeded-ip"},
+		{"CIDR with host bits", "198.51.100.0/24", "198.51.100.7/24", "seeded-cidr"},
+		{"AS-prefixed number", "64496", "AS64496", "seeded-asn"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := `{"objectClassName":"test","handle":"` + tc.handle + `"}`
+			if err := config.CacheManager.Set(context.Background(), handlers.CacheKeyPrefix+tc.cacheKey, body, time.Minute); err != nil {
+				t.Fatalf("failed to seed cache: %v", err)
+			}
+
+			result, _, err := whoisLookup(context.Background(), nil, &WhoisInput{Query: tc.query})
+			if err != nil {
+				t.Fatalf("tool error: %v", err)
+			}
+			if result.IsError {
+				t.Fatalf("expected success, got error: %s", toolText(t, result))
+			}
+			if !strings.Contains(toolText(t, result), tc.handle) {
+				t.Errorf("expected the cached %s entry, got: %s", tc.handle, toolText(t, result))
+			}
+		})
+	}
+}
+
 // TestHandlerStatelessJSON drives the streamable HTTP handler end to end and
 // verifies its stateless + JSON configuration: a tools/call POST that carries
 // no Mcp-Session-Id header (and was never preceded by an initialize request

@@ -176,16 +176,16 @@ func batchDeadlineItem(query string) BatchItem {
 // query (cache, singleflight and negative caching all apply).
 func runBatchItem(ctx context.Context, query string) BatchItem {
 	item := BatchItem{Query: query}
-	normalized := strings.ToLower(strings.TrimSpace(query))
+	kind, resource := utils.ClassifyResource(strings.ToLower(strings.TrimSpace(query)))
 
 	rc := NewResponseCapture()
-	switch {
-	case utils.IsIP(normalized) || utils.IsCIDR(normalized):
-		HandleIP(ctx, rc, normalized, CacheKeyPrefix, false)
-	case utils.IsASN(normalized):
-		HandleASN(ctx, rc, normalized, CacheKeyPrefix, false)
-	case utils.IsDomain(normalized):
-		HandleDomain(ctx, rc, normalized, CacheKeyPrefix, false, false)
+	switch kind {
+	case utils.KindIP:
+		HandleIP(ctx, rc, resource, CacheKeyPrefix, false)
+	case utils.KindASN:
+		HandleASN(ctx, rc, resource, CacheKeyPrefix, false)
+	case utils.KindDomain:
+		HandleDomain(ctx, rc, resource, CacheKeyPrefix, false, false)
 	default:
 		utils.HandleHTTPError(rc, utils.ErrorTypeBadRequest, "Invalid input. Please provide a valid domain, IP, or ASN.")
 	}

@@ -32,6 +32,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   when authentication is enabled, matching the query endpoints.
 
 ### Fixed
+- A domain whose TLD has neither a WHOIS nor an RDAP server now answers `404`
+  (`not-found`) instead of `500`. Having no server for a TLD is an answer about
+  the requested resource, not a server-side failure, and reporting it as one
+  put ordinary junk requests (`/favicon.ico`) into the 5xx metrics; the
+  `?raw` path already answered `404` for the same condition.
+- Equivalent spellings of one IP address or prefix now share a single cache
+  entry and a single upstream query: addresses and prefixes are canonicalized
+  before use (`2001:0db8:0:0:0:0:0:1` → `2001:db8::1`), and a prefix's host
+  bits are masked off (`192.0.2.5/24` → `192.0.2.0/24`), which is also the
+  network RFC 9082 defines the `ip` query to name.
+- `?refresh` queries no longer attach to a regular deduplicated query already
+  in flight for the same resource: the caller asked for a forced upstream
+  fetch, but could be handed a result it did not force while the response
+  still reported `X-Cache: REFRESH`. Concurrent refreshes still share one
+  upstream query with each other, and a refresh owns the cache entry while it
+  runs: an ordinary query overlapping it no longer writes that entry, so its
+  older result — or its not-found marker — cannot land on top of the refreshed
+  one and be served for a full TTL.
 - A deduplicated upstream query whose waiters all disconnect now holds exactly
   one concurrency slot, no matter how many waiters canceled. Previously every
   canceled waiter transferred its own slot to the same shared flight, so many

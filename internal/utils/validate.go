@@ -22,16 +22,42 @@ func IsASN(resource string) bool {
 	return asnRegex.MatchString(resource)
 }
 
-// IsIP reports whether the given resource is a bare IPv4 or IPv6 address.
-func IsIP(resource string) bool {
-	return net.ParseIP(resource) != nil
-}
+// Resource kinds reported by ClassifyResource. The values double as the "type"
+// label on request metrics and as the resource type the RFC 9082-style typed
+// paths require, so they must stay stable.
+const (
+	KindDomain  = "domain"
+	KindIP      = "ip"
+	KindASN     = "asn"
+	KindUnknown = "unknown"
+)
 
-// IsCIDR reports whether the given resource is an IP prefix in CIDR notation
-// (e.g. "192.0.2.0/24", "2001:db8::/32").
-func IsCIDR(resource string) bool {
-	_, _, err := net.ParseCIDR(resource)
-	return err == nil
+// ClassifyResource reports which kind of resource s names, along with the
+// canonical form the query should use. It is the single entry-point
+// classifier: the HTTP handler, the batch endpoint and the MCP tool all route
+// through it so they agree on what a query string means.
+//
+// IP addresses and prefixes are canonicalized ("2001:0db8:0:0:0:0:0:1" →
+// "2001:db8::1", "192.0.2.5/24" → "192.0.2.0/24"), so equivalent spellings of
+// one resource share a cache entry and one upstream query instead of one per
+// spelling. Masking the host bits off a prefix also matches RFC 9082, which
+// defines the ip query as the network rather than an address inside it.
+// Domains and ASNs are returned unchanged: HandleDomain applies IDNA and
+// public-suffix normalization, HandleASN reduces an ASN to its digits.
+func ClassifyResource(s string) (kind, canonical string) {
+	if ip := net.ParseIP(s); ip != nil {
+		return KindIP, ip.String()
+	}
+	if _, ipNet, err := net.ParseCIDR(s); err == nil {
+		return KindIP, ipNet.String()
+	}
+	if IsASN(s) {
+		return KindASN, s
+	}
+	if IsDomain(s) {
+		return KindDomain, s
+	}
+	return KindUnknown, s
 }
 
 // IsDomain reports whether the given resource is a valid domain name.

@@ -73,6 +73,70 @@ func TestHandleIPMissAndHit(t *testing.T) {
 	}
 }
 
+// TestIPSpellingsShareOneCacheEntry verifies equivalent spellings of one
+// address resolve to a single canonical cache key and a single upstream
+// query, instead of one entry (and one upstream request) per spelling.
+func TestIPSpellingsShareOneCacheEntry(t *testing.T) {
+	var upstreamHits atomic.Int32
+	var gotPath atomic.Value
+	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
+		upstreamHits.Add(1)
+		gotPath.Store(r.URL.Path)
+		_, _ = w.Write([]byte(`{"objectClassName":"ip network","handle":"NET-ZZV6TEST"}`))
+	}, "2001:db8:1234::/48")
+
+	w := httptest.NewRecorder()
+	newTestMux().ServeHTTP(w, httptest.NewRequest("GET", "/ip/2001:0DB8:1234:0000:0000:0000:0000:0001", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("X-Cache"); got != "MISS" {
+		t.Errorf("X-Cache: got %q, want MISS", got)
+	}
+	// The upstream query carries the canonical form, not the caller's spelling.
+	if got, _ := gotPath.Load().(string); got != "/ip/2001:db8:1234::1" {
+		t.Errorf("upstream path: got %q, want the canonical form", got)
+	}
+
+	w = httptest.NewRecorder()
+	newTestMux().ServeHTTP(w, httptest.NewRequest("GET", "/ip/2001:db8:1234::1", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("compressed form: expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get("X-Cache"); got != "HIT" {
+		t.Errorf("compressed form X-Cache: got %q, want HIT", got)
+	}
+	if n := upstreamHits.Load(); n != 1 {
+		t.Errorf("upstream was queried %d times, want 1", n)
+	}
+}
+
+// TestCIDRHostBitsMasked verifies a prefix carrying host bits is queried as
+// the network it names (RFC 9082), so /24 queries that differ only in the
+// host part share one cache entry.
+func TestCIDRHostBitsMasked(t *testing.T) {
+	var gotPath atomic.Value
+	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath.Store(r.URL.Path)
+		_, _ = w.Write([]byte(`{"objectClassName":"ip network","handle":"NET-ZZCIDRTEST"}`))
+	}, "198.51.100.0/24")
+
+	w := httptest.NewRecorder()
+	newTestMux().ServeHTTP(w, httptest.NewRequest("GET", "/ip/198.51.100.7/24", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if got, _ := gotPath.Load().(string); got != "/ip/198.51.100.0/24" {
+		t.Errorf("upstream path: got %q, want the masked network", got)
+	}
+
+	w = httptest.NewRecorder()
+	newTestMux().ServeHTTP(w, httptest.NewRequest("GET", "/ip/198.51.100.0/24", nil))
+	if got := w.Header().Get("X-Cache"); got != "HIT" {
+		t.Errorf("X-Cache: got %q, want HIT", got)
+	}
+}
+
 // TestHandleIPUpstreamNotFound verifies an upstream 404 is returned as a
 // problem response and negative-cached for the next request.
 func TestHandleIPUpstreamNotFound(t *testing.T) {
