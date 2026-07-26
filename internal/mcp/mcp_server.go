@@ -11,6 +11,7 @@ import (
 
 	"github.com/KincaidYang/whois/internal/config"
 	"github.com/KincaidYang/whois/internal/handlers"
+	"github.com/KincaidYang/whois/internal/metrics"
 	"github.com/KincaidYang/whois/internal/utils"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -25,6 +26,30 @@ type BatchInput struct {
 	Queries []string `json:"queries" jsonschema:"Domain names, IP addresses (v4/v6), or ASNs (e.g. AS12345) to look up"`
 }
 
+// Tool calls are reported under the same metrics as the HTTP query endpoints,
+// as their own resource types. Without this, the MCP endpoint — the one this
+// project leads with — is invisible in everything except the per-key client
+// counter, which only exists when authentication is enabled.
+const (
+	toolTypeLookup = "mcp"
+	toolTypeBatch  = "mcp_batch"
+)
+
+// countTool records a tool call rejected before any lookup happened. Like the
+// HTTP handler's own rejections, these get no latency observation: they say
+// nothing about how long a query takes.
+func countTool(tool string, status int) {
+	metrics.HTTPRequestsTotal.WithLabelValues(tool, strconv.Itoa(status)).Inc()
+}
+
+// recordTool records a tool call that ran, with the status the query itself
+// produced (200, 404, 400 …), so MCP traffic is comparable with the same
+// resource's HTTP traffic.
+func recordTool(tool string, status int, start time.Time) {
+	countTool(tool, status)
+	metrics.HTTPRequestDuration.WithLabelValues(tool).Observe(time.Since(start).Seconds())
+}
+
 // errorResult builds a tool result carrying an error message.
 func errorResult(msg string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{
@@ -36,6 +61,8 @@ func errorResult(msg string) *mcp.CallToolResult {
 }
 
 func whoisLookup(ctx context.Context, _ *mcp.CallToolRequest, input *WhoisInput) (*mcp.CallToolResult, any, error) {
+	start := time.Now()
+
 	// MCP requests consume the same upstream resources as plain HTTP queries,
 	// so they share the concurrency limiter, the per-request timeout, and the
 	// graceful-shutdown wait group used by the main handler.
@@ -45,6 +72,7 @@ func whoisLookup(ctx context.Context, _ *mcp.CallToolRequest, input *WhoisInput)
 	default:
 		config.Wg.Done()
 		slog.WarnContext(ctx, "rate limit reached", "path", "/mcp")
+		countTool(toolTypeLookup, http.StatusTooManyRequests)
 		return errorResult("too many concurrent requests"), nil, nil
 	}
 	defer func() {
@@ -68,9 +96,11 @@ func whoisLookup(ctx context.Context, _ *mcp.CallToolRequest, input *WhoisInput)
 	case utils.KindDomain:
 		handlers.HandleDomain(ctx, rc, query, cacheKeyPrefix, false, false)
 	default:
+		recordTool(toolTypeLookup, http.StatusBadRequest, start)
 		return errorResult("Invalid input: please provide a valid domain, IP address, or ASN"), nil, nil
 	}
 
+	recordTool(toolTypeLookup, rc.StatusCode(), start)
 	return &mcp.CallToolResult{
 		IsError: rc.StatusCode() >= 400,
 		Content: []mcp.Content{
@@ -83,13 +113,18 @@ func whoisLookup(ctx context.Context, _ *mcp.CallToolRequest, input *WhoisInput)
 // /batch endpoint, under the same enablement flag, size cap and rate-limit
 // accounting (the HTTP layer charged one token; the rest are charged here).
 func whoisBatchLookup(ctx context.Context, _ *mcp.CallToolRequest, input *BatchInput) (*mcp.CallToolResult, any, error) {
+	start := time.Now()
+
 	if !config.BatchEnabled {
+		countTool(toolTypeBatch, http.StatusForbidden)
 		return errorResult("Batch queries are disabled on this instance (batch.enabled)"), nil, nil
 	}
 	if len(input.Queries) == 0 {
+		countTool(toolTypeBatch, http.StatusBadRequest)
 		return errorResult("The queries list must not be empty"), nil, nil
 	}
 	if len(input.Queries) > config.BatchMaxItems {
+		countTool(toolTypeBatch, http.StatusBadRequest)
 		return errorResult("Too many queries in one batch: the limit on this instance is " + strconv.Itoa(config.BatchMaxItems)), nil, nil
 	}
 
@@ -99,6 +134,7 @@ func whoisBatchLookup(ctx context.Context, _ *mcp.CallToolRequest, input *BatchI
 	default:
 		config.Wg.Done()
 		slog.WarnContext(ctx, "rate limit reached", "path", "/mcp")
+		countTool(toolTypeBatch, http.StatusTooManyRequests)
 		return errorResult("too many concurrent requests"), nil, nil
 	}
 	defer func() {
@@ -109,10 +145,12 @@ func whoisBatchLookup(ctx context.Context, _ *mcp.CallToolRequest, input *BatchI
 	if client := config.AuthClientFromContext(ctx); client != nil && client.Limiter != nil && len(input.Queries) > 1 {
 		reservation := client.Limiter.ReserveN(time.Now(), len(input.Queries)-1)
 		if !reservation.OK() {
+			countTool(toolTypeBatch, http.StatusTooManyRequests)
 			return errorResult("The batch exceeds the API key's per-minute request budget; reduce the batch size"), nil, nil
 		}
 		if delay := reservation.Delay(); delay > 0 {
 			reservation.Cancel()
+			countTool(toolTypeBatch, http.StatusTooManyRequests)
 			return errorResult("The API key's request budget is exhausted; retry in " + delay.Round(time.Second).String()), nil, nil
 		}
 	}
@@ -123,6 +161,7 @@ func whoisBatchLookup(ctx context.Context, _ *mcp.CallToolRequest, input *BatchI
 	results := handlers.RunBatch(ctx, input.Queries)
 	payload, err := json.Marshal(handlers.BatchResponse{Results: results})
 	if err != nil {
+		recordTool(toolTypeBatch, http.StatusInternalServerError, start)
 		return errorResult("failed to encode batch results"), nil, nil
 	}
 
@@ -134,6 +173,8 @@ func whoisBatchLookup(ctx context.Context, _ *mcp.CallToolRequest, input *BatchI
 		}
 	}
 
+	// The batch itself succeeded; per-item statuses are in the payload.
+	recordTool(toolTypeBatch, http.StatusOK, start)
 	return &mcp.CallToolResult{
 		IsError: isError,
 		Content: []mcp.Content{

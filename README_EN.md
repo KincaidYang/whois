@@ -170,7 +170,7 @@ The service provides the following health check endpoints:
 | `GET /health` | Liveness probe - returns 200 if service is running |
 | `GET /ready` | Readiness probe - checks cache and capacity status |
 | `GET /info` | Runtime information - version, uptime, Go version, etc. |
-| `GET /metrics` | Prometheus metrics - request count, latency, cache hit rate, upstream query duration |
+| `GET /metrics` | Prometheus metrics - request count, latency, cache hit rate, upstream query duration (see [docs/metrics.md](docs/metrics.md) for the full list and suggested alerts) |
 | `GET /openapi.json` | OpenAPI 3.1 specification - machine-readable description of all endpoints and response schemas |
 | `POST /mcp` | MCP Streamable HTTP endpoint - for AI assistant integration |
 | `POST /batch` | Bulk queries - multiple domains/IPs/ASNs in one request (off by default, see `batch.enabled`) |

@@ -11,8 +11,10 @@ import (
 
 	"github.com/KincaidYang/whois/internal/config"
 	"github.com/KincaidYang/whois/internal/handlers"
+	"github.com/KincaidYang/whois/internal/metrics"
 	"github.com/KincaidYang/whois/internal/utils"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 // setupBatchTest wires up the minimal config state the batch tool needs
@@ -168,5 +170,55 @@ func TestHandlerStatelessJSON(t *testing.T) {
 	}
 	if !strings.Contains(string(payload), "Invalid input") {
 		t.Errorf("expected the tool's invalid-input error in the response, got: %s", payload)
+	}
+}
+
+// TestToolCallsAreMetered verifies MCP tool calls land in the same request
+// metrics as HTTP queries, under their own resource types. Without this the
+// endpoint the project leads with is invisible in monitoring except through
+// the per-key counter, which only exists when authentication is enabled.
+func TestToolCallsAreMetered(t *testing.T) {
+	setupBatchTest(t, false, 10)
+
+	domain := "mcpmetricstest.cn"
+	if err := config.CacheManager.Set(context.Background(), handlers.CacheKeyPrefix+domain, `{"ldhName":"`+domain+`"}`, time.Minute); err != nil {
+		t.Fatalf("failed to seed cache: %v", err)
+	}
+
+	counter := func(toolType, status string) float64 {
+		return testutil.ToFloat64(metrics.HTTPRequestsTotal.WithLabelValues(toolType, status))
+	}
+	before := map[string]float64{
+		"lookup ok":      counter(toolTypeLookup, "200"),
+		"lookup bad":     counter(toolTypeLookup, "400"),
+		"batch disabled": counter(toolTypeBatch, "403"),
+	}
+
+	if _, _, err := whoisLookup(context.Background(), nil, &WhoisInput{Query: domain}); err != nil {
+		t.Fatalf("lookup: %v", err)
+	}
+	if _, _, err := whoisLookup(context.Background(), nil, &WhoisInput{Query: "!!invalid!!"}); err != nil {
+		t.Fatalf("invalid lookup: %v", err)
+	}
+	if _, _, err := whoisBatchLookup(context.Background(), nil, &BatchInput{Queries: []string{domain}}); err != nil {
+		t.Fatalf("batch: %v", err)
+	}
+
+	for name, want := range map[string]struct {
+		toolType, status string
+	}{
+		"lookup ok":      {toolTypeLookup, "200"},
+		"lookup bad":     {toolTypeLookup, "400"},
+		"batch disabled": {toolTypeBatch, "403"},
+	} {
+		if got := counter(want.toolType, want.status); got != before[name]+1 {
+			t.Errorf("%s: %s{type=%q,status_code=%q} = %v, want %v",
+				name, "whois_http_requests_total", want.toolType, want.status, got, before[name]+1)
+		}
+	}
+
+	// The successful lookup must also be timed; a rejected call must not be.
+	if n := testutil.CollectAndCount(metrics.HTTPRequestDuration, "whois_http_request_duration_seconds"); n == 0 {
+		t.Error("no latency observations recorded for tool calls")
 	}
 }

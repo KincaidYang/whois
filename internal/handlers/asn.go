@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/KincaidYang/whois/internal/config"
 	"github.com/KincaidYang/whois/internal/rdap"
 	"github.com/KincaidYang/whois/internal/serverlist"
 	"github.com/KincaidYang/whois/internal/utils"
@@ -31,21 +30,8 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 
 	// Check cache first before doing any lookups
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, asn)
-	if !refresh {
-		cacheResult, err := utils.GetFromCache(ctx, config.CacheManager, key)
-		if err != nil {
-			utils.HandleInternalError(ctx, w, err)
-			return
-		}
-		if cacheResult.Found {
-			w.Header().Set("X-Cache", "HIT")
-			if utils.IsNegativeCacheHit(w, cacheResult.Data) {
-				return
-			}
-			setCacheControl(w)
-			utils.HandleCacheResponse(w, cacheResult.Data, "application/json")
-			return
-		}
+	if serveFromCache(ctx, w, key, refresh) != cacheMiss {
+		return
 	}
 
 	// Find the RDAP server URL via pre-built sorted ASN range index
@@ -76,8 +62,5 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	}
 
 	// Return the RDAP information
-	w.Header().Set("X-Cache", missLabel(refresh))
-	setCacheControl(w)
-	w.Header().Set("Content-Type", outcome.contentType)
-	_, _ = fmt.Fprint(w, outcome.body)
+	writeUpstreamResult(w, outcome, refresh)
 }
