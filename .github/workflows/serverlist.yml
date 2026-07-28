@@ -59,7 +59,7 @@ jobs:
           go test ./...
 
       - name: Open a pull request
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: chore/serverlist-refresh
           delete-branch: true
