@@ -140,7 +140,10 @@ func withCORS(next http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Expose-Headers", "X-Request-ID, X-Cache, ETag, Retry-After")
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, If-None-Match, X-Request-ID, Mcp-Session-Id, Mcp-Protocol-Version, Last-Event-ID")
+			// Mcp-Method and Mcp-Name are mandatory on every /mcp request from
+			// protocol revision 2026-07-28 on, so browser-based MCP clients
+			// cannot reach the endpoint at all unless preflight allows them.
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, If-None-Match, X-Request-ID, Mcp-Session-Id, Mcp-Protocol-Version, Mcp-Method, Mcp-Name, Last-Event-ID")
 			w.Header().Set("Access-Control-Max-Age", "86400")
 			w.WriteHeader(http.StatusNoContent)
 			return
