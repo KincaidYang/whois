@@ -104,3 +104,8 @@ claude mcp add --transport http whois https://your-instance/mcp \
   the server is reached directly on localhost.
 - MCP calls share the same concurrency limiter, request timeout, cache and
   rate-limit accounting as plain HTTP queries.
+- Both tools are annotated read-only, so clients that gate acting tools behind
+  a confirmation prompt can call them straight away.
+- `tools/list` and `server/discover` carry a one-hour `ttlMs` cache hint
+  (scope `public`): the tool list is the same for every caller and only
+  changes when the service itself is upgraded.
