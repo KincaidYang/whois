@@ -106,6 +106,8 @@ claude mcp add --transport http whois https://your-instance/mcp \
   rate-limit accounting as plain HTTP queries.
 - Both tools are annotated read-only, so clients that gate acting tools behind
   a confirmation prompt can call them straight away.
-- `tools/list` and `server/discover` carry a one-hour `ttlMs` cache hint
-  (scope `public`): the tool list is the same for every caller and only
-  changes when the service itself is upgraded.
+- `tools/list` and `server/discover` carry a one-hour `ttlMs` cache hint: the
+  tool list is the same for every caller and only changes when the service
+  itself is upgraded. The scope is `public` on an open instance and `private`
+  once `auth.keys` is set, so no shared intermediary serves an authenticated
+  instance's tool list to callers that never presented a key.

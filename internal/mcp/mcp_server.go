@@ -192,11 +192,21 @@ func whoisBatchLookup(ctx context.Context, _ *mcp.CallToolRequest, input *BatchI
 // picking up a new tool within an hour of an upgrade.
 const discoveryTTL = time.Hour
 
+// cacheScope decides who may hold on to a cached discovery response. An
+// instance with auth.keys set is meant not to be publicly enumerable at all
+// (see withAuth in main.go), so a shared intermediary must not serve its tool
+// list to callers that never presented a key; "private" keeps the response in
+// the requesting client. Open instances keep the SDK's "public".
+func cacheScope() string {
+	if len(config.AuthClients) > 0 {
+		return "private"
+	}
+	return "public"
+}
+
 // withCacheHints stamps the TTL hint introduced in protocol revision
 // 2026-07-28 onto the two results that carry one here. The SDK defaults TTLMs
-// to 0, which tells clients the response is immediately stale. The scope stays
-// the SDK's "public": the tool list is the same for every caller, including
-// when API key authentication is on.
+// to 0, which tells clients the response is immediately stale.
 func withCacheHints(next mcp.MethodHandler) mcp.MethodHandler {
 	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
 		res, err := next(ctx, method, req)
@@ -206,9 +216,9 @@ func withCacheHints(next mcp.MethodHandler) mcp.MethodHandler {
 		ttl := int(discoveryTTL.Milliseconds())
 		switch r := res.(type) {
 		case *mcp.ListToolsResult:
-			r.TTLMs = ttl
+			r.TTLMs, r.CacheScope = ttl, cacheScope()
 		case *mcp.DiscoverResult:
-			r.TTLMs = ttl
+			r.TTLMs, r.CacheScope = ttl, cacheScope()
 		}
 		return res, nil
 	}

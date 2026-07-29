@@ -225,6 +225,43 @@ func TestToolListCacheHintAndAnnotations(t *testing.T) {
 	}
 }
 
+// TestToolListCacheScopePrivate verifies an instance with API keys marks the
+// tool list private, so a shared intermediary cannot serve it to callers that
+// never authenticated — withAuth keeps such an instance unenumerable.
+func TestToolListCacheScopePrivate(t *testing.T) {
+	setupBatchTest(t, false, 10)
+	old := config.AuthClients
+	config.AuthClients = []config.AuthClient{{Name: "test", Key: "k"}}
+	t.Cleanup(func() { config.AuthClients = old })
+
+	srv := httptest.NewServer(NewHandler("test"))
+	defer srv.Close()
+
+	payload := postJSONRPC(t, srv, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, nil)
+
+	if want := `"cacheScope":"private"`; !strings.Contains(payload, want) {
+		t.Errorf("tools/list missing %s: %s", want, payload)
+	}
+}
+
+// TestCacheHintsPassErrorsThrough verifies the middleware leaves a failed
+// method alone rather than dressing its result with cache hints.
+func TestCacheHintsPassErrorsThrough(t *testing.T) {
+	setupBatchTest(t, false, 10)
+
+	srv := httptest.NewServer(NewHandler("test"))
+	defer srv.Close()
+
+	payload := postJSONRPC(t, srv, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"nope"}}`, nil)
+
+	if !strings.Contains(payload, `"error"`) {
+		t.Errorf("expected an error for an unknown tool, got: %s", payload)
+	}
+	if strings.Contains(payload, "ttlMs") {
+		t.Errorf("error response carries a cache hint: %s", payload)
+	}
+}
+
 // TestDiscoverCacheHint verifies the 2026-07-28 server/discover response
 // carries the same TTL. The request has to look like the new revision — the
 // SDK rejects discover below it, requires the standardized Mcp-Method header
