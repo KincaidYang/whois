@@ -23,6 +23,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   labels and their values, with suggested alerts (bootstrap staleness, cache
   backend errors, 5xx rate, concurrency rejections, slow registries) and a few
   ready-made queries such as the effective cache hit ratio.
+- Both MCP tools are now annotated read-only, so clients that put a
+  confirmation prompt in front of tools that can act may call them directly.
+- `tools/list` and `server/discover` now carry a one-hour `ttlMs` cache hint,
+  introduced in MCP protocol revision `2026-07-28`: the tool list is identical
+  for every caller and only changes when the service is upgraded. The scope is
+  `public` on an open instance and `private` once `auth.keys` is set, so no
+  shared intermediary serves an authenticated instance's tool list to callers
+  that never presented a key.
+
+### Fixed
+- CORS preflight now allows the `Mcp-Method` and `Mcp-Name` request headers,
+  which MCP protocol revision `2026-07-28` requires on every `/mcp` request.
+  Browser-based MCP clients were turned away at preflight and never reached the
+  endpoint; clients that are not subject to CORS were unaffected.
 
 ## [1.2.0] - 2026-07-26
 
