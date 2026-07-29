@@ -197,6 +197,15 @@ func TestCORSPreflight(t *testing.T) {
 	if got := w.Header().Get("Access-Control-Allow-Methods"); !strings.Contains(got, "GET") {
 		t.Errorf("Access-Control-Allow-Methods: got %q", got)
 	}
+	// The go-sdk rejects a 2026-07-28 request that carries no Mcp-Method (and
+	// no Mcp-Name on tools/call), so a browser client is locked out of /mcp
+	// unless preflight allows those headers.
+	got := w.Header().Get("Access-Control-Allow-Headers")
+	for _, h := range []string{"Mcp-Protocol-Version", "Mcp-Method", "Mcp-Name"} {
+		if !strings.Contains(got, h) {
+			t.Errorf("Access-Control-Allow-Headers missing %s: got %q", h, got)
+		}
+	}
 }
 
 // TestCORSHeaderOnResponse verifies normal responses carry the CORS headers.
