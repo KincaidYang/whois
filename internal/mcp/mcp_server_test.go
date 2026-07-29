@@ -174,6 +174,122 @@ func TestHandlerStatelessJSON(t *testing.T) {
 	}
 }
 
+// postJSONRPC sends one JSON-RPC request to the handler and returns the raw
+// response body, with any extra headers applied to the request.
+func postJSONRPC(t *testing.T, srv *httptest.Server, body string, headers map[string]string) string {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, srv.URL, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	payload, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, payload)
+	}
+	return string(payload)
+}
+
+// TestToolListCacheHintAndAnnotations verifies tools/list advertises the
+// caching TTL from protocol revision 2026-07-28 — the SDK would otherwise
+// send ttlMs=0, telling clients the list is stale on arrival — and marks both
+// tools read-only so clients need not gate them behind a confirmation.
+func TestToolListCacheHintAndAnnotations(t *testing.T) {
+	setupBatchTest(t, false, 10)
+
+	srv := httptest.NewServer(NewHandler("test"))
+	defer srv.Close()
+
+	payload := postJSONRPC(t, srv, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, nil)
+
+	if want := `"ttlMs":3600000`; !strings.Contains(payload, want) {
+		t.Errorf("tools/list missing %s: %s", want, payload)
+	}
+	if want := `"cacheScope":"public"`; !strings.Contains(payload, want) {
+		t.Errorf("tools/list missing %s: %s", want, payload)
+	}
+	if got := strings.Count(payload, `"readOnlyHint":true`); got != 2 {
+		t.Errorf("readOnlyHint:true on %d tools, want 2: %s", got, payload)
+	}
+}
+
+// TestToolListCacheScopePrivate verifies an instance with API keys marks the
+// tool list private, so a shared intermediary cannot serve it to callers that
+// never authenticated — withAuth keeps such an instance unenumerable.
+func TestToolListCacheScopePrivate(t *testing.T) {
+	setupBatchTest(t, false, 10)
+	old := config.AuthClients
+	config.AuthClients = []config.AuthClient{{Name: "test", Key: "k"}}
+	t.Cleanup(func() { config.AuthClients = old })
+
+	srv := httptest.NewServer(NewHandler("test"))
+	defer srv.Close()
+
+	payload := postJSONRPC(t, srv, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, nil)
+
+	if want := `"cacheScope":"private"`; !strings.Contains(payload, want) {
+		t.Errorf("tools/list missing %s: %s", want, payload)
+	}
+}
+
+// TestCacheHintsPassErrorsThrough verifies the middleware leaves a failed
+// method alone rather than dressing its result with cache hints.
+func TestCacheHintsPassErrorsThrough(t *testing.T) {
+	setupBatchTest(t, false, 10)
+
+	srv := httptest.NewServer(NewHandler("test"))
+	defer srv.Close()
+
+	payload := postJSONRPC(t, srv, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"nope"}}`, nil)
+
+	if !strings.Contains(payload, `"error"`) {
+		t.Errorf("expected an error for an unknown tool, got: %s", payload)
+	}
+	if strings.Contains(payload, "ttlMs") {
+		t.Errorf("error response carries a cache hint: %s", payload)
+	}
+}
+
+// TestDiscoverCacheHint verifies the 2026-07-28 server/discover response
+// carries the same TTL. The request has to look like the new revision — the
+// SDK rejects discover below it, requires the standardized Mcp-Method header
+// at that version, and expects the handshake data the removed initialize call
+// used to carry in each request's _meta.
+func TestDiscoverCacheHint(t *testing.T) {
+	setupBatchTest(t, false, 10)
+
+	srv := httptest.NewServer(NewHandler("test"))
+	defer srv.Close()
+
+	body := `{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{` +
+		`"io.modelcontextprotocol/protocolVersion":"2026-07-28",` +
+		`"io.modelcontextprotocol/clientInfo":{"name":"test","version":"1"},` +
+		`"io.modelcontextprotocol/clientCapabilities":{}}}}`
+	payload := postJSONRPC(t, srv, body, map[string]string{
+		"Mcp-Protocol-Version": "2026-07-28",
+		"Mcp-Method":           "server/discover",
+	})
+
+	if want := `"ttlMs":3600000`; !strings.Contains(payload, want) {
+		t.Errorf("server/discover missing %s: %s", want, payload)
+	}
+	if !strings.Contains(payload, "2026-07-28") {
+		t.Errorf("server/discover does not advertise the new revision: %s", payload)
+	}
+}
+
 // TestToolCallsAreMetered verifies MCP tool calls land in the same request
 // metrics as HTTP queries, under their own resource types. Without this the
 // endpoint the project leads with is invisible in monitoring except through

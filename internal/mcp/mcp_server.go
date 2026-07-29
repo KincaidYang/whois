@@ -183,21 +183,75 @@ func whoisBatchLookup(ctx context.Context, _ *mcp.CallToolRequest, input *BatchI
 	}, nil, nil
 }
 
+// discoveryTTL is how long clients may cache the tool list and the discovery
+// response. Both are fixed at build time — the tools are registered here and
+// never change while the process runs, and whois_batch_lookup stays listed
+// even when batch queries are off (it reports that itself when called), so
+// nothing an operator can toggle invalidates a cached list. An hour keeps
+// long-lived clients from re-listing on every conversation while still
+// picking up a new tool within an hour of an upgrade.
+const discoveryTTL = time.Hour
+
+// cacheScope decides who may hold on to a cached discovery response. An
+// instance with auth.keys set is meant not to be publicly enumerable at all
+// (see withAuth in main.go), so a shared intermediary must not serve its tool
+// list to callers that never presented a key; "private" keeps the response in
+// the requesting client. Open instances keep the SDK's "public".
+func cacheScope() string {
+	if len(config.AuthClients) > 0 {
+		return "private"
+	}
+	return "public"
+}
+
+// withCacheHints stamps the TTL hint introduced in protocol revision
+// 2026-07-28 onto the two results that carry one here. The SDK defaults TTLMs
+// to 0, which tells clients the response is immediately stale.
+func withCacheHints(next mcp.MethodHandler) mcp.MethodHandler {
+	return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+		res, err := next(ctx, method, req)
+		if err != nil {
+			return res, err
+		}
+		ttl := int(discoveryTTL.Milliseconds())
+		switch r := res.(type) {
+		case *mcp.ListToolsResult:
+			r.TTLMs, r.CacheScope = ttl, cacheScope()
+		case *mcp.DiscoverResult:
+			r.TTLMs, r.CacheScope = ttl, cacheScope()
+		}
+		return res, nil
+	}
+}
+
+// readOnly marks a tool as one that only reads. Every tool here answers a
+// lookup and changes nothing, which lets clients skip the confirmation
+// prompt they put in front of tools that can act. DestructiveHint is left
+// unset because it is meaningful only when ReadOnlyHint is false, and
+// OpenWorldHint because these tools do query an open world of registries,
+// which is its default.
+func readOnly(title string) *mcp.ToolAnnotations {
+	return &mcp.ToolAnnotations{Title: title, ReadOnlyHint: true}
+}
+
 // NewHandler returns an http.Handler serving the MCP Streamable HTTP endpoint.
 func NewHandler(version string) http.Handler {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "whois",
 		Version: version,
 	}, nil)
+	server.AddReceivingMiddleware(withCacheHints)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "whois_lookup",
 		Description: "Query WHOIS/RDAP information for a domain name, IP address or CIDR prefix (v4 or v6), or ASN",
+		Annotations: readOnly("WHOIS/RDAP lookup"),
 	}, whoisLookup)
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "whois_batch_lookup",
 		Description: "Query WHOIS/RDAP information for multiple domain names, IP addresses/CIDR prefixes, or ASNs in one call. Results are returned per query with individual statuses. Disabled unless the operator enables batch queries.",
+		Annotations: readOnly("Bulk WHOIS/RDAP lookup"),
 	}, whoisBatchLookup)
 
 	return mcp.NewStreamableHTTPHandler(func(_ *http.Request) *mcp.Server {
