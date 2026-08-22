@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -129,14 +130,10 @@ func commitBootstrap(lastGood, perCategory map[string]map[string]string, failed 
 	if len(perCategory) == 0 {
 		return "failure", 0
 	}
-	for category, data := range perCategory {
-		lastGood[category] = data
-	}
+	maps.Copy(lastGood, perCategory)
 	merged := make(map[string]string)
 	for _, data := range lastGood {
-		for k, v := range data {
-			merged[k] = v
-		}
+		maps.Copy(merged, data)
 	}
 	UpdateFromIANA(merged)
 	if len(failed) > 0 {

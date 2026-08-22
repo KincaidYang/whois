@@ -65,10 +65,7 @@ func WriteRateLimited(w http.ResponseWriter) {
 // rate limit rejects a request, with a Retry-After header telling the client
 // when the next token becomes available (rounded up to whole seconds).
 func WriteRateLimitedAfter(w http.ResponseWriter, retryAfter time.Duration) {
-	seconds := int(math.Ceil(retryAfter.Seconds()))
-	if seconds < 1 {
-		seconds = 1
-	}
+	seconds := max(int(math.Ceil(retryAfter.Seconds())), 1)
 	w.Header().Set("Retry-After", strconv.Itoa(seconds))
 	writeProblem(w, http.StatusTooManyRequests, "rate-limited",
 		"Rate limit exceeded",

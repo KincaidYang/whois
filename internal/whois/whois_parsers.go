@@ -946,7 +946,7 @@ func ParseWhoisResponseEU(response string, domain string) (model.DomainInfo, err
 	// 去掉胶水记录地址并去重（同一主机的 v4/v6 各占一行）
 	if m := reEUNameServers.FindStringSubmatch(response); len(m) > 1 {
 		seen := make(map[string]struct{})
-		for _, line := range strings.Split(m[1], "\n") {
+		for line := range strings.SplitSeq(m[1], "\n") {
 			host := strings.TrimSpace(line)
 			if i := strings.Index(host, " ("); i >= 0 {
 				host = host[:i]
@@ -1061,10 +1061,10 @@ func matchAllFirstGroup(re *regexp.Regexp, s string) []string {
 func extractSigningKey(response string) string {
 	// 支持 [Signing Key] 和 s. [署名鍵] 两种标签
 	var afterKey string
-	if idx := strings.Index(response, "[Signing Key]"); idx != -1 {
-		afterKey = response[idx+len("[Signing Key]"):]
-	} else if idx := strings.Index(response, "s. [署名鍵]"); idx != -1 {
-		afterKey = response[idx+len("s. [署名鍵]"):]
+	if _, after, ok := strings.Cut(response, "[Signing Key]"); ok {
+		afterKey = after
+	} else if _, after, ok := strings.Cut(response, "s. [署名鍵]"); ok {
+		afterKey = after
 	} else {
 		return ""
 	}

@@ -96,7 +96,7 @@ func TestMemoryCacheMaxSize(t *testing.T) {
 	cache := NewMemoryCache(maxSize, 1*time.Second)
 
 	// Fill cache to max
-	for i := 0; i < maxSize; i++ {
+	for i := range maxSize {
 		err := cache.Set(ctx, string(rune('a'+i)), "value", 5*time.Second)
 		if err != nil {
 			t.Fatalf("Failed to set cache: %v", err)

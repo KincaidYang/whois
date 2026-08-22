@@ -317,10 +317,8 @@ func lookupWhoisServers(ctx context.Context, tlds []string, workers int) (map[st
 	)
 	queue := make(chan string)
 
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range workers {
+		wg.Go(func() {
 			for tld := range queue {
 				server, err := lookupWhoisServer(ctx, ianaWhoisServer, tld)
 				mu.Lock()
@@ -335,7 +333,7 @@ func lookupWhoisServers(ctx context.Context, tlds []string, workers int) (map[st
 				}
 				mu.Unlock()
 			}
-		}()
+		})
 	}
 
 	for _, tld := range tlds {
@@ -400,7 +398,7 @@ func queryIANA(ctx context.Context, addr, tld string) (string, error) {
 
 	record := strings.ToLower(string(body))
 	complete := false
-	for _, line := range strings.Split(record, "\n") {
+	for line := range strings.SplitSeq(record, "\n") {
 		line = strings.TrimSpace(line)
 		if rest, ok := strings.CutPrefix(line, "whois:"); ok {
 			// A record with an empty whois: field is IANA saying the registry

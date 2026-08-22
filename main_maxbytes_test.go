@@ -41,11 +41,11 @@ func TestMaxBytes(t *testing.T) {
 // exhausted.
 func TestBatchHandlerConcurrencyLimit(t *testing.T) {
 	n := cap(config.ConcurrencyLimiter)
-	for i := 0; i < n; i++ {
+	for range n {
 		config.ConcurrencyLimiter <- struct{}{}
 	}
 	defer func() {
-		for i := 0; i < n; i++ {
+		for range n {
 			<-config.ConcurrencyLimiter
 		}
 	}()

@@ -27,7 +27,7 @@ import (
 // discardLogger is a logger that discards all log messages
 type discardLogger struct{}
 
-func (l *discardLogger) Printf(ctx context.Context, format string, v ...interface{}) {
+func (l *discardLogger) Printf(ctx context.Context, format string, v ...any) {
 	// Discard all log messages
 }
 
@@ -518,7 +518,7 @@ var groupKeys = map[string]bool{
 // detectLegacyKeys returns an error describing every pre-v0.9 key found in
 // the raw configuration, so users get one complete migration list instead of
 // a bare "unknown field" decode error.
-func detectLegacyKeys(raw map[string]interface{}) error {
+func detectLegacyKeys(raw map[string]any) error {
 	var found []string
 	appendLegacy := func(key string) {
 		if newKey, ok := legacyKeys[strings.ToLower(key)]; ok {
@@ -530,7 +530,7 @@ func detectLegacyKeys(raw map[string]interface{}) error {
 			appendLegacy(key)
 			continue
 		}
-		nested, ok := value.(map[string]interface{})
+		nested, ok := value.(map[string]any)
 		if !ok {
 			continue
 		}
@@ -558,7 +558,7 @@ func parseConfig(data []byte, ext string) (Config, error) {
 
 	// First pass: decode generically to detect legacy keys with a helpful
 	// message before the strict decode rejects them as unknown fields.
-	raw := map[string]interface{}{}
+	raw := map[string]any{}
 	switch ext {
 	case ".yaml", ".yml":
 		if err := yaml.Unmarshal(data, &raw); err != nil {
@@ -691,7 +691,7 @@ func overrideConfigWithEnv(config *Config) {
 	}
 	if proxySuffixes := os.Getenv("WHOIS_PROXY_SUFFIXES"); proxySuffixes != "" {
 		suffixes := []string{}
-		for _, s := range strings.Split(proxySuffixes, ",") {
+		for s := range strings.SplitSeq(proxySuffixes, ",") {
 			if s = strings.TrimSpace(s); s != "" {
 				suffixes = append(suffixes, s)
 			}
@@ -720,7 +720,7 @@ func overrideConfigWithEnv(config *Config) {
 	// name/rateLimit object form is config-file only)
 	if authKeys := os.Getenv("WHOIS_AUTH_KEYS"); authKeys != "" {
 		keys := []AuthKeySpec{}
-		for _, key := range strings.Split(authKeys, ",") {
+		for key := range strings.SplitSeq(authKeys, ",") {
 			if key = strings.TrimSpace(key); key != "" {
 				keys = append(keys, AuthKeySpec{Key: key})
 			}

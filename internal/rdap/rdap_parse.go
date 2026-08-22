@@ -3,6 +3,7 @@ package rdap
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -214,10 +215,8 @@ func ParseRDAPResponseforDomain(response string) (model.DomainInfo, error) {
 // entity at all).
 func findRegistrarEntity(entities []rdapEntity) *rdapEntity {
 	for i := range entities {
-		for _, role := range entities[i].Roles {
-			if role == "registrar" {
-				return &entities[i]
-			}
+		if slices.Contains(entities[i].Roles, "registrar") {
+			return &entities[i]
 		}
 		if nested := findRegistrarEntity(entities[i].Entities); nested != nil {
 			return nested

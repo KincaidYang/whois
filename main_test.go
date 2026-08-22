@@ -31,11 +31,11 @@ func TestHandlerBadRequest(t *testing.T) {
 
 func TestHandlerRateLimit(t *testing.T) {
 	cap := cap(config.ConcurrencyLimiter)
-	for i := 0; i < cap; i++ {
+	for range cap {
 		config.ConcurrencyLimiter <- struct{}{}
 	}
 	defer func() {
-		for i := 0; i < cap; i++ {
+		for range cap {
 			<-config.ConcurrencyLimiter
 		}
 	}()
