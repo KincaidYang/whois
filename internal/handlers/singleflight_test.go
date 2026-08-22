@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/KincaidYang/whois/internal/config"
@@ -19,73 +20,75 @@ import (
 func TestDedupedQueryWaiterCancel(t *testing.T) {
 	setupFlightTest(t)
 
-	var flights atomic.Int32
-	release := make(chan struct{})
-	started := make(chan struct{})
-	fn := func(context.Context) (queryOutcome, error) {
-		flights.Add(1)
-		close(started)
-		<-release
-		return queryOutcome{body: "shared", contentType: "application/json"}, nil
-	}
-
-	const key = "whois:sfcanceltest"
-
-	// First waiter starts the flight, then gets canceled mid-flight.
-	ctx, cancel := context.WithCancel(context.Background())
-	errCh := make(chan error, 1)
-	go func() {
-		_, err := dedupedQuery(ctx, key, false, fn)
-		errCh <- err
-	}()
-	<-started
-
-	// Second waiter joins the same in-flight query with a healthy context.
-	outCh := make(chan queryOutcome, 1)
-	go func() {
-		out, _ := dedupedQuery(context.Background(), key, false, fn)
-		outCh <- out
-	}()
-	time.Sleep(100 * time.Millisecond) // let the second waiter join the flight
-
-	cancel()
-	select {
-	case err := <-errCh:
-		if !errors.Is(err, context.Canceled) {
-			t.Errorf("canceled waiter error = %v, want context.Canceled", err)
+	synctest.Test(t, func(t *testing.T) {
+		var flights atomic.Int32
+		release := make(chan struct{})
+		started := make(chan struct{})
+		fn := func(context.Context) (queryOutcome, error) {
+			flights.Add(1)
+			close(started)
+			<-release
+			return queryOutcome{body: "shared", contentType: "application/json"}, nil
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("canceled waiter did not return until the flight finished")
-	}
 
-	// A waiter is still attached, so the flight must not be charged a slot
-	// of its own; in the real server the surviving waiter's handler slot
-	// covers it.
-	for deadline := time.Now().Add(200 * time.Millisecond); time.Now().Before(deadline); {
+		const key = "whois:sfcanceltest"
+
+		// First waiter starts the flight, then gets canceled mid-flight.
+		ctx, cancel := context.WithCancel(context.Background())
+		errCh := make(chan error, 1)
+		go func() {
+			_, err := dedupedQuery(ctx, key, false, fn)
+			errCh <- err
+		}()
+		<-started
+
+		// Second waiter joins the same in-flight query with a healthy context.
+		outCh := make(chan queryOutcome, 1)
+		go func() {
+			out, _ := dedupedQuery(context.Background(), key, false, fn)
+			outCh <- out
+		}()
+		// Wait blocks until every other bubbled goroutine is durably blocked,
+		// which is exactly "the second waiter has joined the flight" — the thing
+		// the old 100ms sleep was guessing at.
+		synctest.Wait()
+
+		cancel()
+		select {
+		case err := <-errCh:
+			if !errors.Is(err, context.Canceled) {
+				t.Errorf("canceled waiter error = %v, want context.Canceled", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("canceled waiter did not return until the flight finished")
+		}
+
+		// A waiter is still attached, so the flight must not be charged a slot
+		// of its own; in the real server the surviving waiter's handler slot
+		// covers it.
 		if n := len(config.ConcurrencyLimiter); n != 0 {
 			t.Fatalf("flight with a live waiter holds %d slots, want 0", n)
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
 
-	close(release)
-	select {
-	case out := <-outCh:
-		if out.body != "shared" {
-			t.Errorf("surviving waiter got body %q, want the shared flight result", out.body)
+		close(release)
+		select {
+		case out := <-outCh:
+			if out.body != "shared" {
+				t.Errorf("surviving waiter got body %q, want the shared flight result", out.body)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("surviving waiter never received the flight result")
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("surviving waiter never received the flight result")
-	}
 
-	// The flight is done; its slot must be released again.
-	waitFor(t, "the flight's limiter slot to be released", func() bool {
-		return len(config.ConcurrencyLimiter) == 0
+		// The flight is done; its slot must be released again.
+		waitFor(t, "the flight's limiter slot to be released", func() bool {
+			return len(config.ConcurrencyLimiter) == 0
+		})
+
+		if n := flights.Load(); n != 1 {
+			t.Errorf("flight ran %d times, want 1 (waiters must share one flight)", n)
+		}
 	})
-
-	if n := flights.Load(); n != 1 {
-		t.Errorf("flight ran %d times, want 1 (waiters must share one flight)", n)
-	}
 }
 
 // TestDedupedQueryCanceledWaitersShareOneSlot verifies that no matter how
@@ -96,54 +99,55 @@ func TestDedupedQueryWaiterCancel(t *testing.T) {
 func TestDedupedQueryCanceledWaitersShareOneSlot(t *testing.T) {
 	setupFlightTest(t)
 
-	release := make(chan struct{})
-	started := make(chan struct{})
-	fn := func(context.Context) (queryOutcome, error) {
-		close(started)
-		<-release
-		return queryOutcome{body: "shared"}, nil
-	}
-
-	const key = "whois:sfmulticancel"
-	const waiters = 3
-
-	ctx, cancel := context.WithCancel(context.Background())
-	errs := make(chan error, waiters)
-	for range waiters {
-		go func() {
-			_, err := dedupedQuery(ctx, key, false, fn)
-			errs <- err
-		}()
-	}
-	<-started
-	waitFor(t, "all waiters to join the flight", func() bool {
-		flightsMu.Lock()
-		defer flightsMu.Unlock()
-		return flights[key] != nil && flights[key].waiters == waiters
-	})
-
-	cancel()
-	for range waiters {
-		if err := <-errs; !errors.Is(err, context.Canceled) {
-			t.Errorf("canceled waiter error = %v, want context.Canceled", err)
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		started := make(chan struct{})
+		fn := func(context.Context) (queryOutcome, error) {
+			close(started)
+			<-release
+			return queryOutcome{body: "shared"}, nil
 		}
-	}
 
-	waitFor(t, "the detached flight to hold one slot", func() bool {
-		return len(config.ConcurrencyLimiter) == 1
-	})
-	// All cancellations are processed; the count must stay at one, not creep
-	// toward one slot per canceled waiter.
-	for deadline := time.Now().Add(300 * time.Millisecond); time.Now().Before(deadline); {
+		const key = "whois:sfmulticancel"
+		const waiters = 3
+
+		ctx, cancel := context.WithCancel(context.Background())
+		errs := make(chan error, waiters)
+		for range waiters {
+			go func() {
+				_, err := dedupedQuery(ctx, key, false, fn)
+				errs <- err
+			}()
+		}
+		<-started
+		synctest.Wait()
+		flightsMu.Lock()
+		joined := flights[key] != nil && flights[key].waiters == waiters
+		flightsMu.Unlock()
+		if !joined {
+			t.Fatal("not all waiters joined the flight")
+		}
+
+		cancel()
+		for range waiters {
+			if err := <-errs; !errors.Is(err, context.Canceled) {
+				t.Errorf("canceled waiter error = %v, want context.Canceled", err)
+			}
+		}
+
+		// Once every bubbled goroutine is durably blocked, all cancellations
+		// have been processed and nothing can change the count any more, so
+		// one check replaces the old 300ms "does it creep up?" poll.
+		synctest.Wait()
 		if n := len(config.ConcurrencyLimiter); n != 1 {
 			t.Fatalf("detached flight holds %d slots, want exactly 1", n)
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
 
-	close(release)
-	waitFor(t, "the flight's slot to be released", func() bool {
-		return len(config.ConcurrencyLimiter) == 0
+		close(release)
+		synctest.Wait()
+		if n := len(config.ConcurrencyLimiter); n != 0 {
+			t.Fatalf("finished flight left %d slots held, want 0", n)
+		}
 	})
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -86,57 +87,61 @@ func TestMemoryCacheLRUEviction(t *testing.T) {
 }
 
 func TestMemoryCacheCleanExpired(t *testing.T) {
-	ctx := context.Background()
-	cache := NewMemoryCache(10, time.Hour) // cleaner ticker never fires in-test
-	defer func() { _ = cache.Close() }()
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		cache := NewMemoryCache(10, time.Hour) // cleaner ticker never fires in-test
+		defer func() { _ = cache.Close() }()
 
-	if err := cache.Set(ctx, "live", "v", time.Hour); err != nil {
-		t.Fatal(err)
-	}
-	if err := cache.Set(ctx, "dead1", "v", time.Millisecond); err != nil {
-		t.Fatal(err)
-	}
-	if err := cache.Set(ctx, "dead2", "v", time.Millisecond); err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(10 * time.Millisecond)
+		if err := cache.Set(ctx, "live", "v", time.Hour); err != nil {
+			t.Fatal(err)
+		}
+		if err := cache.Set(ctx, "dead1", "v", time.Millisecond); err != nil {
+			t.Fatal(err)
+		}
+		if err := cache.Set(ctx, "dead2", "v", time.Millisecond); err != nil {
+			t.Fatal(err)
+		}
+		// Fake time, so this is instant and the TTLs above expire exactly.
+		time.Sleep(10 * time.Millisecond)
 
-	cache.cleanExpired()
+		cache.cleanExpired()
 
-	cache.mu.Lock()
-	n := len(cache.items)
-	cache.mu.Unlock()
-	if n != 1 {
-		t.Errorf("after cleanExpired: %d entries, want 1 (only the live one)", n)
-	}
-	if r, _ := cache.Get(ctx, "live"); !r.Found {
-		t.Error("live entry must survive the sweep")
-	}
-}
-
-func TestMemoryCacheCleanerLoop(t *testing.T) {
-	ctx := context.Background()
-	cache := NewMemoryCache(10, 20*time.Millisecond)
-	defer func() { _ = cache.Close() }()
-
-	if err := cache.Set(ctx, "dead", "v", time.Millisecond); err != nil {
-		t.Fatal(err)
-	}
-
-	// The background cleaner (not a lazy Get) must remove the expired entry.
-	deadline := time.Now().Add(2 * time.Second)
-	for {
 		cache.mu.Lock()
 		n := len(cache.items)
 		cache.mu.Unlock()
-		if n == 0 {
-			break
+		if n != 1 {
+			t.Errorf("after cleanExpired: %d entries, want 1 (only the live one)", n)
 		}
-		if time.Now().After(deadline) {
-			t.Fatal("background cleaner did not remove the expired entry in time")
+		if r, _ := cache.Get(ctx, "live"); !r.Found {
+			t.Error("live entry must survive the sweep")
 		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	})
+}
+
+func TestMemoryCacheCleanerLoop(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		cache := NewMemoryCache(10, 20*time.Millisecond)
+		defer func() { _ = cache.Close() }()
+
+		if err := cache.Set(ctx, "dead", "v", time.Millisecond); err != nil {
+			t.Fatal(err)
+		}
+
+		// The background cleaner (not a lazy Get) must remove the expired
+		// entry. Advancing the fake clock past one tick fires the cleaner;
+		// Wait then blocks until its sweep has finished, so the assertion
+		// below needs no polling and no deadline.
+		time.Sleep(30 * time.Millisecond)
+		synctest.Wait()
+
+		cache.mu.Lock()
+		n := len(cache.items)
+		cache.mu.Unlock()
+		if n != 0 {
+			t.Fatalf("background cleaner left %d expired entries, want 0", n)
+		}
+	})
 }
 
 func TestMemoryCacheCloseIdempotent(t *testing.T) {

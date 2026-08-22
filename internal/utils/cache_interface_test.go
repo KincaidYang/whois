@@ -3,55 +3,61 @@ package utils
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
 func TestMemoryCache(t *testing.T) {
-	ctx := context.Background()
-	cache := NewMemoryCache(100, 1*time.Second)
+	// A bubble gives the expiry below a fake clock, so the test asserts the
+	// TTL rather than waiting out a real one.
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.Background()
+		cache := NewMemoryCache(100, 1*time.Second)
+		defer func() { _ = cache.Close() }()
 
-	// Test Set and Get
-	err := cache.Set(ctx, "test-key", "test-value", 5*time.Second)
-	if err != nil {
-		t.Fatalf("Failed to set cache: %v", err)
-	}
+		// Test Set and Get
+		err := cache.Set(ctx, "test-key", "test-value", 5*time.Second)
+		if err != nil {
+			t.Fatalf("Failed to set cache: %v", err)
+		}
 
-	result, err := cache.Get(ctx, "test-key")
-	if err != nil {
-		t.Fatalf("Failed to get cache: %v", err)
-	}
+		result, err := cache.Get(ctx, "test-key")
+		if err != nil {
+			t.Fatalf("Failed to get cache: %v", err)
+		}
 
-	if !result.Found {
-		t.Fatal("Expected cache hit, got miss")
-	}
+		if !result.Found {
+			t.Fatal("Expected cache hit, got miss")
+		}
 
-	if result.Data != "test-value" {
-		t.Fatalf("Expected 'test-value', got '%s'", result.Data)
-	}
+		if result.Data != "test-value" {
+			t.Fatalf("Expected 'test-value', got '%s'", result.Data)
+		}
 
-	// Test expiration
-	err = cache.Set(ctx, "expire-key", "expire-value", 100*time.Millisecond)
-	if err != nil {
-		t.Fatalf("Failed to set cache: %v", err)
-	}
+		// Test expiration
+		err = cache.Set(ctx, "expire-key", "expire-value", 100*time.Millisecond)
+		if err != nil {
+			t.Fatalf("Failed to set cache: %v", err)
+		}
 
-	time.Sleep(200 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 
-	result, err = cache.Get(ctx, "expire-key")
-	if err != nil {
-		t.Fatalf("Failed to get cache: %v", err)
-	}
+		result, err = cache.Get(ctx, "expire-key")
+		if err != nil {
+			t.Fatalf("Failed to get cache: %v", err)
+		}
 
-	if result.Found {
-		t.Fatal("Expected cache miss after expiration, got hit")
-	}
+		if result.Found {
+			t.Fatal("Expected cache miss after expiration, got hit")
+		}
 
-	// Test health
-	if !cache.IsHealthy() {
-		t.Fatal("Memory cache should always be healthy")
-	}
+		// Test health
+		if !cache.IsHealthy() {
+			t.Fatal("Memory cache should always be healthy")
+		}
 
-	t.Log("✓ MemoryCache tests passed")
+		t.Log("✓ MemoryCache tests passed")
+	})
 }
 
 func TestFallbackCache(t *testing.T) {
