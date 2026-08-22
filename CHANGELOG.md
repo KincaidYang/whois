@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-08-22
+
 ### Added
 - MCP tool calls are now recorded in `whois_http_requests_total` and
   `whois_http_request_duration_seconds` under the resource types `mcp` and
@@ -432,6 +434,7 @@ See the [release notes](https://github.com/KincaidYang/whois/releases/tag/v0.6.0
 See the [GitHub releases page](https://github.com/KincaidYang/whois/releases)
 for 0.5.x and earlier.
 
+[1.3.0]: https://github.com/KincaidYang/whois/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/KincaidYang/whois/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/KincaidYang/whois/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/KincaidYang/whois/compare/v0.10.0...v1.0.0
