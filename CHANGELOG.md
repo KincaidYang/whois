@@ -38,6 +38,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Browser-based MCP clients were turned away at preflight and never reached the
   endpoint; clients that are not subject to CORS were unaffected.
 
+### Security
+- Builds now require Go 1.27.0, up from 1.26.5. `govulncheck` reports five
+  standard-library advisories reachable from the 1.26.5 binary, all fixed in
+  1.26.6 and carried into 1.27.0: [GO-2026-6089](https://pkg.go.dev/vuln/GO-2026-6089)
+  (`net/http` did not apply `ReadHeaderTimeout` to the unencrypted HTTP/2
+  check, so a client could hold a connection open past the header deadline),
+  [GO-2026-6218](https://pkg.go.dev/vuln/GO-2026-6218) (quadratic `net/url`
+  path resolution), [GO-2026-6090](https://pkg.go.dev/vuln/GO-2026-6090)
+  (`crypto/tls` accepted unbounded post-handshake messages),
+  [GO-2026-5026](https://pkg.go.dev/vuln/GO-2026-5026) (the copy of
+  `golang.org/x/net/idna` vendored into `net/http` accepted ASCII-only
+  Punycode labels — the standalone module was already patched in x/net
+  0.55.0, well before the version this service was building against) and
+  [GO-2026-5972](https://pkg.go.dev/vuln/GO-2026-5972) (`encoding/asn1`
+  recursion depth). The 1.27.0 toolchain reports no reachable advisories.
+
 ## [1.2.0] - 2026-07-26
 
 ### Added
