@@ -32,6 +32,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shared intermediary serves an authenticated instance's tool list to callers
   that never presented a key.
 
+### Changed
+- Refreshed the compiled-in IANA server lists (August 2026): `.jo` gained a
+  WHOIS server, and `.uk` and `.zara` were dropped from the WHOIS map because
+  IANA no longer lists one for either. Both are unaffected for normal queries,
+  which already went through RDAP — the service prefers it — so only `?raw=1`,
+  which is WHOIS-only, now answers 404 for them. `.jo` has no RDAP server, so
+  it moves the other way: from "no server known" to a WHOIS lookup.
+
 ### Fixed
 - CORS preflight now allows the `Mcp-Method` and `Mcp-Name` request headers,
   which MCP protocol revision `2026-07-28` requires on every `/mcp` request.
