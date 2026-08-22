@@ -1,7 +1,7 @@
 # 此文件为远程开发环境配置文件
 FROM debian:bookworm
 
-ENV GO_VERSION=1.26.5
+ENV GO_VERSION=1.27.0
 
 RUN apt update &&\
     apt install -y wget rsync unzip openssh-server vim lsof git git-lfs locales locales-all libgit2-1.5 libgit2-dev net-tools jq curl &&\
@@ -12,7 +12,7 @@ RUN curl -fsSLO https://dl.google.com/go/go${GO_VERSION}.linux-amd64.tar.gz &&\
     rm -rf /usr/local/go && tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz &&\
     ln -sf /usr/local/go/bin/go /usr/bin/go &&\
     ln -sf /usr/local/go/bin/gofmt /usr/bin/gofmt &&\
-    curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.54.2 &&\
+    curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b /usr/local/bin v2.13.1 &&\
     rm -rf go${GO_VERSION}.linux-amd64.tar.gz
 
 # install code-server
