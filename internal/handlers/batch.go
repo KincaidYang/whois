@@ -144,14 +144,15 @@ func RunBatch(ctx context.Context, queries []string) []BatchItem {
 			// A query still queued when the batch deadline expires must not
 			// start: the handlers' singleflight layer deliberately detaches
 			// upstream flights from the caller's deadline, so a late start
-			// would get a fresh timeout and outlive the response.
+			// would get a fresh timeout and outlive the response. Once the
+			// deadline has passed both cases are ready, so the slot may be won
+			// anyway; report the deadline from one check afterwards rather
+			// than from whichever case the select happened to pick.
 			select {
 			case sem <- struct{}{}:
+				defer func() { <-sem }()
 			case <-ctx.Done():
-				results[i] = batchDeadlineItem(query)
-				return
 			}
-			defer func() { <-sem }()
 			if ctx.Err() != nil {
 				results[i] = batchDeadlineItem(query)
 				return
