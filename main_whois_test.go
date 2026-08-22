@@ -1,6 +1,7 @@
 package main
 
 import (
+	"maps"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -38,9 +39,7 @@ func withMockWhoisServer(t *testing.T, response string, tlds ...string) {
 
 	orig := serverlist.TLDToWhoisServer
 	replaced := make(map[string]string, len(orig)+len(tlds))
-	for k, v := range orig {
-		replaced[k] = v
-	}
+	maps.Copy(replaced, orig)
 	for _, tld := range tlds {
 		replaced[tld] = listener.Addr().String()
 	}

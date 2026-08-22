@@ -61,7 +61,7 @@ func TestPerKeyRateLimitExceeded(t *testing.T) {
 func TestPerKeyRateLimitUnlimited(t *testing.T) {
 	withTestAuthKeys(t, "free-key")
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		req := httptest.NewRequest("GET", "/info", nil)
 		req.Header.Set("X-API-Key", "free-key")
 		if w := authRequest(req); w.Code != http.StatusOK {

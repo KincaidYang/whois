@@ -16,9 +16,9 @@ import (
 // domain are deduplicated into a single upstream RDAP request, and that all
 // waiters receive the shared result.
 func TestHandlerSingleflight(t *testing.T) {
-	var upstreamCalls int32
+	var upstreamCalls atomic.Int32
 	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt32(&upstreamCalls, 1)
+		upstreamCalls.Add(1)
 		// Hold the flight open long enough for all concurrent requests to join it.
 		time.Sleep(100 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/rdap+json")
@@ -33,7 +33,7 @@ func TestHandlerSingleflight(t *testing.T) {
 	const concurrent = 5
 	codes := make([]int, concurrent)
 	var wg sync.WaitGroup
-	for i := 0; i < concurrent; i++ {
+	for i := range concurrent {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
@@ -50,7 +50,7 @@ func TestHandlerSingleflight(t *testing.T) {
 			t.Errorf("request %d: expected 200, got %d", i, code)
 		}
 	}
-	if calls := atomic.LoadInt32(&upstreamCalls); calls != 1 {
+	if calls := upstreamCalls.Load(); calls != 1 {
 		t.Errorf("expected 1 upstream call, got %d", calls)
 	}
 }

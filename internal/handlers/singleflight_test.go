@@ -109,7 +109,7 @@ func TestDedupedQueryCanceledWaitersShareOneSlot(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	errs := make(chan error, waiters)
-	for i := 0; i < waiters; i++ {
+	for range waiters {
 		go func() {
 			_, err := dedupedQuery(ctx, key, false, fn)
 			errs <- err
@@ -123,7 +123,7 @@ func TestDedupedQueryCanceledWaitersShareOneSlot(t *testing.T) {
 	})
 
 	cancel()
-	for i := 0; i < waiters; i++ {
+	for range waiters {
 		if err := <-errs; !errors.Is(err, context.Canceled) {
 			t.Errorf("canceled waiter error = %v, want context.Canceled", err)
 		}

@@ -20,7 +20,7 @@ func GetFromCache(ctx context.Context, cache Cache, key string) (CacheResult, er
 }
 
 // SetToCache stores data in cache with expiration (uses unified cache manager)
-func SetToCache(ctx context.Context, cache Cache, key string, data interface{}, expiration time.Duration) error {
+func SetToCache(ctx context.Context, cache Cache, key string, data any, expiration time.Duration) error {
 	var dataStr string
 
 	switch v := data.(type) {

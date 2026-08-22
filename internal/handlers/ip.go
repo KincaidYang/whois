@@ -26,8 +26,8 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 	// Parse the IP (for CIDR input, the prefix base address) and find the
 	// RDAP server URL
 	ipStr := resource
-	if i := strings.IndexByte(resource, '/'); i >= 0 {
-		ipStr = resource[:i]
+	if before, _, ok := strings.Cut(resource, "/"); ok {
+		ipStr = before
 	}
 	ip := net.ParseIP(ipStr)
 	serverURL, _ := serverlist.LookupIPKey(ip)

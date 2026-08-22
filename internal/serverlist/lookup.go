@@ -1,6 +1,7 @@
 package serverlist
 
 import (
+	"maps"
 	"net"
 	"sort"
 	"strconv"
@@ -43,12 +44,8 @@ func init() {
 // mergeServers returns a new map with base entries overlaid by overrides.
 func mergeServers(base, overrides map[string]string) map[string]string {
 	merged := make(map[string]string, len(base)+len(overrides))
-	for k, v := range base {
-		merged[k] = v
-	}
-	for k, v := range overrides {
-		merged[k] = v
-	}
+	maps.Copy(merged, base)
+	maps.Copy(merged, overrides)
 	return merged
 }
 
