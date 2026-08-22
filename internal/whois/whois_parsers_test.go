@@ -875,6 +875,40 @@ DNSSEC DS Data: 12345 8 2 49FD46E6C4B45C55D4AC1BFB1B2C3D4E5F60718293A4B5C6`
 	}
 }
 
+func TestParseWhoisResponseJP_SignedAltLabel(t *testing.T) {
+	// JPRS labels the DS record "s. [署名鍵]" in the prefixed (co.jp) layout
+	// instead of "[Signing Key]". Both spellings reach the same parser, and
+	// only the unprefixed one was covered. This layout also runs the record
+	// straight into the next field with no blank line between them, so the
+	// "\n[" end boundary decides where the key stops rather than "\n\n".
+	response := `a. [ドメイン名]                 EXAMPLE.CO.JP
+g. [Organization]               Example CO JP Corp
+p. [ネームサーバ]               ns1.example.co.jp
+s. [署名鍵]                     12345 13 2 (
+                                A1B2C3D4E5F60718293A4B5C6D7E8F90
+                                1122334455667788990AABBCCDDEEFF0 )
+[登録年月日]                    2010/03/01
+[状態]                          Connected (2026/03/01)
+[最終更新]                      2025/01/01 09:00:00 (JST)`
+
+	info, err := ParseWhoisResponseJP(response, "example.co.jp")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.SecureDNS == nil || !info.SecureDNS.DelegationSigned {
+		t.Fatalf("SecureDNS: got %+v, want signed", info.SecureDNS)
+	}
+	want := []model.DSData{{
+		KeyTag:     12345,
+		Algorithm:  13,
+		DigestType: 2,
+		Digest:     "A1B2C3D4E5F60718293A4B5C6D7E8F901122334455667788990AABBCCDDEEFF0",
+	}}
+	if !reflect.DeepEqual(info.SecureDNS.DSData, want) {
+		t.Errorf("DSData: got %+v, want %+v", info.SecureDNS.DSData, want)
+	}
+}
+
 func TestParseWhoisResponseJP_Signed(t *testing.T) {
 	// Excerpt of the real default (Japanese-label) JPRS response for a
 	// DNSSEC-signed domain. [Signing Key] carries a DS record
