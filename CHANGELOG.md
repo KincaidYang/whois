@@ -13,6 +13,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- IP network responses now carry every CIDR prefix an RDAP response lists
+  (`cidrs`); previously only the last one seen was kept, silently dropping
+  earlier blocks when a network was announced as more than one prefix.
+  `cidr` still holds the first entry for existing clients.
+- ASN lookups now canonicalize away leading zeros (`as013335` and `as13335`
+  now share one cache entry, one flight and one upstream call) and use
+  `uint32` instead of the machine word `int`, which overflowed on 32-bit
+  builds (`GOARCH=386`, `arm/v7`) for ASNs above roughly 2.1 billion.
+- `.jp` WHOIS responses no longer put the registrant's name/organization
+  (`[Registrant]`/`[Organization]`) into the `registrar` field — JPRS itself
+  is the sole registry-registrar and discloses no separate registrar. That
+  data now lands in a new `registrant` field instead.
+
 ## [1.3.0] - 2026-08-22
 
 ### Added

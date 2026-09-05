@@ -36,11 +36,17 @@ type SecureDNS struct {
 // RDAP JSON vocabulary (RFC 9083); dates are RFC 3339 UTC (date-only when the
 // registry provides no time of day).
 type DomainInfo struct {
-	ObjectClassName    string     `json:"objectClassName"` // always ObjectClassDomain
-	LdhName            string     `json:"ldhName"`
-	UnicodeName        string     `json:"unicodeName,omitempty"`
-	Registrar          string     `json:"registrar,omitempty"`
-	RegistrarIANAID    string     `json:"registrarIanaId,omitempty"`
+	ObjectClassName string `json:"objectClassName"` // always ObjectClassDomain
+	LdhName         string `json:"ldhName"`
+	UnicodeName     string `json:"unicodeName,omitempty"`
+	Registrar       string `json:"registrar,omitempty"`
+	RegistrarIANAID string `json:"registrarIanaId,omitempty"`
+	// Registrant is the domain holder's name or organization, set only by
+	// parsers whose WHOIS source discloses no separate registrar (e.g. .jp,
+	// where JPRS itself is the sole registry-registrar). It must not be
+	// confused with Registrar, which names the entity providing registration
+	// service.
+	Registrant         string     `json:"registrant,omitempty"`
 	Status             []string   `json:"status"`
 	RegistrationDate   string     `json:"registrationDate,omitempty"`
 	ExpirationDate     string     `json:"expirationDate,omitempty"`

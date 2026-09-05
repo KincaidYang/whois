@@ -77,7 +77,7 @@ func TestLookupIPKey_BoundaryValues(t *testing.T) {
 
 func TestLookupASNKey(t *testing.T) {
 	tests := []struct {
-		asn       int
+		asn       uint32
 		wantURL   string // substring expected in the returned URL
 		wantFound bool
 	}{

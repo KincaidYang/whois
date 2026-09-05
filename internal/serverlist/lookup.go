@@ -16,10 +16,11 @@ type ipNetEntry struct {
 	url   string
 }
 
-// asnRangeEntry maps an ASN range to its RDAP server URL.
+// asnRangeEntry maps an ASN range to its RDAP server URL. ASNs are uint32
+// (RFC 6793 4-byte ASNs go up to 4294967295, which overflows a 32-bit int).
 type asnRangeEntry struct {
-	lower int
-	upper int
+	lower uint32
+	upper uint32
 	url   string
 }
 
@@ -107,15 +108,15 @@ func buildIndex(servers map[string]string) serverIndex {
 			}
 		} else if strings.Contains(key, "-") {
 			parts := strings.SplitN(key, "-", 2)
-			lower, err := strconv.Atoi(parts[0])
+			lower, err := strconv.ParseUint(parts[0], 10, 32)
 			if err != nil {
 				continue
 			}
-			upper, err := strconv.Atoi(parts[1])
+			upper, err := strconv.ParseUint(parts[1], 10, 32)
 			if err != nil {
 				continue
 			}
-			idx.asnRangeList = append(idx.asnRangeList, asnRangeEntry{lower: lower, upper: upper, url: url})
+			idx.asnRangeList = append(idx.asnRangeList, asnRangeEntry{lower: uint32(lower), upper: uint32(upper), url: url})
 		}
 	}
 
@@ -174,7 +175,7 @@ func LookupIPKey(ip net.IP) (string, bool) {
 
 // LookupASNKey returns the RDAP server URL for the given ASN number.
 // Uses binary search on the pre-sorted range list.
-func LookupASNKey(asn int) (string, bool) {
+func LookupASNKey(asn uint32) (string, bool) {
 	mu.RLock()
 	defer mu.RUnlock()
 

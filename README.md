@@ -323,6 +323,9 @@ curl http://localhost:8043/1.12.34.56
   "startAddress": "1.12.0.0",
   "endAddress": "1.15.255.255",
   "cidr": "1.12.0.0/14",
+  "cidrs": [
+    "1.12.0.0/14"
+  ],
   "name": "TencentCloud",
   "type": "ALLOCATED PORTABLE",
   "country": "CN",
@@ -356,6 +359,9 @@ curl http://localhost:8043/2402:4e00::
   "startAddress": "2402:4e00::",
   "endAddress": "2402:4e00:ffff:ffff:ffff:ffff:ffff:ffff",
   "cidr": "2402:4e00::/32",
+  "cidrs": [
+    "2402:4e00::/32"
+  ],
   "name": "TencentCloud",
   "type": "ALLOCATED PORTABLE",
   "country": "CN",

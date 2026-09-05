@@ -22,11 +22,14 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	if asn == resource {
 		asn = strings.TrimPrefix(resource, "as")
 	}
-	asnInt, err := strconv.Atoi(asn)
+	asnUint, err := strconv.ParseUint(asn, 10, 32)
 	if err != nil {
 		utils.HandleHTTPError(w, utils.ErrorTypeBadRequest, "Invalid ASN format")
 		return
 	}
+	// Canonicalize away leading zeros (e.g. "as013335") so the different
+	// spellings of one ASN share a cache entry, a flight and an upstream path.
+	asn = strconv.FormatUint(asnUint, 10)
 
 	// Check cache first before doing any lookups
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, asn)
@@ -35,7 +38,7 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	}
 
 	// Find the RDAP server URL via pre-built sorted ASN range index
-	serverURL, _ := serverlist.LookupASNKey(asnInt)
+	serverURL, _ := serverlist.LookupASNKey(uint32(asnUint))
 
 	// Query and parse the RDAP information, deduplicating concurrent misses
 	outcome, err := dedupedQuery(ctx, key, refresh, func(qctx context.Context) (queryOutcome, error) {

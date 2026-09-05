@@ -247,11 +247,18 @@ func ParseRDAPResponseforIP(response string) (model.IPInfo, error) {
 	}
 
 	for _, cidr := range rdap.Cidr0Cidrs {
+		var prefix string
 		if cidr.V4Prefix != "" {
-			info.CIDR = fmt.Sprintf("%s/%d", cidr.V4Prefix, int(cidr.Length))
+			prefix = fmt.Sprintf("%s/%d", cidr.V4Prefix, int(cidr.Length))
 		} else if cidr.V6Prefix != "" {
-			info.CIDR = fmt.Sprintf("%s/%d", cidr.V6Prefix, int(cidr.Length))
+			prefix = fmt.Sprintf("%s/%d", cidr.V6Prefix, int(cidr.Length))
+		} else {
+			continue
 		}
+		info.CIDRs = append(info.CIDRs, prefix)
+	}
+	if len(info.CIDRs) > 0 {
+		info.CIDR = info.CIDRs[0]
 	}
 
 	for _, event := range rdap.Events {
