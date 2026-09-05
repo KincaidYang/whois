@@ -8,7 +8,7 @@ import (
 
 func TestSetToCache_String(t *testing.T) {
 	ctx := context.Background()
-	cache := NewMemoryCache(10, time.Minute)
+	cache := NewMemoryCache(10, time.Minute, 0)
 
 	err := SetToCache(ctx, cache, "k1", "hello", time.Minute)
 	if err != nil {
@@ -29,7 +29,7 @@ func TestSetToCache_String(t *testing.T) {
 
 func TestSetToCache_Struct(t *testing.T) {
 	ctx := context.Background()
-	cache := NewMemoryCache(10, time.Minute)
+	cache := NewMemoryCache(10, time.Minute, 0)
 
 	type payload struct {
 		Name string `json:"name"`
@@ -53,7 +53,7 @@ func TestSetToCache_Struct(t *testing.T) {
 
 func TestGetFromCache_Miss(t *testing.T) {
 	ctx := context.Background()
-	cache := NewMemoryCache(10, time.Minute)
+	cache := NewMemoryCache(10, time.Minute, 0)
 
 	result, err := GetFromCache(ctx, cache, "nonexistent")
 	if err != nil {

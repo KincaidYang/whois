@@ -12,6 +12,10 @@ import (
 type CacheResult struct {
 	Data  string
 	Found bool
+	// ExpiresAt is when this entry stops being valid, when the backend knows
+	// it (both MemoryCache and RedisCache do). Zero means unknown, in which
+	// case callers should treat the entry as if it just started its full TTL.
+	ExpiresAt time.Time
 }
 
 // GetFromCache attempts to retrieve data from cache (uses unified cache manager)

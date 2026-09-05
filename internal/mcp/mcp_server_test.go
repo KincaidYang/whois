@@ -24,7 +24,7 @@ func setupBatchTest(t *testing.T, enabled bool, maxItems int) {
 	t.Helper()
 	oldCache, oldLimiter := config.CacheManager, config.ConcurrencyLimiter
 	oldEnabled, oldMax := config.BatchEnabled, config.BatchMaxItems
-	config.CacheManager = utils.NewMemoryCache(100, time.Minute)
+	config.CacheManager = utils.NewMemoryCache(100, time.Minute, 0)
 	config.ConcurrencyLimiter = make(chan struct{}, 4)
 	config.BatchEnabled, config.BatchMaxItems = enabled, maxItems
 	t.Cleanup(func() {

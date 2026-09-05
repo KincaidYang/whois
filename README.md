@@ -52,6 +52,7 @@ cache:
   negativeExpiration: 60       # “未找到/被拒”结果的缓存时间，单位：秒（默认: 60；设为负数则禁用）
   requireRedis: false          # false=允许Redis失败时降级到内存缓存，true=Redis必须可用否则程序退出
   memoryMaxSize: 10000         # 内存缓存最大条目数，超过此数量按 LRU 淘汰最久未使用条目（默认: 10000）
+  memoryMaxBytes: 268435456    # 内存缓存最大总字节数（键+值），超过此数量按 LRU 淘汰，即使未超过条目数上限（默认: 268435456，即 256 MiB）
   memoryCleanInterval: 300     # 内存缓存过期数据清理间隔，单位：秒（默认: 300）
 
 redis:
@@ -100,6 +101,7 @@ mcp:
 | `WHOIS_NEGATIVE_CACHE_EXPIRATION` | `cache.negativeExpiration` | `60` | 负向缓存时间（秒），负数禁用 |
 | `WHOIS_REQUIRE_REDIS` | `cache.requireRedis` | `false` | `true`/`1` 时 Redis 不可用则启动失败 |
 | `WHOIS_MEMORY_MAX_SIZE` | `cache.memoryMaxSize` | `10000` | 内存缓存最大条目数 |
+| `WHOIS_MEMORY_MAX_BYTES` | `cache.memoryMaxBytes` | `268435456` | 内存缓存最大总字节数 |
 | `WHOIS_MEMORY_CLEAN_INTERVAL` | `cache.memoryCleanInterval` | `300` | 内存缓存清理间隔（秒） |
 | `WHOIS_REDIS_ADDR` | `redis.addr` | 未设置 | Redis 地址；显式设为空（`WHOIS_REDIS_ADDR=`）则禁用 Redis 仅用内存缓存，配置后不可用时自动降级到内存缓存（除非开启 requireRedis） |
 | `WHOIS_REDIS_PASSWORD` | `redis.password` | 空 | Redis 密码 |

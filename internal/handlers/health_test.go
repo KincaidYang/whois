@@ -65,7 +65,7 @@ func TestGetCacheCheckNotInitialized(t *testing.T) {
 
 func TestGetCacheCheckMemoryOnly(t *testing.T) {
 	saveCacheGlobals(t)
-	mc := utils.NewMemoryCache(4, time.Minute)
+	mc := utils.NewMemoryCache(4, time.Minute, 0)
 	t.Cleanup(func() { _ = mc.Close() })
 	config.CacheManager = mc
 
@@ -80,7 +80,7 @@ func TestGetCacheCheckMemoryOnly(t *testing.T) {
 
 func TestGetCacheCheckRedisHealthy(t *testing.T) {
 	saveCacheGlobals(t)
-	mc := utils.NewMemoryCache(4, time.Minute)
+	mc := utils.NewMemoryCache(4, time.Minute, 0)
 	t.Cleanup(func() { _ = mc.Close() })
 	config.CacheManager = utils.NewFallbackCache(&healthStubCache{healthy: true}, mc)
 
@@ -101,7 +101,7 @@ func TestGetCacheCheckRedisHealthy(t *testing.T) {
 
 func TestHandleReadyRequireRedisUnavailable(t *testing.T) {
 	saveCacheGlobals(t)
-	mc := utils.NewMemoryCache(4, time.Minute)
+	mc := utils.NewMemoryCache(4, time.Minute, 0)
 	t.Cleanup(func() { _ = mc.Close() })
 	config.CacheManager = utils.NewFallbackCache(&healthStubCache{healthy: false}, mc)
 	config.RequireRedis = true

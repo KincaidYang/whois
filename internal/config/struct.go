@@ -98,6 +98,13 @@ type Config struct {
 		// MemoryMaxSize is the maximum number of entries in the in-memory
 		// fallback cache (default: 10000).
 		MemoryMaxSize int `json:"memoryMaxSize" yaml:"memoryMaxSize"`
+		// MemoryMaxBytes bounds the total size (keys+values, in bytes) of the
+		// in-memory cache; entries are evicted LRU past this even if
+		// MemoryMaxSize hasn't been reached (default: 268435456, 256 MiB).
+		// Large raw/unparsed WHOIS responses (up to ~2 MiB each) can
+		// otherwise reach MemoryMaxSize entries well before an entry-count
+		// limit alone would evict anything. 0 disables the byte budget.
+		MemoryMaxBytes int64 `json:"memoryMaxBytes" yaml:"memoryMaxBytes"`
 		// MemoryCleanInterval is the interval (in seconds) for evicting expired
 		// in-memory entries (default: 300).
 		MemoryCleanInterval int `json:"memoryCleanInterval" yaml:"memoryCleanInterval"`

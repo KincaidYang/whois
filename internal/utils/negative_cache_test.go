@@ -29,7 +29,7 @@ func TestNegativeKindForError(t *testing.T) {
 
 func TestCacheNegativeResultAndHit(t *testing.T) {
 	ctx := context.Background()
-	cache := NewMemoryCache(10, time.Minute)
+	cache := NewMemoryCache(10, time.Minute, 0)
 
 	// Transient error must not be cached.
 	CacheNegativeResult(ctx, cache, "k-transient", context.DeadlineExceeded, time.Minute)

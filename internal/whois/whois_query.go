@@ -45,8 +45,15 @@ func Whois(ctx context.Context, domain, tld string) (result string, err error) {
 	}
 	defer func() { _ = conn.Close() }()
 
-	// Set read/write deadline
-	if err := conn.SetDeadline(time.Now().Add(whoisTimeout)); err != nil {
+	// Set read/write deadline: whoisTimeout from now, or ctx's own deadline if
+	// that comes first. DialContext only honors ctx during the dial above;
+	// without this, a connection established just before ctx's deadline
+	// could still read for another full whoisTimeout past it.
+	deadline := time.Now().Add(whoisTimeout)
+	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
+		deadline = d
+	}
+	if err := conn.SetDeadline(deadline); err != nil {
 		return "", err
 	}
 

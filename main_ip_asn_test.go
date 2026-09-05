@@ -306,7 +306,7 @@ func TestHandleASNRefresh(t *testing.T) {
 func TestHandleReadyRequireRedis(t *testing.T) {
 	orig := config.RequireRedis
 	origCache := config.CacheManager
-	mem := utils.NewMemoryCache(16, time.Minute)
+	mem := utils.NewMemoryCache(16, time.Minute, 0)
 	config.RequireRedis = true
 	config.CacheManager = mem
 	t.Cleanup(func() {

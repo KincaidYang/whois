@@ -12,7 +12,7 @@ func TestMemoryCache(t *testing.T) {
 	// TTL rather than waiting out a real one.
 	synctest.Test(t, func(t *testing.T) {
 		ctx := context.Background()
-		cache := NewMemoryCache(100, 1*time.Second)
+		cache := NewMemoryCache(100, 1*time.Second, 0)
 		defer func() { _ = cache.Close() }()
 
 		// Test Set and Get
@@ -64,8 +64,8 @@ func TestFallbackCache(t *testing.T) {
 	ctx := context.Background()
 
 	// Create a memory cache as both primary and fallback for testing
-	primary := NewMemoryCache(100, 1*time.Second)
-	fallback := NewMemoryCache(100, 1*time.Second)
+	primary := NewMemoryCache(100, 1*time.Second, 0)
+	fallback := NewMemoryCache(100, 1*time.Second, 0)
 
 	cache := NewFallbackCache(primary, fallback)
 
@@ -99,7 +99,7 @@ func TestFallbackCache(t *testing.T) {
 func TestMemoryCacheMaxSize(t *testing.T) {
 	ctx := context.Background()
 	maxSize := 10
-	cache := NewMemoryCache(maxSize, 1*time.Second)
+	cache := NewMemoryCache(maxSize, 1*time.Second, 0)
 
 	// Fill cache to max
 	for i := range maxSize {

@@ -19,10 +19,15 @@ import (
 // rejected so the client downgrades from RESP3, PING/GET/SET behave, and any
 // command can be scripted to fail so error paths are reachable without a
 // real Redis.
+type fakeRedisEntry struct {
+	value     string
+	expiresAt time.Time // zero = no expiry
+}
+
 type fakeRedisServer struct {
 	ln       net.Listener
 	mu       sync.Mutex
-	data     map[string]string
+	data     map[string]fakeRedisEntry
 	failCmds map[string]bool
 }
 
@@ -34,7 +39,7 @@ func newFakeRedisServer(t *testing.T) *fakeRedisServer {
 	}
 	s := &fakeRedisServer{
 		ln:       ln,
-		data:     make(map[string]string),
+		data:     make(map[string]fakeRedisEntry),
 		failCmds: make(map[string]bool),
 	}
 	go s.serve()
@@ -89,18 +94,66 @@ func (s *fakeRedisServer) handleConn(conn net.Conn) {
 			_, _ = fmt.Fprintf(conn, "+PONG\r\n")
 		case "GET":
 			s.mu.Lock()
-			v, ok := s.data[args[1]]
+			e, ok := s.data[args[1]]
 			s.mu.Unlock()
 			if ok {
-				_, _ = fmt.Fprintf(conn, "$%d\r\n%s\r\n", len(v), v)
+				_, _ = fmt.Fprintf(conn, "$%d\r\n%s\r\n", len(e.value), e.value)
 			} else {
 				_, _ = fmt.Fprintf(conn, "$-1\r\n")
 			}
 		case "SET":
+			e := fakeRedisEntry{value: args[2]}
+			// Parse the EX/PX option go-redis sends for a Set(...,
+			// expiration) call, so TTL can report something meaningful.
+			for i := 3; i < len(args); i++ {
+				switch strings.ToUpper(args[i]) {
+				case "EX":
+					if i+1 < len(args) {
+						if secs, err := strconv.Atoi(args[i+1]); err == nil {
+							e.expiresAt = time.Now().Add(time.Duration(secs) * time.Second)
+						}
+						i++
+					}
+				case "PX":
+					if i+1 < len(args) {
+						if ms, err := strconv.Atoi(args[i+1]); err == nil {
+							e.expiresAt = time.Now().Add(time.Duration(ms) * time.Millisecond)
+						}
+						i++
+					}
+				}
+			}
 			s.mu.Lock()
-			s.data[args[1]] = args[2]
+			s.data[args[1]] = e
 			s.mu.Unlock()
 			_, _ = fmt.Fprintf(conn, "+OK\r\n")
+		case "TTL":
+			s.mu.Lock()
+			e, ok := s.data[args[1]]
+			s.mu.Unlock()
+			switch {
+			case !ok:
+				_, _ = fmt.Fprintf(conn, ":-2\r\n")
+			case e.expiresAt.IsZero():
+				_, _ = fmt.Fprintf(conn, ":-1\r\n")
+			default:
+				remaining := int(time.Until(e.expiresAt).Seconds())
+				if remaining < 0 {
+					remaining = 0
+				}
+				_, _ = fmt.Fprintf(conn, ":%d\r\n", remaining)
+			}
+		case "DEL":
+			s.mu.Lock()
+			n := 0
+			for _, k := range args[1:] {
+				if _, ok := s.data[k]; ok {
+					delete(s.data, k)
+					n++
+				}
+			}
+			s.mu.Unlock()
+			_, _ = fmt.Fprintf(conn, ":%d\r\n", n)
 		default:
 			// CLIENT SETINFO, SELECT, ... — acknowledge and move on.
 			_, _ = fmt.Fprintf(conn, "+OK\r\n")
@@ -188,6 +241,45 @@ func TestRedisCacheBasic(t *testing.T) {
 	}
 }
 
+// TestRedisCacheGetReturnsExpiresAt verifies Get reports the entry's
+// remaining TTL (read back via a pipelined TTL alongside the GET), and that
+// a key with no TTL (matching Redis's "exists but no expiry" TTL of -1)
+// leaves ExpiresAt zero rather than reporting a bogus one.
+func TestRedisCacheGetReturnsExpiresAt(t *testing.T) {
+	ctx := context.Background()
+	s := newFakeRedisServer(t)
+	rc := newTestRedisCache(t, s.addr())
+
+	if err := rc.Set(ctx, "k", "v", time.Minute); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	before := time.Now()
+	r, err := rc.Get(ctx, "k")
+	if err != nil || !r.Found {
+		t.Fatalf("Get(k) = %+v, %v; want a hit", r, err)
+	}
+	if r.ExpiresAt.IsZero() {
+		t.Fatal("ExpiresAt must be populated for a key with a TTL")
+	}
+	wantExpiry := before.Add(time.Minute)
+	if diff := r.ExpiresAt.Sub(wantExpiry); diff < -2*time.Second || diff > 2*time.Second {
+		t.Errorf("ExpiresAt = %v, want close to %v", r.ExpiresAt, wantExpiry)
+	}
+
+	// A key stored without going through Set's expiration (simulating one
+	// with no TTL) must not get a fabricated ExpiresAt.
+	s.mu.Lock()
+	s.data["no-ttl"] = fakeRedisEntry{value: "v"}
+	s.mu.Unlock()
+	r, err = rc.Get(ctx, "no-ttl")
+	if err != nil || !r.Found {
+		t.Fatalf("Get(no-ttl) = %+v, %v; want a hit", r, err)
+	}
+	if !r.ExpiresAt.IsZero() {
+		t.Errorf("ExpiresAt = %v, want zero for a key with no TTL", r.ExpiresAt)
+	}
+}
+
 func TestRedisCacheErrorFlipsHealth(t *testing.T) {
 	ctx := context.Background()
 	s := newFakeRedisServer(t)
@@ -263,6 +355,51 @@ func TestRedisCacheCancelledContextKeepsHealth(t *testing.T) {
 	}
 	if !rc.IsHealthy() {
 		t.Error("cancelled Set must not flip health")
+	}
+	if err := rc.Del(ctx, "k"); err == nil {
+		t.Fatal("expected error from cancelled context")
+	}
+	if !rc.IsHealthy() {
+		t.Error("cancelled Del must not flip health")
+	}
+}
+
+// TestRedisCacheDel verifies Del removes keys outright and is a silent no-op
+// when unhealthy or given no keys, matching Set's existing behavior.
+func TestRedisCacheDel(t *testing.T) {
+	ctx := context.Background()
+	s := newFakeRedisServer(t)
+	rc := newTestRedisCache(t, s.addr())
+
+	if err := rc.Set(ctx, "k", "v", time.Minute); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := rc.Del(ctx, "k", "missing"); err != nil {
+		t.Fatalf("Del: %v", err)
+	}
+	if r, _ := rc.Get(ctx, "k"); r.Found {
+		t.Error("k should be gone after Del")
+	}
+
+	if err := rc.Del(ctx); err != nil {
+		t.Errorf("Del with no keys = %v, want silent nil", err)
+	}
+
+	// A server-side DEL error must flip health off, like GET/SET failures do.
+	s.setFail("DEL", true)
+	if err := rc.Del(ctx, "k"); err == nil {
+		t.Fatal("expected error from scripted DEL failure")
+	}
+	if rc.IsHealthy() {
+		t.Error("a DEL error must flip the health flag off")
+	}
+
+	s.setFail("DEL", false)
+	rc.checkHealth(false)
+	s.setFail("PING", true)
+	rc.checkHealth(false)
+	if err := rc.Del(ctx, "k"); err != nil {
+		t.Errorf("unhealthy Del = %v, want silent nil", err)
 	}
 }
 

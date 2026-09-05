@@ -357,7 +357,7 @@ func TestRefreshFlightOwnsCacheEntry(t *testing.T) {
 func setupFlightTest(t *testing.T) {
 	t.Helper()
 	oldCache, oldLimiter, oldTTL := config.CacheManager, config.ConcurrencyLimiter, config.CacheExpiration
-	config.CacheManager = utils.NewMemoryCache(10, time.Minute)
+	config.CacheManager = utils.NewMemoryCache(10, time.Minute, 0)
 	config.ConcurrencyLimiter = make(chan struct{}, 4)
 	config.CacheExpiration = time.Minute
 	t.Cleanup(func() {

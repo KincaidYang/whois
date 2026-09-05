@@ -43,18 +43,36 @@ func (rc *RedisCache) Close() error {
 	return nil
 }
 
-// Get retrieves a value from Redis cache
+// Get retrieves a value from Redis cache, along with its remaining TTL (read
+// back via a pipelined TTL alongside the GET, so this costs no extra round
+// trip) so callers can tell an entry about to expire from a freshly written
+// one.
 func (rc *RedisCache) Get(ctx context.Context, key string) (CacheResult, error) {
 	if !rc.IsHealthy() {
 		return CacheResult{Found: false}, nil
 	}
 
-	cacheResult, err := rc.client.Get(ctx, key).Result()
+	var getCmd *redis.StringCmd
+	var ttlCmd *redis.DurationCmd
+	_, _ = rc.client.Pipelined(ctx, func(pipe redis.Pipeliner) error {
+		getCmd = pipe.Get(ctx, key)
+		ttlCmd = pipe.TTL(ctx, key)
+		return nil
+	})
+	// The pipeline's own aggregate error (discarded above) mirrors each
+	// command's individual error when the whole pipeline fails (e.g. a
+	// network error), so checking getCmd's own result covers both cases.
+
+	cacheResult, err := getCmd.Result()
 	switch err {
 	case nil:
 		slog.Debug("cache hit", "backend", "redis", "key", key)
 		metrics.CacheRequestsTotal.WithLabelValues("redis", "hit").Inc()
-		return CacheResult{Data: cacheResult, Found: true}, nil
+		result := CacheResult{Data: cacheResult, Found: true}
+		if ttl, ttlErr := ttlCmd.Result(); ttlErr == nil && ttl > 0 {
+			result.ExpiresAt = time.Now().Add(ttl)
+		}
+		return result, nil
 	case redis.Nil:
 		metrics.CacheRequestsTotal.WithLabelValues("redis", "miss").Inc()
 		return CacheResult{Found: false}, nil
@@ -86,6 +104,28 @@ func (rc *RedisCache) Set(ctx context.Context, key string, value string, expirat
 			return err
 		}
 		slog.Warn("Redis SET failed", "key", key, "err", err)
+		metrics.CacheRequestsTotal.WithLabelValues("redis", "error").Inc()
+		rc.setHealthy(false)
+		return err
+	}
+
+	return nil
+}
+
+// Del removes keys from Redis cache outright. Used by FallbackCache to purge
+// stale entries left over from an outage; a no-op (not an error) when there
+// is nothing to delete or the connection is currently unhealthy, matching
+// Set's silent-skip behavior.
+func (rc *RedisCache) Del(ctx context.Context, keys ...string) error {
+	if len(keys) == 0 || !rc.IsHealthy() {
+		return nil
+	}
+
+	if err := rc.client.Del(ctx, keys...).Err(); err != nil {
+		if ctx.Err() != nil {
+			return err
+		}
+		slog.Warn("Redis DEL failed", "keys", len(keys), "err", err)
 		metrics.CacheRequestsTotal.WithLabelValues("redis", "error").Inc()
 		rc.setHealthy(false)
 		return err
