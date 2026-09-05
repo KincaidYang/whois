@@ -7,8 +7,9 @@ type IPInfo struct {
 	Handle          string `json:"handle"`
 	StartAddress    string `json:"startAddress,omitempty"`
 	EndAddress      string `json:"endAddress,omitempty"`
-	// CIDR is the first entry of CIDRs, kept for backward compatibility with
-	// clients that only read a single prefix.
+	// CIDR is the last entry of CIDRs (matching the pre-CIDRs behavior, which
+	// overwrote a single field on every cidr0_cidrs entry), kept for backward
+	// compatibility with clients that only read a single prefix.
 	CIDR string `json:"cidr,omitempty"`
 	// CIDRs holds every prefix the RDAP response listed (cidr0_cidrs); a
 	// network can be announced as more than one CIDR block.

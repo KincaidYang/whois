@@ -984,7 +984,7 @@
           },
           "cidr": {
             "type": "string",
-            "description": "The first entry of cidrs, kept for clients that only read a single prefix."
+            "description": "The last entry of cidrs, kept for clients that only read a single prefix."
           },
           "cidrs": {
             "type": "array",

@@ -284,12 +284,15 @@ func TestParseRDAPIPV6Prefix(t *testing.T) {
 }
 
 // TestParseRDAPIPMultipleCIDRs verifies that a network announced as more than
-// one CIDR block keeps every prefix instead of only the last one seen.
+// one CIDR block keeps every prefix instead of only the last one seen, and
+// that a malformed entry with neither v4prefix nor v6prefix is skipped
+// instead of producing an empty CIDR.
 func TestParseRDAPIPMultipleCIDRs(t *testing.T) {
 	response := `{
 		"handle": "NET-192-0-2-0-1",
 		"cidr0_cidrs": [
 			{"v4prefix": "192.0.2.0", "length": 25},
+			{"length": 0},
 			{"v4prefix": "192.0.2.128", "length": 26}
 		]
 	}`
@@ -302,8 +305,10 @@ func TestParseRDAPIPMultipleCIDRs(t *testing.T) {
 	if !reflect.DeepEqual(info.CIDRs, wantCIDRs) {
 		t.Errorf("CIDRs: got %v, want %v", info.CIDRs, wantCIDRs)
 	}
-	if info.CIDR != "192.0.2.0/25" {
-		t.Errorf("CIDR (first entry, kept for back-compat): got %q, want %q", info.CIDR, "192.0.2.0/25")
+	// The compatibility field must match the pre-CIDRs behavior (last entry
+	// wins), so existing clients see the same value as before this change.
+	if info.CIDR != "192.0.2.128/26" {
+		t.Errorf("CIDR (last entry, kept for back-compat): got %q, want %q", info.CIDR, "192.0.2.128/26")
 	}
 }
 
