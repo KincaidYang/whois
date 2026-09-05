@@ -543,8 +543,11 @@ func TestParseWhoisResponseJP(t *testing.T) {
 	if info.LdhName != "example.jp" {
 		t.Errorf("LdhName: got %q, want example.jp (lowercased from response)", info.LdhName)
 	}
-	if info.Registrar != "Example JP Corp" {
-		t.Errorf("Registrar: got %q", info.Registrar)
+	if info.Registrar != "" {
+		t.Errorf("Registrar: got %q, want empty (JPRS whois discloses no separate registrar)", info.Registrar)
+	}
+	if info.Registrant != "Example JP Corp" {
+		t.Errorf("Registrant: got %q", info.Registrant)
 	}
 	if info.RegistrationDate != "2010-03-01" {
 		t.Errorf("RegistrationDate: got %q", info.RegistrationDate)
@@ -577,8 +580,11 @@ p. [ネームサーバ] ns1.example.co.jp
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if info.Registrar != "Example CO JP Corp" {
-		t.Errorf("Registrar: got %q", info.Registrar)
+	if info.Registrar != "" {
+		t.Errorf("Registrar: got %q, want empty (JPRS whois discloses no separate registrar)", info.Registrar)
+	}
+	if info.Registrant != "Example CO JP Corp" {
+		t.Errorf("Registrant: got %q", info.Registrant)
 	}
 	if info.ExpirationDate != "2026-03-01" {
 		t.Errorf("ExpirationDate from status: got %q", info.ExpirationDate)

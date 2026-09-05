@@ -238,6 +238,29 @@ func TestHandleASNMissAndHit(t *testing.T) {
 	}
 }
 
+// TestHandleASNLeadingZeros verifies that different spellings of the same
+// ASN ("as4199999995" vs "as04199999995") share one cache entry and one
+// upstream call instead of being treated as distinct resources.
+func TestHandleASNLeadingZeros(t *testing.T) {
+	var upstreamCalls atomic.Int32
+	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS-ZZASNTEST"}`))
+	}, "4199999990-4199999999")
+
+	mux := newTestMux()
+	for _, path := range []string{"/autnum/as4199999992", "/autnum/as04199999992", "/autnum/as004199999992"} {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("%s: expected 200, got %d: %s", path, w.Code, w.Body.String())
+		}
+	}
+	if got := upstreamCalls.Load(); got != 1 {
+		t.Errorf("upstream calls: got %d, want 1 (leading zeros should not create new cache entries)", got)
+	}
+}
+
 // TestHandleASNInvalidFormat exercises the handler's own ASN validation
 // (routes normally pre-validate, so this calls the handler directly).
 func TestHandleASNInvalidFormat(t *testing.T) {
@@ -245,6 +268,17 @@ func TestHandleASNInvalidFormat(t *testing.T) {
 	handlers.HandleASN(context.Background(), w, "asnotanumber", handlers.CacheKeyPrefix, false)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestHandleASNMaxUint32 exercises the top of the 4-byte ASN range (RFC 6793),
+// which overflows a 32-bit int and must be handled via uint32 instead so
+// behavior does not depend on the build's GOARCH.
+func TestHandleASNMaxUint32(t *testing.T) {
+	w := httptest.NewRecorder()
+	handlers.HandleASN(context.Background(), w, "as4294967295", handlers.CacheKeyPrefix, false)
+	if w.Code == http.StatusBadRequest {
+		t.Fatalf("max uint32 ASN should parse, got 400: %s", w.Body.String())
 	}
 }
 

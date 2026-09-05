@@ -859,8 +859,9 @@ func ParseWhoisResponseJP(response string, domain string) (model.DomainInfo, err
 		domainInfo.LdhName = strings.ToLower(name)
 	}
 
-	// 解析注册人/组织 - 尝试两种格式
-	domainInfo.Registrar = matchFirstGroup(reJPRegistrant, response,
+	// 解析注册人/组织 - 尝试两种格式。JPRS 本身即注册局兼唯一注册商，
+	// whois 不单独披露 registrar，故这是 Registrant 而非 Registrar。
+	domainInfo.Registrant = matchFirstGroup(reJPRegistrant, response,
 		func() string { return matchFirstGroup(reJPOrganization, response, nil) })
 
 	// 解析名称服务器 - 尝试两种格式

@@ -850,6 +850,10 @@
           "registrarIanaId": {
             "type": "string"
           },
+          "registrant": {
+            "type": "string",
+            "description": "Domain holder's name or organization; set only when the source WHOIS discloses no separate registrar (e.g. .jp, where JPRS is the sole registry-registrar)."
+          },
           "status": {
             "type": "array",
             "items": {
@@ -979,7 +983,15 @@
             "type": "string"
           },
           "cidr": {
-            "type": "string"
+            "type": "string",
+            "description": "The last entry of cidrs, kept for clients that only read a single prefix."
+          },
+          "cidrs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every CIDR prefix the registry announced for this network; a network can span more than one block."
           },
           "name": {
             "type": "string"

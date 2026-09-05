@@ -247,11 +247,22 @@ func ParseRDAPResponseforIP(response string) (model.IPInfo, error) {
 	}
 
 	for _, cidr := range rdap.Cidr0Cidrs {
+		var prefix string
 		if cidr.V4Prefix != "" {
-			info.CIDR = fmt.Sprintf("%s/%d", cidr.V4Prefix, int(cidr.Length))
+			prefix = fmt.Sprintf("%s/%d", cidr.V4Prefix, int(cidr.Length))
 		} else if cidr.V6Prefix != "" {
-			info.CIDR = fmt.Sprintf("%s/%d", cidr.V6Prefix, int(cidr.Length))
+			prefix = fmt.Sprintf("%s/%d", cidr.V6Prefix, int(cidr.Length))
+		} else {
+			continue
 		}
+		info.CIDRs = append(info.CIDRs, prefix)
+	}
+	if len(info.CIDRs) > 0 {
+		// Matches the pre-CIDRs behavior exactly (the loop above used to
+		// overwrite a single CIDR field on every iteration, so it held the
+		// last entry): existing clients that only read this field must see
+		// the same value as before, not a different prefix.
+		info.CIDR = info.CIDRs[len(info.CIDRs)-1]
 	}
 
 	for _, event := range rdap.Events {
