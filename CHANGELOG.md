@@ -17,7 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - IP network responses now carry every CIDR prefix an RDAP response lists
   (`cidrs`); previously only the last one seen was kept, silently dropping
   earlier blocks when a network was announced as more than one prefix.
-  `cidr` still holds the first entry for existing clients.
+  `cidr` still holds the last entry, unchanged from before, for existing
+  clients.
 - ASN lookups now canonicalize away leading zeros (`as013335` and `as13335`
   now share one cache entry, one flight and one upstream call) and use
   `uint32` instead of the machine word `int`, which overflowed on 32-bit
