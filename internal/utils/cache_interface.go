@@ -287,7 +287,15 @@ func (fc *FallbackCache) Set(ctx context.Context, key string, value string, expi
 
 	if fc.primary.IsHealthy() {
 		primaryErr = fc.primary.Set(ctx, key, value, expiration)
-		fc.flushDirty(ctx)
+		if primaryErr != nil {
+			// IsHealthy() was true when the attempt started, but the write
+			// itself failed (Set flips health false on its own error path)
+			// — primary does not have this value either way, same as the
+			// already-unhealthy case below.
+			fc.markDirty(key)
+		} else {
+			fc.flushDirty(ctx)
+		}
 	} else {
 		// Primary won't see this write; remember the key so it gets purged
 		// from primary once healthy again, instead of shadowing this value

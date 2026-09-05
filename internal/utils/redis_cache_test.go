@@ -3,6 +3,7 @@ package utils
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -127,7 +128,7 @@ func (s *fakeRedisServer) handleConn(conn net.Conn) {
 			s.data[args[1]] = e
 			s.mu.Unlock()
 			_, _ = fmt.Fprintf(conn, "+OK\r\n")
-		case "TTL":
+		case "PTTL":
 			s.mu.Lock()
 			e, ok := s.data[args[1]]
 			s.mu.Unlock()
@@ -137,7 +138,7 @@ func (s *fakeRedisServer) handleConn(conn net.Conn) {
 			case e.expiresAt.IsZero():
 				_, _ = fmt.Fprintf(conn, ":-1\r\n")
 			default:
-				remaining := int(time.Until(e.expiresAt).Seconds())
+				remaining := int(time.Until(e.expiresAt).Milliseconds())
 				if remaining < 0 {
 					remaining = 0
 				}
@@ -280,6 +281,34 @@ func TestRedisCacheGetReturnsExpiresAt(t *testing.T) {
 	}
 }
 
+// TestRedisCacheGetTreatsExpiringKeyAsStale verifies a key with essentially
+// no time left (PTTL <= 0, e.g. it expired or was deleted in the race
+// between the pipelined GET and PTTL) is treated as already expiring rather
+// than as "unknown" — which serveFromCache would otherwise read as "use the
+// full configured TTL", handing a stale-adjacent value a fresh hour of
+// downstream Cache-Control freshness.
+func TestRedisCacheGetTreatsExpiringKeyAsStale(t *testing.T) {
+	ctx := context.Background()
+	s := newFakeRedisServer(t)
+	rc := newTestRedisCache(t, s.addr())
+
+	s.mu.Lock()
+	s.data["k"] = fakeRedisEntry{value: "v", expiresAt: time.Now().Add(-time.Hour)}
+	s.mu.Unlock()
+
+	before := time.Now()
+	r, err := rc.Get(ctx, "k")
+	if err != nil || !r.Found || r.Data != "v" {
+		t.Fatalf("Get(k) = %+v, %v; want a hit", r, err)
+	}
+	if r.ExpiresAt.IsZero() {
+		t.Fatal("ExpiresAt must not be left unknown for a key that's already expiring")
+	}
+	if diff := r.ExpiresAt.Sub(before); diff < -time.Second || diff > time.Second {
+		t.Errorf("ExpiresAt = %v, want close to now (already expiring), not a fabricated full TTL", r.ExpiresAt)
+	}
+}
+
 func TestRedisCacheErrorFlipsHealth(t *testing.T) {
 	ctx := context.Background()
 	s := newFakeRedisServer(t)
@@ -398,8 +427,11 @@ func TestRedisCacheDel(t *testing.T) {
 	rc.checkHealth(false)
 	s.setFail("PING", true)
 	rc.checkHealth(false)
-	if err := rc.Del(ctx, "k"); err != nil {
-		t.Errorf("unhealthy Del = %v, want silent nil", err)
+	// Unlike Set, an unhealthy Del must report that it did nothing rather
+	// than silently succeeding: FallbackCache.flushDirty uses the return
+	// value to decide whether a key was actually purged from primary.
+	if err := rc.Del(ctx, "k"); !errors.Is(err, errRedisUnhealthy) {
+		t.Errorf("unhealthy Del = %v, want errRedisUnhealthy", err)
 	}
 }
 

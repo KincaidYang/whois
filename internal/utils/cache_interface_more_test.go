@@ -290,6 +290,41 @@ func TestFallbackCacheUnhealthyPrimary(t *testing.T) {
 // primary entry, untouched during an outage, would otherwise shadow a
 // newer value written to fallback for the rest of its original TTL once
 // primary recovers.
+// TestFallbackCacheMarksDirtyOnPrimarySetFailure covers the case where
+// primary looked healthy when the write started, but the write itself
+// failed (a transient error, discovered by this very call) — the key must
+// still be tracked dirty, exactly as if primary had already been known
+// unhealthy, since either way primary does not end up holding the value.
+func TestFallbackCacheMarksDirtyOnPrimarySetFailure(t *testing.T) {
+	ctx := context.Background()
+	primary := &stubCache{healthy: true, setErr: errors.New("boom"), data: map[string]string{"k": "old"}}
+	fallback := &stubCache{healthy: true}
+	fc := NewFallbackCache(primary, fallback)
+
+	if err := fc.Set(ctx, "k", "new", time.Minute); err == nil {
+		t.Fatal("expected the primary error to propagate")
+	}
+
+	fc.dirtyMu.Lock()
+	_, dirty := fc.dirty["k"]
+	fc.dirtyMu.Unlock()
+	if !dirty {
+		t.Fatal("k must be tracked dirty when the primary write itself failed, not just when primary was already unhealthy")
+	}
+
+	// Once a later write to primary succeeds, the stale entry must actually
+	// get purged — proving the dirty tracking does something, not just that
+	// it's present.
+	primary.setErr = nil
+	r, err := fc.Get(ctx, "k")
+	if err != nil || !r.Found || r.Data != "new" {
+		t.Fatalf("Get after recovery = %+v, %v; want the newer fallback value once purged", r, err)
+	}
+	if len(primary.dels) != 1 || primary.dels[0] != "k" {
+		t.Errorf("primary.dels = %v, want [\"k\"] purged", primary.dels)
+	}
+}
+
 func TestFallbackCacheRecoveryPurgesStaleDirtyKeys(t *testing.T) {
 	ctx := context.Background()
 	// Primary starts down, already holding a pre-outage value for "k".

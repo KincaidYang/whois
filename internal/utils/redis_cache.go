@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -44,7 +45,7 @@ func (rc *RedisCache) Close() error {
 }
 
 // Get retrieves a value from Redis cache, along with its remaining TTL (read
-// back via a pipelined TTL alongside the GET, so this costs no extra round
+// back via a pipelined PTTL alongside the GET, so this costs no extra round
 // trip) so callers can tell an entry about to expire from a freshly written
 // one.
 func (rc *RedisCache) Get(ctx context.Context, key string) (CacheResult, error) {
@@ -56,7 +57,11 @@ func (rc *RedisCache) Get(ctx context.Context, key string) (CacheResult, error) 
 	var ttlCmd *redis.DurationCmd
 	_, _ = rc.client.Pipelined(ctx, func(pipe redis.Pipeliner) error {
 		getCmd = pipe.Get(ctx, key)
-		ttlCmd = pipe.TTL(ctx, key)
+		// PTTL (millisecond precision), not TTL (whole seconds): TTL reports
+		// 0 for anything under a second left, which would read as "unknown"
+		// below and hand the entry a full fresh max-age moments before it
+		// actually expires — the opposite of what ExpiresAt is for.
+		ttlCmd = pipe.PTTL(ctx, key)
 		return nil
 	})
 	// The pipeline's own aggregate error (discarded above) mirrors each
@@ -69,8 +74,26 @@ func (rc *RedisCache) Get(ctx context.Context, key string) (CacheResult, error) 
 		slog.Debug("cache hit", "backend", "redis", "key", key)
 		metrics.CacheRequestsTotal.WithLabelValues("redis", "hit").Inc()
 		result := CacheResult{Data: cacheResult, Found: true}
-		if ttl, ttlErr := ttlCmd.Result(); ttlErr == nil && ttl > 0 {
-			result.ExpiresAt = time.Now().Add(ttl)
+		if pttl, pttlErr := ttlCmd.Result(); pttlErr == nil {
+			switch {
+			case pttl > 0:
+				result.ExpiresAt = time.Now().Add(pttl)
+			case pttl != -1:
+				// go-redis returns Redis's -1/-2 sentinels as a raw
+				// nanosecond-scale time.Duration(n), not scaled by the
+				// command's precision (see DurationCmd.readReply) — so "no
+				// TTL" is exactly time.Duration(-1), a 1-nanosecond
+				// duration, never -1ms. Anything else nonpositive here is
+				// -2 (the key expired or was deleted between the pipelined
+				// GET and PTTL above) or a genuine 0ms-left reply: the value
+				// just retrieved may already be stale, so this must not
+				// fall through to being treated as unknown (a full, fresh
+				// TTL) below. The -1 sentinel itself is left as
+				// unknown/zero: every entry this cache writes always
+				// carries a real TTL, so it shouldn't occur for real keys,
+				// and a truly TTL-less key has no better answer to give.
+				result.ExpiresAt = time.Now()
+			}
 		}
 		return result, nil
 	case redis.Nil:
@@ -112,13 +135,26 @@ func (rc *RedisCache) Set(ctx context.Context, key string, value string, expirat
 	return nil
 }
 
+// errRedisUnhealthy is returned by Del when it skips the delete because the
+// connection is currently unhealthy. Unlike Set (whose silent skip is
+// covered by FallbackCache's separate dirty-key tracking), Del's caller
+// (flushDirty) uses the return value itself to decide whether a key was
+// actually purged, so a skipped delete must not be reported the same as a
+// successful one — nil here would make flushDirty drop the key from dirty
+// tracking despite doing nothing, losing it for good.
+var errRedisUnhealthy = errors.New("redis: unhealthy, delete skipped")
+
 // Del removes keys from Redis cache outright. Used by FallbackCache to purge
-// stale entries left over from an outage; a no-op (not an error) when there
-// is nothing to delete or the connection is currently unhealthy, matching
-// Set's silent-skip behavior.
+// stale entries left over from an outage. A no-op returning nil when there
+// is nothing to delete; returns errRedisUnhealthy (not nil) when the
+// connection is currently unhealthy, since the caller needs to know the
+// delete did not happen.
 func (rc *RedisCache) Del(ctx context.Context, keys ...string) error {
-	if len(keys) == 0 || !rc.IsHealthy() {
+	if len(keys) == 0 {
 		return nil
+	}
+	if !rc.IsHealthy() {
+		return errRedisUnhealthy
 	}
 
 	if err := rc.client.Del(ctx, keys...).Err(); err != nil {
