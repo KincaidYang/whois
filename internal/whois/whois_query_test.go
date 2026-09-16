@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/KincaidYang/whois/internal/serverlist"
 )
@@ -78,6 +79,53 @@ func TestWhoisOversizeResponse(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "exceeds") {
 		t.Errorf("expected size-limit error, got %q", err.Error())
+	}
+}
+
+// TestWhoisRespectsContextDeadlineAfterDial verifies a connection established
+// but then never answered is abandoned once ctx's own (shorter) deadline
+// passes, rather than always waiting out the full whoisTimeout (10s), which
+// only DialContext honors on its own.
+func TestWhoisRespectsContextDeadlineAfterDial(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = listener.Close() }()
+
+	connCh := make(chan net.Conn, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		connCh <- conn
+		// Consume the query but never write a response: the client must be
+		// the one to give up, via ctx, not the server closing the connection.
+		buf := make([]byte, 1024)
+		_, _ = conn.Read(buf)
+	}()
+
+	serverlist.TLDToWhoisServer = map[string]string{"com": listener.Addr().String()}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err = Whois(ctx, "example.com", "com")
+	elapsed := time.Since(start)
+
+	if conn := <-connCh; conn != nil {
+		defer func() { _ = conn.Close() }()
+	}
+
+	if err == nil {
+		t.Fatal("expected a timeout error, got none")
+	}
+	// Generous upper bound: must return well before the 10s whoisTimeout,
+	// not just eventually.
+	if elapsed > 2*time.Second {
+		t.Errorf("Whois took %v to respect ctx's 200ms deadline (whoisTimeout is 10s)", elapsed)
 	}
 }
 

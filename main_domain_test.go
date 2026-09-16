@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -12,6 +13,34 @@ import (
 	"github.com/KincaidYang/whois/internal/handlers"
 	"golang.org/x/net/idna"
 )
+
+// TestHandlerPSLPrivateSuffixQueriesRegistrableDomain verifies that a name
+// under a Public Suffix List *private*-section entry (blogspot.com is not a
+// registry, just a hosting platform PSL treats as if it were a TLD) is
+// resolved to the actual object registered with the real ICANN registry
+// (blogspot.com under .com), not queried as if the subdomain itself were
+// registrable — which no registry has ever heard of.
+func TestHandlerPSLPrivateSuffixQueriesRegistrableDomain(t *testing.T) {
+	var gotPath atomic.Value
+	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
+		gotPath.Store(r.URL.Path)
+		_, _ = w.Write([]byte(`{"objectClassName":"domain","ldhName":"blogspot.com"}`))
+	}, "com")
+
+	req := httptest.NewRequest("GET", "/test.blogspot.com", nil)
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", w.Code, w.Body.String())
+	}
+	if got, _ := gotPath.Load().(string); got != "/domain/blogspot.com" {
+		t.Errorf("upstream path: got %q, want /domain/blogspot.com (the registered object, not the private-suffix subdomain)", got)
+	}
+	if !strings.Contains(w.Body.String(), `"ldhName":"blogspot.com"`) {
+		t.Errorf("response body missing ldhName for the registrable domain: %s", w.Body.String())
+	}
+}
 
 // TestHandlerUnknownTLD exercises HandleDomain's server-selection logic for a
 // syntactically valid domain whose TLD has neither an RDAP nor a WHOIS server.

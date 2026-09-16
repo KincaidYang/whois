@@ -72,6 +72,7 @@ var (
 	// Cache configuration
 	RequireRedis        bool
 	MemoryMaxSize       int
+	MemoryMaxBytes      int64
 	MemoryCleanInterval time.Duration
 	// NegativeCacheExpiration is how long not-found/denied results are cached.
 	NegativeCacheExpiration time.Duration
@@ -229,6 +230,7 @@ func load() {
 	// Set cache configuration
 	RequireRedis = config.Cache.RequireRedis
 	MemoryMaxSize = config.Cache.MemoryMaxSize
+	MemoryMaxBytes = config.Cache.MemoryMaxBytes
 	MemoryCleanInterval = time.Duration(config.Cache.MemoryCleanInterval) * time.Second
 	NegativeCacheExpiration = time.Duration(config.Cache.NegativeExpiration) * time.Second
 
@@ -346,6 +348,11 @@ func applyDefaults(config *Config) {
 		config.Cache.MemoryMaxSize = 10000
 	}
 
+	// Default: 256 MiB max total size in memory cache
+	if config.Cache.MemoryMaxBytes == 0 {
+		config.Cache.MemoryMaxBytes = 256 << 20
+	}
+
 	// Default: clean every 5 minutes (300 seconds)
 	if config.Cache.MemoryCleanInterval == 0 {
 		config.Cache.MemoryCleanInterval = 300
@@ -402,6 +409,11 @@ func validateConfig(config *Config) error {
 			return fmt.Errorf("%s must not be negative (got %d)", c.name, c.value)
 		}
 	}
+	// int64, so it's checked separately from the int-typed values above
+	// rather than overflowing on a 32-bit build.
+	if config.Cache.MemoryMaxBytes < 0 {
+		return fmt.Errorf("cache.memoryMaxBytes must not be negative (got %d)", config.Cache.MemoryMaxBytes)
+	}
 	if config.Proxy.Server != "" {
 		if err := validateProxyURL(config.Proxy.Server); err != nil {
 			return fmt.Errorf("proxy.server: %w", err)
@@ -443,12 +455,12 @@ func validateProxyURL(s string) error {
 // initializeCacheManager sets up the cache: Redis primary with memory fallback,
 // or memory alone when Redis is disabled (empty redis.addr).
 func initializeCacheManager() {
-	memoryCache := utils.NewMemoryCache(MemoryMaxSize, MemoryCleanInterval)
+	memoryCache := utils.NewMemoryCache(MemoryMaxSize, MemoryCleanInterval, MemoryMaxBytes)
 
 	if RedisClient == nil {
 		CacheManager = memoryCache
 		slog.Info("Redis disabled (empty redis.addr), using in-memory cache only")
-		slog.Info("cache configuration", "memory_max_entries", MemoryMaxSize, "clean_interval", MemoryCleanInterval)
+		slog.Info("cache configuration", "memory_max_entries", MemoryMaxSize, "memory_max_bytes", MemoryMaxBytes, "clean_interval", MemoryCleanInterval)
 		return
 	}
 
@@ -467,7 +479,7 @@ func initializeCacheManager() {
 		}
 	}
 
-	slog.Info("cache configuration", "memory_max_entries", MemoryMaxSize, "clean_interval", MemoryCleanInterval)
+	slog.Info("cache configuration", "memory_max_entries", MemoryMaxSize, "memory_max_bytes", MemoryMaxBytes, "clean_interval", MemoryCleanInterval)
 }
 
 // readConfigFile reads config.yaml (or config.json) and returns the raw bytes
@@ -503,6 +515,7 @@ var legacyKeys = map[string]string{
 	"redis.tlsskipverify":           "redis.tlsSkipVerify",
 	"cache.requireredis":            "cache.requireRedis",
 	"cache.memorymaxsize":           "cache.memoryMaxSize",
+	"cache.memorymaxbytes":          "cache.memoryMaxBytes",
 	"cache.memorycleaninterval":     "cache.memoryCleanInterval",
 	"cache.negativecacheexpiration": "cache.negativeExpiration",
 	"mcp.localhostprotection":       "mcp.localhostProtection",
@@ -647,6 +660,11 @@ func overrideConfigWithEnv(config *Config) {
 	if memoryMaxSize := os.Getenv("WHOIS_MEMORY_MAX_SIZE"); memoryMaxSize != "" {
 		if maxSize, err := strconv.Atoi(memoryMaxSize); err == nil {
 			config.Cache.MemoryMaxSize = maxSize
+		}
+	}
+	if memoryMaxBytes := os.Getenv("WHOIS_MEMORY_MAX_BYTES"); memoryMaxBytes != "" {
+		if maxBytes, err := strconv.ParseInt(memoryMaxBytes, 10, 64); err == nil {
+			config.Cache.MemoryMaxBytes = maxBytes
 		}
 	}
 	if memoryCleanInterval := os.Getenv("WHOIS_MEMORY_CLEAN_INTERVAL"); memoryCleanInterval != "" {

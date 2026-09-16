@@ -4,21 +4,27 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/KincaidYang/whois/internal/config"
 	"github.com/KincaidYang/whois/internal/utils"
 )
 
-// setCacheControl tells clients they may cache a successful response for as
-// long as the server itself caches it. When API key authentication is
-// enabled the response is marked private: a shared cache (CDN) serving it
-// to other clients would bypass the key check and the per-key rate limit.
-func setCacheControl(w http.ResponseWriter) {
+// setCacheControl tells clients they may cache a successful response for
+// maxAge, no longer than the server itself would still consider it fresh.
+// When API key authentication is enabled the response is marked private: a
+// shared cache (CDN) serving it to other clients would bypass the key check
+// and the per-key rate limit.
+func setCacheControl(w http.ResponseWriter, maxAge time.Duration) {
 	scope := "public"
 	if len(config.AuthClients) > 0 {
 		scope = "private"
 	}
-	w.Header().Set("Cache-Control", fmt.Sprintf("%s, max-age=%d", scope, int(config.CacheExpiration.Seconds())))
+	seconds := int(maxAge.Seconds())
+	if seconds < 0 {
+		seconds = 0
+	}
+	w.Header().Set("Cache-Control", fmt.Sprintf("%s, max-age=%d", scope, seconds))
 }
 
 // missLabel is the X-Cache value for a response that went upstream: REFRESH
@@ -61,16 +67,27 @@ func serveFromCache(ctx context.Context, w http.ResponseWriter, key string, refr
 	if utils.IsNegativeCacheHit(w, result.Data) {
 		return cacheServed
 	}
-	setCacheControl(w)
+	// A cache entry near the end of its life must not tell the client it's
+	// good for another full config.CacheExpiration: that's how a downstream
+	// browser/CDN cache ends up holding data fresh well past when the server
+	// itself would have refreshed it. ExpiresAt is zero (unknown) only for a
+	// Cache implementation that doesn't report it, in which case the full
+	// TTL is the only thing left to offer.
+	maxAge := config.CacheExpiration
+	if !result.ExpiresAt.IsZero() {
+		maxAge = time.Until(result.ExpiresAt)
+	}
+	setCacheControl(w, maxAge)
 	utils.HandleCacheResponse(w, result.Data, contentType(result.Data))
 	return cacheServed
 }
 
 // writeUpstreamResult writes a result that came from an upstream query rather
-// than from the cache.
+// than from the cache. It just started its full TTL, so the full
+// config.CacheExpiration is the correct max-age, not an approximation.
 func writeUpstreamResult(w http.ResponseWriter, outcome queryOutcome, refresh bool) {
 	w.Header().Set("X-Cache", missLabel(refresh))
-	setCacheControl(w)
+	setCacheControl(w, config.CacheExpiration)
 	w.Header().Set("Content-Type", outcome.contentType)
 	_, _ = fmt.Fprint(w, outcome.body)
 }

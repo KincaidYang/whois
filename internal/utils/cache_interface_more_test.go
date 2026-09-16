@@ -3,6 +3,8 @@ package utils
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -14,8 +16,10 @@ type stubCache struct {
 	healthy bool
 	data    map[string]string
 	setErr  error
+	delErr  error
 	sets    int
 	closed  int
+	dels    []string // keys passed to Del, across all calls, in order
 }
 
 func (s *stubCache) Get(ctx context.Context, key string) (CacheResult, error) {
@@ -39,6 +43,19 @@ func (s *stubCache) Set(ctx context.Context, key string, value string, expiratio
 
 func (s *stubCache) IsHealthy() bool { return s.healthy }
 
+// Del implements the unexported deleter interface FallbackCache checks for,
+// so stubCache can stand in as a primary in dirty-key-flush tests.
+func (s *stubCache) Del(ctx context.Context, keys ...string) error {
+	s.dels = append(s.dels, keys...)
+	if s.delErr != nil {
+		return s.delErr
+	}
+	for _, k := range keys {
+		delete(s.data, k)
+	}
+	return nil
+}
+
 func (s *stubCache) Close() error {
 	s.closed++
 	return nil
@@ -46,7 +63,7 @@ func (s *stubCache) Close() error {
 
 func TestMemoryCacheLRUEviction(t *testing.T) {
 	ctx := context.Background()
-	cache := NewMemoryCache(2, time.Hour)
+	cache := NewMemoryCache(2, time.Hour, 0)
 	defer func() { _ = cache.Close() }()
 
 	mustSet := func(k, v string) {
@@ -86,10 +103,94 @@ func TestMemoryCacheLRUEviction(t *testing.T) {
 	}
 }
 
+// TestMemoryCacheByteBudget verifies entries are evicted LRU once the byte
+// budget is exceeded, even though the entry-count limit (maxSize) alone
+// would allow many more — the scenario a large ?raw or unparsed-TLD response
+// can hit well before hitting maxSize.
+func TestMemoryCacheByteBudget(t *testing.T) {
+	ctx := context.Background()
+	// maxSize is generous (100); maxBytes is the real constraint here.
+	cache := NewMemoryCache(100, time.Hour, 20)
+	defer func() { _ = cache.Close() }()
+
+	mustSet := func(k, v string) {
+		t.Helper()
+		if err := cache.Set(ctx, k, v, time.Hour); err != nil {
+			t.Fatalf("Set(%q): %v", k, err)
+		}
+	}
+
+	// Each of a/b/c/d costs 6 bytes (1-byte key + 5-byte value). a, b, c fit
+	// in the 20-byte budget (18 total); inserting d would reach 24, over
+	// budget, so the least-recently-used entry — a, set first and never
+	// touched again — must be evicted to make room.
+	mustSet("a", "12345")
+	mustSet("b", "12345")
+	mustSet("c", "12345")
+	mustSet("d", "12345")
+
+	if r, _ := cache.Get(ctx, "a"); r.Found {
+		t.Error("a should have been evicted as the least recently used entry once the byte budget was exceeded")
+	}
+	for _, k := range []string{"b", "c", "d"} {
+		if r, _ := cache.Get(ctx, k); !r.Found {
+			t.Errorf("%s should still be present", k)
+		}
+	}
+}
+
+// TestMemoryCacheByteBudgetEvictsOnGrowingUpdate verifies that updating an
+// existing key with a larger value can push the total over budget too, not
+// just inserting a new key — and that eviction then takes other entries
+// rather than the one just written.
+func TestMemoryCacheByteBudgetEvictsOnGrowingUpdate(t *testing.T) {
+	ctx := context.Background()
+	cache := NewMemoryCache(100, time.Hour, 20)
+	defer func() { _ = cache.Close() }()
+
+	if err := cache.Set(ctx, "a", "12345", time.Hour); err != nil { // 6 bytes
+		t.Fatalf("Set(a): %v", err)
+	}
+	if err := cache.Set(ctx, "b", "12345", time.Hour); err != nil { // 6 bytes; total 12
+		t.Fatalf("Set(b): %v", err)
+	}
+
+	// Growing "a" alone to 17 bytes (1-byte key + 16-byte value) brings the
+	// total to 23 (17 + the still-unchanged 6 for "b"), over the 20-byte
+	// budget: "b" — the only other entry, and the LRU one — must be evicted,
+	// while "a" survives its own update.
+	bigValue := strings.Repeat("x", 16)
+	if err := cache.Set(ctx, "a", bigValue, time.Hour); err != nil {
+		t.Fatalf("Set(a, grown): %v", err)
+	}
+
+	if r, _ := cache.Get(ctx, "b"); r.Found {
+		t.Error("b should have been evicted when growing a pushed the total over budget")
+	}
+	if r, _ := cache.Get(ctx, "a"); !r.Found || r.Data != bigValue {
+		t.Errorf("a = %+v, want it to survive its own update with the grown value", r)
+	}
+}
+
+// TestMemoryCacheByteBudgetKeepsOversizedSingleEntry verifies a single entry
+// larger than the byte budget is kept rather than evicted against itself.
+func TestMemoryCacheByteBudgetKeepsOversizedSingleEntry(t *testing.T) {
+	ctx := context.Background()
+	cache := NewMemoryCache(100, time.Hour, 5)
+	defer func() { _ = cache.Close() }()
+
+	if err := cache.Set(ctx, "big", "this value alone exceeds the budget", time.Hour); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if r, _ := cache.Get(ctx, "big"); !r.Found {
+		t.Error("an oversized single entry must still be stored, not evicted against itself")
+	}
+}
+
 func TestMemoryCacheCleanExpired(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := context.Background()
-		cache := NewMemoryCache(10, time.Hour) // cleaner ticker never fires in-test
+		cache := NewMemoryCache(10, time.Hour, 0) // cleaner ticker never fires in-test
 		defer func() { _ = cache.Close() }()
 
 		if err := cache.Set(ctx, "live", "v", time.Hour); err != nil {
@@ -121,7 +222,7 @@ func TestMemoryCacheCleanExpired(t *testing.T) {
 func TestMemoryCacheCleanerLoop(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		ctx := context.Background()
-		cache := NewMemoryCache(10, 20*time.Millisecond)
+		cache := NewMemoryCache(10, 20*time.Millisecond, 0)
 		defer func() { _ = cache.Close() }()
 
 		if err := cache.Set(ctx, "dead", "v", time.Millisecond); err != nil {
@@ -145,7 +246,7 @@ func TestMemoryCacheCleanerLoop(t *testing.T) {
 }
 
 func TestMemoryCacheCloseIdempotent(t *testing.T) {
-	cache := NewMemoryCache(10, time.Hour)
+	cache := NewMemoryCache(10, time.Hour, 0)
 	if err := cache.Close(); err != nil {
 		t.Fatalf("first Close: %v", err)
 	}
@@ -182,6 +283,136 @@ func TestFallbackCacheUnhealthyPrimary(t *testing.T) {
 	}
 	if fc.IsPrimaryHealthy() {
 		t.Error("IsPrimaryHealthy must reflect the unhealthy primary")
+	}
+}
+
+// TestFallbackCacheRecoveryPurgesStaleDirtyKeys covers the scenario a stale
+// primary entry, untouched during an outage, would otherwise shadow a
+// newer value written to fallback for the rest of its original TTL once
+// primary recovers.
+// TestFallbackCacheMarksDirtyOnPrimarySetFailure covers the case where
+// primary looked healthy when the write started, but the write itself
+// failed (a transient error, discovered by this very call) — the key must
+// still be tracked dirty, exactly as if primary had already been known
+// unhealthy, since either way primary does not end up holding the value.
+func TestFallbackCacheMarksDirtyOnPrimarySetFailure(t *testing.T) {
+	ctx := context.Background()
+	primary := &stubCache{healthy: true, setErr: errors.New("boom"), data: map[string]string{"k": "old"}}
+	fallback := &stubCache{healthy: true}
+	fc := NewFallbackCache(primary, fallback)
+
+	if err := fc.Set(ctx, "k", "new", time.Minute); err == nil {
+		t.Fatal("expected the primary error to propagate")
+	}
+
+	fc.dirtyMu.Lock()
+	_, dirty := fc.dirty["k"]
+	fc.dirtyMu.Unlock()
+	if !dirty {
+		t.Fatal("k must be tracked dirty when the primary write itself failed, not just when primary was already unhealthy")
+	}
+
+	// Once a later write to primary succeeds, the stale entry must actually
+	// get purged — proving the dirty tracking does something, not just that
+	// it's present.
+	primary.setErr = nil
+	r, err := fc.Get(ctx, "k")
+	if err != nil || !r.Found || r.Data != "new" {
+		t.Fatalf("Get after recovery = %+v, %v; want the newer fallback value once purged", r, err)
+	}
+	if len(primary.dels) != 1 || primary.dels[0] != "k" {
+		t.Errorf("primary.dels = %v, want [\"k\"] purged", primary.dels)
+	}
+}
+
+func TestFallbackCacheRecoveryPurgesStaleDirtyKeys(t *testing.T) {
+	ctx := context.Background()
+	// Primary starts down, already holding a pre-outage value for "k".
+	primary := &stubCache{healthy: false, data: map[string]string{"k": "old"}}
+	fallback := &stubCache{healthy: true}
+	fc := NewFallbackCache(primary, fallback)
+
+	// A write during the outage lands in fallback only; primary's stale
+	// "old" is left untouched.
+	if err := fc.Set(ctx, "k", "new", time.Minute); err != nil {
+		t.Fatalf("Set during outage: %v", err)
+	}
+	if primary.sets != 0 {
+		t.Errorf("primary should not be written to while unhealthy, got %d writes", primary.sets)
+	}
+
+	// Primary recovers, but its stale entry is still present and not yet
+	// expired — without the fix this would shadow the newer fallback value.
+	primary.healthy = true
+
+	r, err := fc.Get(ctx, "k")
+	if err != nil || !r.Found || r.Data != "new" {
+		t.Fatalf("Get after recovery = %+v, %v; want the newer fallback value, not the stale primary one", r, err)
+	}
+	if want := []string{"k"}; len(primary.dels) != 1 || primary.dels[0] != want[0] {
+		t.Errorf("primary.dels = %v, want exactly %v purged on recovery", primary.dels, want)
+	}
+}
+
+// TestFallbackCacheFlushDirtyRetriesOnFailure verifies a failed purge leaves
+// the key tracked as dirty so a later successful attempt still cleans it up,
+// instead of silently giving up after one failure.
+func TestFallbackCacheFlushDirtyRetriesOnFailure(t *testing.T) {
+	ctx := context.Background()
+	primary := &stubCache{healthy: false, data: map[string]string{"k": "old"}}
+	fallback := &stubCache{healthy: true}
+	fc := NewFallbackCache(primary, fallback)
+
+	if err := fc.Set(ctx, "k", "new", time.Minute); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	primary.healthy = true
+	primary.delErr = errors.New("boom")
+	if _, err := fc.Get(ctx, "k"); err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(primary.dels) != 1 {
+		t.Fatalf("expected one attempted Del, got %d", len(primary.dels))
+	}
+	if r, _ := primary.Get(ctx, "k"); !r.Found {
+		t.Fatal("a failed Del must not have actually deleted the key")
+	}
+
+	// A later successful flush must retry and finally purge it.
+	primary.delErr = nil
+	r, err := fc.Get(ctx, "k")
+	if err != nil {
+		t.Fatalf("Get (retry): %v", err)
+	}
+	if len(primary.dels) != 2 {
+		t.Errorf("expected a second Del attempt, got %d calls", len(primary.dels))
+	}
+	if !r.Found || r.Data != "new" {
+		t.Errorf("Get (retry) = %+v, want the fallback value once the stale primary entry is finally purged", r)
+	}
+}
+
+// TestFallbackCacheDirtySetIsBounded verifies the dirty-key set stops
+// growing past maxDirtyKeys during a long outage, rather than growing
+// without bound.
+func TestFallbackCacheDirtySetIsBounded(t *testing.T) {
+	ctx := context.Background()
+	primary := &stubCache{healthy: false}
+	fallback := &stubCache{healthy: true}
+	fc := NewFallbackCache(primary, fallback)
+
+	for i := 0; i < maxDirtyKeys+5; i++ {
+		if err := fc.Set(ctx, fmt.Sprintf("k%d", i), "v", time.Minute); err != nil {
+			t.Fatalf("Set: %v", err)
+		}
+	}
+
+	fc.dirtyMu.Lock()
+	n := len(fc.dirty)
+	fc.dirtyMu.Unlock()
+	if n != maxDirtyKeys {
+		t.Errorf("dirty set size = %d, want capped at %d", n, maxDirtyKeys)
 	}
 }
 

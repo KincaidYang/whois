@@ -58,8 +58,9 @@ a `redis` result and a `memory` result.
 ### `whois_cache_evictions_total{backend}`
 
 Counter of entries evicted from the in-memory LRU because it reached
-`cache.memoryMaxSize`. Expiry is not an eviction. A rising rate means the
-working set no longer fits and the hit ratio is being paid for it.
+`cache.memoryMaxSize` or `cache.memoryMaxBytes`. Expiry is not an eviction. A
+rising rate means the working set no longer fits and the hit ratio is being
+paid for it.
 
 ## Upstream metrics
 

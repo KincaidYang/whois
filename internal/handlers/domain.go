@@ -21,6 +21,41 @@ import (
 // are never served in the old format after an upgrade.
 const CacheKeyPrefix = "whois:v1:"
 
+// icannSuffix returns the nearest ICANN-section public suffix at or above
+// name's PSL suffix, climbing past any private-section entry (e.g.
+// blogspot.com, github.io) until it reaches one the registry itself
+// operates. A name whose PSL suffix isn't in the list at all (an unknown
+// TLD: icann=false with no further label to climb) is returned unchanged —
+// there's nothing more authoritative to climb to.
+func icannSuffix(name string) string {
+	suffix, icann := publicsuffix.PublicSuffix(name)
+	for !icann && strings.Contains(suffix, ".") {
+		suffix = suffix[strings.Index(suffix, ".")+1:]
+		suffix, icann = publicsuffix.PublicSuffix(suffix)
+	}
+	return suffix
+}
+
+// registrableDomain returns the label of name immediately above tld, plus
+// tld itself — the registrable name at that suffix. name equal to tld (the
+// suffix queried on its own, with nothing above it) is returned unchanged.
+func registrableDomain(name, tld string) string {
+	if name == tld {
+		return name
+	}
+	prefix := strings.TrimSuffix(name, "."+tld)
+	if prefix == name {
+		// tld wasn't actually a suffix of name; shouldn't happen given tld
+		// is derived from name itself, but leave name unchanged rather than
+		// fail the request over it.
+		return name
+	}
+	if i := strings.LastIndex(prefix, "."); i >= 0 {
+		prefix = prefix[i+1:]
+	}
+	return prefix + "." + tld
+}
+
 // finalizeDomainInfo fills the fields shared by every domain response that
 // the parsers cannot know themselves: the Unicode form of the name (IDN) and
 // non-nil slices so the JSON contains [] instead of null.
@@ -85,7 +120,13 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 	}
 	resource = punycodeDomain
 
-	// Get the TLD (Top-Level Domain) of the domain
+	// Get the TLD (Top-Level Domain) of the domain, for parser/server
+	// selection below. This intentionally uses the raw PSL suffix, private
+	// section included: the compound-TLD fallback right below already
+	// degrades any multi-label result without a dedicated entry down to its
+	// last label regardless of why it's compound, so a private-section
+	// suffix like "blogspot.com" degrades to "com" the same way a
+	// non-dedicated ICANN one would.
 	tld, _ := publicsuffix.PublicSuffix(resource)
 
 	// For compound TLDs like "co.jp", check if we have a dedicated parser or server.
@@ -100,12 +141,19 @@ func HandleDomain(ctx context.Context, w http.ResponseWriter, resource string, c
 		}
 	}
 
-	// Get the main domain
-	mainDomain, _ := publicsuffix.EffectiveTLDPlusOne(resource)
-	if mainDomain == "" {
-		mainDomain = resource
-	}
-	resource = mainDomain
+	// Get the main domain: the registrable name one label above the nearest
+	// ICANN-section public suffix — not the PSL "effective TLD" as such,
+	// which is what publicsuffix.EffectiveTLDPlusOne would use. The PSL's
+	// private section lists entries like blogspot.com or github.io as if
+	// they were TLDs, so EffectiveTLDPlusOne("test.blogspot.com") returns
+	// "test.blogspot.com" itself — a subdomain the registry has never heard
+	// of, not the object actually registered with it (blogspot.com).
+	// icannSuffix climbs private-section results up to the nearest ICANN one
+	// (blogspot.com -> com, myblog.github.io -> io) to find the real
+	// registry boundary; for an already-ICANN suffix (including compound
+	// ones like co.jp) it's a no-op and this matches EffectiveTLDPlusOne
+	// exactly, so ordinary domains are unaffected.
+	resource = registrableDomain(resource, icannSuffix(resource))
 	domain := resource
 	key := fmt.Sprintf("%s%s", cacheKeyPrefix, domain)
 	if raw {

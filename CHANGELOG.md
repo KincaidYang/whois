@@ -27,6 +27,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`[Registrant]`/`[Organization]`) into the `registrar` field — JPRS itself
   is the sole registry-registrar and discloses no separate registrar. That
   data now lands in a new `registrant` field instead.
+- Domain lookups under a Public Suffix List *private*-section entry (e.g.
+  `test.blogspot.com`) now resolve to the object actually registered with
+  the real registry (`blogspot.com` under `.com`) instead of querying the
+  subdomain itself, which no registry has ever heard of and always 404s.
+- A cache hit's `Cache-Control: max-age` now reflects the entry's actual
+  remaining TTL instead of always advertising the full `cache.expiration`.
+  Previously a response read moments before expiring still told a
+  browser/CDN it was good for a full `cache.expiration` more, letting
+  effective staleness reach nearly twice the configured value.
+- The in-memory cache now also bounds total size, not just entry count: a
+  new `cache.memoryMaxBytes` setting (default 256 MiB) evicts LRU past it
+  even under `cache.memoryMaxSize`. Large raw/unparsed WHOIS responses (up
+  to ~2 MiB each) could otherwise reach the entry-count limit long before
+  any actual memory bound applied.
+- A value written to the in-memory cache while Redis was down is no longer
+  shadowed by Redis's stale pre-outage copy of the same key once Redis
+  recovers: those keys are now purged from Redis on recovery instead of
+  being left to linger — and win reads — until their original TTL expires.
+- A WHOIS TCP connection's read/write deadline now also takes the query's
+  own deadline into account, not just a fixed 10s from when the connection
+  was established; a request whose deadline was already close by dial time
+  could previously wait out the full 10s regardless.
 
 ## [1.3.0] - 2026-08-22
 

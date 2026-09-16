@@ -62,6 +62,7 @@ cache:
   negativeExpiration: 60       # How long "not found / denied" results are cached, in seconds (default: 60; set negative to disable)
   requireRedis: false          # false=allow fallback to memory cache when Redis fails, true=Redis must be available or program exits
   memoryMaxSize: 10000         # Maximum entries in memory cache; least-recently-used entries are evicted past this (default: 10000)
+  memoryMaxBytes: 268435456    # Maximum total size (keys+values, in bytes) of the memory cache; LRU eviction applies past this even under the entry-count limit (default: 268435456, i.e. 256 MiB)
   memoryCleanInterval: 300     # Memory cache cleanup interval in seconds (default: 300)
 
 redis:
@@ -110,6 +111,7 @@ Every configuration option can be overridden via environment variables (which ta
 | `WHOIS_NEGATIVE_CACHE_EXPIRATION` | `cache.negativeExpiration` | `60` | Negative-cache TTL in seconds; negative value disables |
 | `WHOIS_REQUIRE_REDIS` | `cache.requireRedis` | `false` | `true`/`1` makes startup fail when Redis is unavailable |
 | `WHOIS_MEMORY_MAX_SIZE` | `cache.memoryMaxSize` | `10000` | Max entries in the in-memory cache |
+| `WHOIS_MEMORY_MAX_BYTES` | `cache.memoryMaxBytes` | `268435456` | Max total bytes in the in-memory cache |
 | `WHOIS_MEMORY_CLEAN_INTERVAL` | `cache.memoryCleanInterval` | `300` | In-memory cache cleanup interval in seconds |
 | `WHOIS_REDIS_ADDR` | `redis.addr` | unset | Redis address; explicitly empty (`WHOIS_REDIS_ADDR=`) disables Redis (memory-only cache), when set the service falls back to the in-memory cache when unreachable (unless requireRedis) |
 | `WHOIS_REDIS_PASSWORD` | `redis.password` | empty | Redis password |

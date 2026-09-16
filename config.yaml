@@ -19,6 +19,9 @@ cache:
   requireRedis: false
   # Maximum number of entries in the in-memory fallback cache.
   memoryMaxSize: 10000
+  # Maximum total size (keys+values, in bytes) of the in-memory cache; LRU
+  # eviction applies past this even if memoryMaxSize hasn't been reached.
+  memoryMaxBytes: 268435456
   # Interval for evicting expired in-memory entries, in seconds.
   memoryCleanInterval: 300
 
