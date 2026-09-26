@@ -164,20 +164,11 @@ func load() {
 	// Initialize version info from build info (Go 1.18+)
 	initVersionInfo()
 
-	// Load configuration from file
-	data, ext, err := readConfigFile()
+	// Read, override, default and validate the configuration. Any error is
+	// fatal and reported before the configured logger exists, so it goes
+	// through the default one.
+	config, err := loadConfig()
 	if err != nil {
-		slog.Error("failed to open configuration file", "err", err)
-		os.Exit(1)
-	}
-	config, err := parseConfig(data, ext)
-	if err != nil {
-		slog.Error("invalid configuration", "err", err)
-		os.Exit(1)
-	}
-
-	// Override configuration with environment variables if they exist
-	if err := overrideConfigWithEnv(&config); err != nil {
 		slog.Error("invalid configuration", "err", err)
 		os.Exit(1)
 	}
@@ -185,15 +176,6 @@ func load() {
 	// Set up structured logger as early as possible so all subsequent
 	// init messages use the configured level and JSON format.
 	initLogger(config.Log.Level)
-
-	// Apply default values for anything left unset
-	applyDefaults(&config)
-
-	// Reject negative values that would otherwise fail far from their cause
-	if err := validateConfig(&config); err != nil {
-		slog.Error("invalid configuration", "err", err)
-		os.Exit(1)
-	}
 
 	// Initialize the Redis client with custom options. An empty redis.addr
 	// means Redis is deliberately not used: no client is created (RedisClient
@@ -292,6 +274,31 @@ func load() {
 			slog.Warn("no API key authentication configured and /mcp DNS-rebinding protection is off: this instance accepts requests from anyone who can reach it; set auth.keys (with rateLimit) for public deployments, or enable mcp.localhostprotection when not behind a trusted reverse proxy")
 		}
 	}
+}
+
+// loadConfig reads config.yaml (or config.json) from the working directory,
+// applies WHOIS_* environment overrides and defaults, and validates the
+// result. It performs no side effects beyond reading the file and the
+// environment, so every way startup can be refused is testable.
+func loadConfig() (Config, error) {
+	data, ext, err := readConfigFile()
+	if err != nil {
+		return Config{}, fmt.Errorf("failed to open configuration file: %w", err)
+	}
+	config, err := parseConfig(data, ext)
+	if err != nil {
+		return Config{}, err
+	}
+	if err := overrideConfigWithEnv(&config); err != nil {
+		return Config{}, err
+	}
+	// Apply default values for anything left unset, then reject values that
+	// would otherwise fail far from their cause.
+	applyDefaults(&config)
+	if err := validateConfig(&config); err != nil {
+		return Config{}, err
+	}
+	return config, nil
 }
 
 // normalizeAuthClients turns the configured auth.keys entries into runtime
