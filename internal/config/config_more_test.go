@@ -251,35 +251,44 @@ func TestLoadConfig(t *testing.T) {
 
 	t.Run("no file", func(t *testing.T) {
 		writeConfig(t, "", "")
-		if _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "failed to open configuration file") {
+		if _, _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "failed to open configuration file") {
 			t.Fatalf("err = %v, want a missing-file error", err)
 		}
 	})
 	t.Run("unparseable", func(t *testing.T) {
 		writeConfig(t, "config.yaml", "server: [unclosed")
-		if _, err := loadConfig(); err == nil {
+		if _, _, err := loadConfig(); err == nil {
 			t.Fatal("expected a parse error")
 		}
 	})
 	t.Run("keyless auth env", func(t *testing.T) {
 		writeConfig(t, "config.yaml", "auth:\n  keys:\n    - key: from-file\n")
 		t.Setenv("WHOIS_AUTH_KEYS", " , ")
-		if _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "WHOIS_AUTH_KEYS") {
+		if _, _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "WHOIS_AUTH_KEYS") {
 			t.Fatalf("err = %v, want the WHOIS_AUTH_KEYS error", err)
 		}
 	})
 	t.Run("invalid value", func(t *testing.T) {
 		writeConfig(t, "config.yaml", "server:\n  rateLimit: -1\n")
-		if _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "server.rateLimit") {
+		if _, _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "server.rateLimit") {
 			t.Fatalf("err = %v, want the negative rateLimit error", err)
+		}
+	})
+	t.Run("invalid auth entry", func(t *testing.T) {
+		writeConfig(t, "config.yaml", "auth:\n  keys:\n    - key: same\n    - key: same\n")
+		if _, _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "duplicate key") {
+			t.Fatalf("err = %v, want the duplicate-key error", err)
 		}
 	})
 	t.Run("valid", func(t *testing.T) {
 		writeConfig(t, "config.yaml", "server:\n  port: 9000\n")
 		t.Setenv("WHOIS_AUTH_KEYS", "k1")
-		cfg, err := loadConfig()
+		cfg, clients, err := loadConfig()
 		if err != nil {
 			t.Fatalf("loadConfig: %v", err)
+		}
+		if len(clients) != 1 || clients[0].Key != "k1" || clients[0].Name != "key1" {
+			t.Errorf("clients = %+v, want one normalized client for k1", clients)
 		}
 		if cfg.Server.Port != 9000 || cfg.Server.RateLimit != 100 {
 			t.Errorf("server = %+v, want the file's port and the default rateLimit", cfg.Server)

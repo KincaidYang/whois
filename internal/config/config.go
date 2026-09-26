@@ -167,7 +167,7 @@ func load() {
 	// Read, override, default and validate the configuration. Any error is
 	// fatal and reported before the configured logger exists, so it goes
 	// through the default one.
-	config, err := loadConfig()
+	config, authClients, err := loadConfig()
 	if err != nil {
 		slog.Error("invalid configuration", "err", err)
 		os.Exit(1)
@@ -247,12 +247,7 @@ func load() {
 	BatchEnabled = config.Batch.Enabled
 	BatchMaxItems = config.Batch.MaxItems
 
-	// Set API authentication clients
-	authClients, err := normalizeAuthClients(config.Auth.Keys)
-	if err != nil {
-		slog.Error("invalid configuration", "err", err)
-		os.Exit(1)
-	}
+	// Set API authentication clients (validated by loadConfig)
 	AuthClients = authClients
 	if len(AuthClients) > 0 {
 		names := make([]string, len(AuthClients))
@@ -277,28 +272,33 @@ func load() {
 }
 
 // loadConfig reads config.yaml (or config.json) from the working directory,
-// applies WHOIS_* environment overrides and defaults, and validates the
-// result. It performs no side effects beyond reading the file and the
-// environment, so every way startup can be refused is testable.
-func loadConfig() (Config, error) {
+// applies WHOIS_* environment overrides and defaults, validates the result
+// and builds the runtime auth clients from it. It performs no side effects
+// beyond reading the file and the environment, so every configuration error
+// refuses startup before Redis or the cache are touched, and each is testable.
+func loadConfig() (Config, []AuthClient, error) {
 	data, ext, err := readConfigFile()
 	if err != nil {
-		return Config{}, fmt.Errorf("failed to open configuration file: %w", err)
+		return Config{}, nil, fmt.Errorf("failed to open configuration file: %w", err)
 	}
 	config, err := parseConfig(data, ext)
 	if err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
 	if err := overrideConfigWithEnv(&config); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
 	// Apply default values for anything left unset, then reject values that
 	// would otherwise fail far from their cause.
 	applyDefaults(&config)
 	if err := validateConfig(&config); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
-	return config, nil
+	authClients, err := normalizeAuthClients(config.Auth.Keys)
+	if err != nil {
+		return Config{}, nil, err
+	}
+	return config, authClients, nil
 }
 
 // normalizeAuthClients turns the configured auth.keys entries into runtime
