@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KincaidYang/whois/internal/netguard"
 	"github.com/KincaidYang/whois/internal/utils"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/time/rate"
@@ -46,13 +48,23 @@ var (
 	// HttpClient is used to set the timeout for rdapQuery. RDAP queries hit
 	// the same small set of registry servers repeatedly, so the transport
 	// keeps idle connections around for reuse instead of redialing.
+	//
+	// Connections and redirects go through netguard, so an upstream answer or
+	// resolution can never steer a query to loopback, a private network or a
+	// metadata endpoint.
 	HttpClient = &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   10 * time.Second,
+				KeepAlive: 30 * time.Second,
+				Control:   netguard.Control,
+			}).DialContext,
 			MaxIdleConns:        100,
 			MaxIdleConnsPerHost: 10,
 			IdleConnTimeout:     90 * time.Second,
 		},
+		CheckRedirect: netguard.CheckRedirect,
 	}
 	// Wg is used to wait for all goroutines to finish
 	Wg sync.WaitGroup

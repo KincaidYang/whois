@@ -13,6 +13,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Upstream connections can no longer be steered to loopback, private
+  (RFC 1918 / ULA), link-local (including the `169.254.169.254` cloud
+  metadata endpoint), multicast or unspecified addresses. Registry hosts come
+  from trusted tables, but what they resolve to and where an RDAP server
+  redirects were not checked: a compromised registry, a poisoned resolver or
+  a hostile redirect could make this service issue requests into the network
+  it runs in. The check runs at dial time on the resolved address (so DNS
+  rebinding cannot slip past it) for RDAP, IANA bootstrap and WHOIS
+  connections. Redirects are limited to 5 hops and may not downgrade https to
+  http. `100.64.0.0/10` and `198.18.0.0/15` stay reachable, since fake-IP DNS
+  modes of common proxy tools resolve every name into them — except Alibaba
+  Cloud's metadata endpoint `100.100.100.200`, which sits inside the former. Requests through
+  a configured `proxy.server` keep connecting to the proxy wherever it is;
+  their redirects get the same scheme and literal-address checks.
+
 ### Added
 - `server.upstreamLimit` (`WHOIS_UPSTREAM_LIMIT`) caps how many upstream
   WHOIS/RDAP queries run at once, counting every lookup — single queries,

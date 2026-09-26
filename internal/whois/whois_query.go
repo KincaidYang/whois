@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/KincaidYang/whois/internal/metrics"
+	"github.com/KincaidYang/whois/internal/netguard"
 	"github.com/KincaidYang/whois/internal/serverlist"
 )
 
@@ -38,7 +39,7 @@ func Whois(ctx context.Context, domain, tld string) (result string, err error) {
 		whoisServer = net.JoinHostPort(whoisServer, whoisDefaultPort)
 	}
 
-	d := net.Dialer{Timeout: whoisTimeout}
+	d := net.Dialer{Timeout: whoisTimeout, Control: netguard.Control}
 	conn, err := d.DialContext(ctx, "tcp", whoisServer)
 	if err != nil {
 		return "", err

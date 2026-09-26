@@ -11,13 +11,16 @@ import (
 	"testing"
 
 	"github.com/KincaidYang/whois/internal/config"
+	"github.com/KincaidYang/whois/internal/netguard"
 	"github.com/KincaidYang/whois/internal/utils"
 )
 
 // TestMain seeds proxy settings before any test runs: initProxy is guarded by
 // a package-level sync.Once, so the configuration must be in place before the
-// first getHTTPClient call anywhere in this test binary.
+// first getHTTPClient call anywhere in this test binary. Upstream stand-ins
+// run on loopback, which netguard refuses outside tests.
 func TestMain(m *testing.M) {
+	netguard.SetAllowPrivateForTesting(true)
 	config.ProxyServer = "http://proxy.invalid:3128"
 	config.ProxyUsername = "user"
 	config.ProxyPassword = "pass"
@@ -168,5 +171,22 @@ func TestRDAPQueryASN(t *testing.T) {
 	}
 	if got, _ := gotPath.Load().(string); got != "/autnum/64500" {
 		t.Errorf("request path: %q", got)
+	}
+}
+
+// TestUpstreamClientRefusesLoopback checks the production client end to end:
+// with the test allowance off, config.HttpClient must refuse to connect to a
+// loopback upstream (here an httptest server). The redirect policy is covered
+// by netguard's own tests.
+func TestUpstreamClientRefusesLoopback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	netguard.SetAllowPrivateForTesting(false)
+	defer netguard.SetAllowPrivateForTesting(true)
+	if _, err := doRDAPRequest(context.Background(), config.HttpClient, srv.URL+"/domain/example.com"); !errors.Is(err, netguard.ErrBlockedAddress) {
+		t.Errorf("request to a loopback upstream: err = %v, want ErrBlockedAddress", err)
 	}
 }
