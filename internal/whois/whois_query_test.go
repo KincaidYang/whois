@@ -3,12 +3,21 @@ package whois
 import (
 	"context"
 	"net"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/KincaidYang/whois/internal/netguard"
 	"github.com/KincaidYang/whois/internal/serverlist"
 )
+
+// TestMain lets the mock WHOIS servers below run on loopback, which netguard
+// refuses outside tests.
+func TestMain(m *testing.M) {
+	netguard.SetAllowPrivateForTesting(true)
+	os.Exit(m.Run())
+}
 
 // Mock server for testing
 func startMockWhoisServer(response string) (string, func()) {

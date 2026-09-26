@@ -13,6 +13,7 @@ import (
 
 	"github.com/KincaidYang/whois/internal/config"
 	"github.com/KincaidYang/whois/internal/metrics"
+	"github.com/KincaidYang/whois/internal/netguard"
 	"github.com/KincaidYang/whois/internal/serverlist"
 	"github.com/KincaidYang/whois/internal/utils"
 )
@@ -44,6 +45,10 @@ func initProxy() {
 			if config.ProxyUsername != "" && config.ProxyPassword != "" {
 				proxyURL.User = url.UserPassword(config.ProxyUsername, config.ProxyPassword)
 			}
+			// The dialer is not guarded here: it connects to the proxy, which
+			// may well sit on a private network, and the proxy resolves the
+			// target itself. Redirects still get the scheme and literal-IP
+			// checks.
 			proxyClient = &http.Client{
 				Timeout: config.HttpClient.Timeout,
 				Transport: &http.Transport{
@@ -52,6 +57,7 @@ func initProxy() {
 					MaxIdleConnsPerHost: 10,
 					IdleConnTimeout:     90 * time.Second,
 				},
+				CheckRedirect: netguard.CheckRedirect,
 			}
 		}
 	}

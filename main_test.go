@@ -11,12 +11,15 @@ import (
 
 	"github.com/KincaidYang/whois/internal/config"
 	"github.com/KincaidYang/whois/internal/handlers"
+	"github.com/KincaidYang/whois/internal/netguard"
 )
 
 // TestMain loads the configuration once for the whole package, mirroring the
-// explicit config.Load() call in main().
+// explicit config.Load() call in main(). Upstream stand-ins run on loopback,
+// which netguard refuses outside tests.
 func TestMain(m *testing.M) {
 	config.Load()
+	netguard.SetAllowPrivateForTesting(true)
 	os.Exit(m.Run())
 }
 
