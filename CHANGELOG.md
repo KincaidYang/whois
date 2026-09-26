@@ -43,6 +43,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   running against that limit.
 
 ### Changed
+- Built-in IANA server lists refreshed: `.kr` and `.한국` (`xn--3e0b707e`)
+  now have an RDAP server (`rdap.nic.or.kr`), so their lookups go to RDAP
+  first instead of KISA's WHOIS (`?raw=1` still uses WHOIS); `.radio`'s RDAP
+  moved to CentralNic. At the time of this release `rdap.nic.or.kr` presents
+  a certificate for `*.kisa.or.kr` on its IPv6 address (IPv4 is fine), so
+  `.kr` lookups from hosts that reach it over IPv6 fail until KISA fixes it.
 - Builds now require Go 1.27.1, up from 1.27.0 (a routine patch release;
   `govulncheck` reports no reachable advisories on either toolchain), and
   indirect dependencies are refreshed to their latest releases.
