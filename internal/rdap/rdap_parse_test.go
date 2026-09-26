@@ -402,6 +402,9 @@ func TestParseRDAPRejectsWrongObject(t *testing.T) {
 		{"asn other handle, no range", asn(64500), `{"objectClassName": "autnum", "handle": "AS64501"}`, ErrInvalidResponse},
 		{"asn opaque handle, no range", asn(64500), `{"objectClassName": "autnum", "handle": "EXAMPLE-AS"}`, ErrInvalidResponse},
 		{"asn no handle, no range", asn(64500), `{"objectClassName": "autnum"}`, ErrInvalidResponse},
+		{"asn start only", asn(64500), `{"handle": "AS64500", "startAutnum": 70000}`, ErrInvalidResponse},
+		{"asn end only", asn(64500), `{"handle": "AS64500", "endAutnum": 64500}`, ErrInvalidResponse},
+		{"asn inverted range", asn(64500), `{"startAutnum": 64511, "endAutnum": 64496}`, ErrInvalidResponse},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -442,12 +442,19 @@ func ParseRDAPResponseforASN(response string, asn uint32) (model.ASNInfo, error)
 	if err := checkCommon(rdap.rdapCommon, model.ObjectClassAutnum); err != nil {
 		return model.ASNInfo{}, err
 	}
-	if rdap.StartAutnum != nil && rdap.EndAutnum != nil {
-		if asn < *rdap.StartAutnum || asn > *rdap.EndAutnum {
+	switch {
+	case rdap.StartAutnum != nil && rdap.EndAutnum != nil:
+		if *rdap.StartAutnum > *rdap.EndAutnum || asn < *rdap.StartAutnum || asn > *rdap.EndAutnum {
 			return model.ASNInfo{}, fmt.Errorf("%w: range AS%d-AS%d does not cover AS%d", ErrInvalidResponse, *rdap.StartAutnum, *rdap.EndAutnum, asn)
 		}
-	} else if n, ok := handleASN(rdap.Handle); !ok || n != asn {
-		return model.ASNInfo{}, fmt.Errorf("%w: no autnum range, and handle %q does not name AS%d", ErrInvalidResponse, rdap.Handle, asn)
+	case rdap.StartAutnum != nil || rdap.EndAutnum != nil:
+		// Half a range is malformed; the bound given may even exclude the
+		// query, so it must not fall back to the handle.
+		return model.ASNInfo{}, fmt.Errorf("%w: incomplete autnum range", ErrInvalidResponse)
+	default:
+		if n, ok := handleASN(rdap.Handle); !ok || n != asn {
+			return model.ASNInfo{}, fmt.Errorf("%w: no autnum range, and handle %q does not name AS%d", ErrInvalidResponse, rdap.Handle, asn)
+		}
 	}
 
 	info := model.ASNInfo{
