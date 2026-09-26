@@ -15,8 +15,9 @@ import (
 	"github.com/KincaidYang/whois/internal/utils"
 )
 
-// batchConcurrency caps how many of one batch's queries run upstream at the
-// same time. The whole batch shares one request timeout, so items beyond the
+// batchConcurrency caps how many of one batch's queries run at the same time;
+// each of them still needs a server.upstreamLimit permit to reach upstream,
+// shared with every other lookup. The whole batch shares one request timeout, so items beyond the
 // first waves of a slow batch may individually time out rather than extend
 // the request.
 const batchConcurrency = 5

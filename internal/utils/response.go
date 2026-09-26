@@ -117,6 +117,11 @@ func HandleQueryError(ctx context.Context, w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusNotFound, "not-found", "Resource not found", "")
 	case errors.Is(err, ErrQueryDenied):
 		writeProblem(w, http.StatusForbidden, "query-denied", "The registry denied the query", "")
+	case errors.Is(err, ErrUpstreamBusy):
+		slog.WarnContext(ctx, "upstream limit reached", "err", err)
+		writeProblem(w, http.StatusTooManyRequests, "rate-limited",
+			"Too many concurrent upstream queries",
+			"The instance's upstream query budget stayed full until this request's deadline. Retry later.")
 	default:
 		// A canceled or expired context is the request's own lifecycle
 		// (client disconnect, request timeout), not an upstream failure;

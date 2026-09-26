@@ -77,6 +77,10 @@ type Config struct {
 		Port int `json:"port" yaml:"port"`
 		// RateLimit is the maximum number of concurrent requests (default: 100).
 		RateLimit int `json:"rateLimit" yaml:"rateLimit"`
+		// UpstreamLimit is the maximum number of upstream WHOIS/RDAP queries
+		// running at once, across single, batch and MCP lookups (default:
+		// RateLimit).
+		UpstreamLimit int `json:"upstreamLimit" yaml:"upstreamLimit"`
 	} `json:"server" yaml:"server"`
 	// Log holds logging settings.
 	Log struct {

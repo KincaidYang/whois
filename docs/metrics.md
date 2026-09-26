@@ -80,6 +80,14 @@ with batch traffic the two are no longer per-request comparable.
 > registry is the thing you want to find), but if cardinality matters in your
 > setup, drop or aggregate the label in the scrape config.
 
+### `whois_upstream_queries_in_flight`
+
+Gauge of upstream queries running right now, each holding one
+`server.upstreamLimit` permit (so it never exceeds that setting). Requests
+that share an in-flight query do not add to it, and neither do queries still
+waiting for a permit. Sitting at the limit means lookups are queuing for
+upstream capacity; those that wait past their deadline are answered 429.
+
 ## Bootstrap metrics
 
 ### `whois_bootstrap_refresh_total{result}`
@@ -141,8 +149,10 @@ this gauge is the only thing that will tell you the data has stopped moving.
       / sum(rate(whois_http_requests_total[5m])) > 0.02
   for: 10m
 
-# Requests are being turned away by server.rateLimit — either the limit is too
-# low for the traffic, or upstream queries are taking long enough to fill it.
+# Requests are being turned away by server.rateLimit, or waited out their
+# deadline for a server.upstreamLimit permit — either a limit is too low for
+# the traffic, or upstream queries are taking long enough to fill it
+# (whois_upstream_queries_in_flight tells the two apart).
 - alert: WhoisConcurrencyRejections
   expr: sum(rate(whois_http_requests_total{status_code="429"}[5m])) > 1
   for: 15m

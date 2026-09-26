@@ -52,7 +52,8 @@ vim config.yaml
 ```yaml
 server:
   port: 8043                   # Server listening port
-  rateLimit: 60                # Concurrency limit for upstream WHOIS server requests
+  rateLimit: 60                # Maximum concurrent requests handled; further requests get 429
+  upstreamLimit: 60            # Maximum concurrent upstream WHOIS/RDAP queries (default: rateLimit; batch and MCP lookups count too)
 
 log:
   level: "info"                # Log level: debug, info, warn, error (default: info)
@@ -106,6 +107,7 @@ Every configuration option can be overridden via environment variables (which ta
 |----------|-----------|---------|-------------|
 | `WHOIS_PORT` | `server.port` | `8043` | HTTP listen port |
 | `WHOIS_RATE_LIMIT` | `server.rateLimit` | `100` | Maximum concurrent requests |
+| `WHOIS_UPSTREAM_LIMIT` | `server.upstreamLimit` | same as `rateLimit` | Maximum concurrent upstream queries |
 | `WHOIS_LOG_LEVEL` | `log.level` | `info` | Log level: debug, info, warn, error |
 | `WHOIS_CACHE_EXPIRATION` | `cache.expiration` | `3600` | Cache TTL in seconds |
 | `WHOIS_NEGATIVE_CACHE_EXPIRATION` | `cache.negativeExpiration` | `60` | Negative-cache TTL in seconds; negative value disables |
@@ -153,7 +155,7 @@ docker run -d --name whois -p 8043:8043 \
 - **Key naming and per-key rate limits**: The object form of `auth.keys` gives each key a display name and a rate limit. The name labels the caller in the request logs (`client` field) and in the `whois_client_requests_total{client,status_code}` Prometheus metric; the limit is a token bucket (requests/minute, **a full minute's budget may be spent at once**) answering over-budget requests with 429 + `Retry-After`. Batches are charged per item: a batch of N queries costs N tokens
 - **Batch queries**: Off by default. Best enabled together with `auth.keys` — an open instance offering bulk queries multiplies how fast it can be abused against upstream registries
 
-> ⚠️ **Warning:** The rate limit applies to requests from this program to WHOIS servers, not requests from users to this program. For example, if you set the limit to 50, the program will not exceed 50 requests/second to registry WHOIS servers, but user requests to this program are unlimited. Please use Nginx or other tools to rate-limit this program, or configure a per-key `rateLimit`, to prevent malicious requests.
+> ⚠️ **Warning:** The rate limit applies to requests from this program to WHOIS servers, not requests from users to this program. For example, if you set `server.upstreamLimit` to 50, the program will not run more than 50 queries at once against registry WHOIS/RDAP servers, but user requests to this program are unlimited. Please use Nginx or other tools to rate-limit this program, or configure a per-key `rateLimit`, to prevent malicious requests.
 
 ### Run
 
