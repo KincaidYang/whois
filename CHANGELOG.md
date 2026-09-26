@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Builds now require Go 1.27.1, up from 1.27.0 (a routine patch release;
+  `govulncheck` reports no reachable advisories on either toolchain), and
+  indirect dependencies are refreshed to their latest releases.
+
 ### Fixed
 - IP network responses now carry every CIDR prefix an RDAP response lists
   (`cidrs`); previously only the last one seen was kept, silently dropping
