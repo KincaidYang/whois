@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-26
+
 ### Security
 - The MCP Registry release workflow now installs a pinned `mcp-publisher`
   (v1.8.1) and checks its SHA-256 before running it, instead of executing
@@ -29,9 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   connections. Redirects are limited to 5 hops and may not downgrade https to
   http. `100.64.0.0/10` and `198.18.0.0/15` stay reachable, since fake-IP DNS
   modes of common proxy tools resolve every name into them — except Alibaba
-  Cloud's metadata endpoint `100.100.100.200`, which sits inside the former. Requests through
-  a configured `proxy.server` keep connecting to the proxy wherever it is;
-  their redirects get the same scheme and literal-address checks.
+  Cloud's metadata endpoint `100.100.100.200`, which sits inside the former.
+  Requests through a configured `proxy.server` keep connecting to the proxy
+  wherever it is; their redirects get the same scheme and literal-address
+  checks.
 
 ### Added
 - `server.upstreamLimit` (`WHOIS_UPSTREAM_LIMIT`) caps how many upstream
@@ -581,6 +584,7 @@ See the [release notes](https://github.com/KincaidYang/whois/releases/tag/v0.6.0
 See the [GitHub releases page](https://github.com/KincaidYang/whois/releases)
 for 0.5.x and earlier.
 
+[1.4.0]: https://github.com/KincaidYang/whois/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/KincaidYang/whois/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/KincaidYang/whois/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/KincaidYang/whois/compare/v1.0.0...v1.1.0
