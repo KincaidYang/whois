@@ -11,4 +11,7 @@ var (
 	ErrQueryDenied = errors.New("the registry denied the query")
 	// ErrDomainNotFound is returned when WHOIS data cannot be found or parsed.
 	ErrDomainNotFound = errors.New("domain not found")
+	// ErrUpstreamBusy is returned when a query's deadline passed while it was
+	// still waiting for an upstream permit (server.upstreamLimit).
+	ErrUpstreamBusy = errors.New("too many concurrent upstream queries")
 )

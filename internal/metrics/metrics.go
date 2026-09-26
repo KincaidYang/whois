@@ -66,6 +66,16 @@ var (
 		[]string{"protocol", "tld"},
 	)
 
+	// UpstreamInFlight is the number of upstream WHOIS/RDAP queries currently
+	// holding a server.upstreamLimit permit. Queries waiting for a permit are
+	// not counted.
+	UpstreamInFlight = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "whois_upstream_queries_in_flight",
+			Help: "Upstream RDAP/WHOIS queries currently running (bounded by server.upstreamLimit).",
+		},
+	)
+
 	// BootstrapRefreshTotal counts IANA bootstrap refresh attempts by result (success/failure/partial).
 	BootstrapRefreshTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{

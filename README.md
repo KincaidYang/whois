@@ -42,7 +42,8 @@ vim config.yaml
 ```yaml
 server:
   port: 8043                   # 服务监听端口
-  rateLimit: 60                # 并发限制，即程序向上游whois服务器发起的最大并发请求数
+  rateLimit: 60                # 最大并发处理请求数，超出返回 429
+  upstreamLimit: 60            # 程序向上游 WHOIS/RDAP 服务器发起的最大并发查询数（默认等于 rateLimit，批量与 MCP 查询同样计入）
 
 log:
   level: "info"                # 日志级别：debug、info、warn、error（默认：info）
@@ -96,6 +97,7 @@ mcp:
 |---------|-----------|--------|------|
 | `WHOIS_PORT` | `server.port` | `8043` | 服务监听端口 |
 | `WHOIS_RATE_LIMIT` | `server.rateLimit` | `100` | 最大并发请求数 |
+| `WHOIS_UPSTREAM_LIMIT` | `server.upstreamLimit` | 同 `rateLimit` | 最大并发上游查询数 |
 | `WHOIS_LOG_LEVEL` | `log.level` | `info` | 日志级别：debug、info、warn、error |
 | `WHOIS_CACHE_EXPIRATION` | `cache.expiration` | `3600` | 缓存过期时间（秒） |
 | `WHOIS_NEGATIVE_CACHE_EXPIRATION` | `cache.negativeExpiration` | `60` | 负向缓存时间（秒），负数禁用 |
@@ -144,7 +146,7 @@ docker run -d --name whois -p 8043:8043 \
 - **批量查询**：默认关闭。建议与 `auth.keys` 一起开启——开放实例提供批量查询等于放大被滥用打上游注册局的能力
 
 
-> ⚠️ **Warning:** 限频针对的是程序向 whois 服务器发起的请求，而非用户向本程序发起的请求。例如，您将限频设置为 50，那么程序向注册局 whois 服务器发起的请求将不会超过 50 次/秒，但是用户向本程序发起的请求不受限制。请您通过 Nginx 等工具对本程序进行限流，或为每个 API key 配置 `rateLimit`，以防止恶意请求。
+> ⚠️ **Warning:** 限频针对的是程序向 whois 服务器发起的请求，而非用户向本程序发起的请求。例如，您将 `server.upstreamLimit` 设置为 50，那么程序同时向注册局 whois/RDAP 服务器发起的查询将不会超过 50 个，但是用户向本程序发起的请求不受限制。请您通过 Nginx 等工具对本程序进行限流，或为每个 API key 配置 `rateLimit`，以防止恶意请求。
 
 ### 运行
 ```bash

@@ -59,12 +59,14 @@ on with `batch.enabled` in the configuration.
 
 ## rate-limited
 
-**Status: 429.** Either the server's concurrent-request limit
-(`server.rateLimit` in config) was reached, or the API key's per-key rate
-limit (`rateLimit` on the key's `auth.keys` entry, requests per minute) is
-exhausted. Per-key rejections carry a `Retry-After` response header with the
-number of seconds until the next request is allowed; concurrency rejections
-do not, and a short delay before retrying is enough.
+**Status: 429.** One of three limits was reached: the server's
+concurrent-request limit (`server.rateLimit` in config), the budget of
+concurrent upstream queries (`server.upstreamLimit`; the request waited for a
+free slot until its own deadline), or the API key's per-key rate limit
+(`rateLimit` on the key's `auth.keys` entry, requests per minute). Per-key
+rejections carry a `Retry-After` response header with the number of seconds
+until the next request is allowed; the two concurrency rejections do not, and
+a short delay before retrying is enough.
 
 ## query-failed
 

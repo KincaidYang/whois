@@ -13,6 +13,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `server.upstreamLimit` (`WHOIS_UPSTREAM_LIMIT`) caps how many upstream
+  WHOIS/RDAP queries run at once, counting every lookup — single queries,
+  each batch item and MCP calls alike. It defaults to `server.rateLimit`.
+  A lookup whose deadline passes while waiting for a free slot is answered
+  `429` (problem type `rate-limited`) instead of a generic `500`.
+- `whois_upstream_queries_in_flight` gauge: upstream queries currently
+  running against that limit.
+
 ### Changed
 - Builds now require Go 1.27.1, up from 1.27.0 (a routine patch release;
   `govulncheck` reports no reachable advisories on either toolchain), and
@@ -54,6 +63,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own deadline into account, not just a fixed 10s from when the connection
   was established; a request whose deadline was already close by dial time
   could previously wait out the full 10s regardless.
+- Upstream concurrency is now actually bounded. `server.rateLimit` only
+  counted requests, so a batch request (one slot, up to five concurrent
+  upstream queries) could push upstream load to five times the setting, and a
+  query whose callers had all disconnected handed its slot over asynchronously,
+  leaving a window in which it ran uncounted; repeated disconnects could stack
+  such queries past the limit. Each upstream query now holds its own permit
+  from `server.upstreamLimit` for as long as it runs, and a query still
+  waiting for a permit when its last caller leaves is dropped without ever
+  reaching the registry.
 - Startup now fails when `WHOIS_AUTH_KEYS` is set to a value that contains
   no key at all (whitespace, stray commas). Such a value used to replace the
   keys from `auth.keys` with an empty list, silently turning authentication

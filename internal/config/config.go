@@ -61,6 +61,13 @@ var (
 	// RateLimit is used to set the number of concurrent requests
 	RateLimit          int
 	ConcurrencyLimiter chan struct{}
+	// UpstreamLimit caps how many upstream WHOIS/RDAP queries run at once.
+	// Each query holds an UpstreamLimiter permit while it runs, however many
+	// requests share its result and whether they came in singly, in a batch
+	// or over MCP — the request-level ConcurrencyLimiter cannot bound that,
+	// since one batch request fans out into several queries.
+	UpstreamLimit   int
+	UpstreamLimiter chan struct{}
 	// ProxyServer is the proxy server
 	ProxyServer string
 	// ProxyUsername is the username for the proxy server
@@ -228,6 +235,8 @@ func load() {
 	// Set the number of concurrent requests
 	RateLimit = config.Server.RateLimit
 	ConcurrencyLimiter = make(chan struct{}, RateLimit)
+	UpstreamLimit = config.Server.UpstreamLimit
+	UpstreamLimiter = make(chan struct{}, UpstreamLimit)
 
 	// Set the proxy server. Suffixes are lowercased to match the lookup
 	// side, which normalizes every queried resource to lowercase — an
@@ -384,6 +393,12 @@ func applyDefaults(config *Config) {
 		config.Server.RateLimit = 100
 	}
 
+	// Default upstream limit: as many concurrent upstream queries as
+	// concurrent requests, which is what rateLimit alone used to imply.
+	if config.Server.UpstreamLimit == 0 {
+		config.Server.UpstreamLimit = config.Server.RateLimit
+	}
+
 	// Default batch size cap: 10 queries per request
 	if config.Batch.MaxItems == 0 {
 		config.Batch.MaxItems = 10
@@ -408,6 +423,7 @@ func validateConfig(config *Config) error {
 	}{
 		{"server.port", config.Server.Port},
 		{"server.rateLimit", config.Server.RateLimit},
+		{"server.upstreamLimit", config.Server.UpstreamLimit},
 		{"cache.expiration", config.Cache.Expiration},
 		{"cache.memoryMaxSize", config.Cache.MemoryMaxSize},
 		{"cache.memoryCleanInterval", config.Cache.MemoryCleanInterval},
@@ -702,6 +718,11 @@ func overrideConfigWithEnv(config *Config) error {
 	if rateLimit := os.Getenv("WHOIS_RATE_LIMIT"); rateLimit != "" {
 		if rateInt, err := strconv.Atoi(rateLimit); err == nil {
 			config.Server.RateLimit = rateInt
+		}
+	}
+	if upstreamLimit := os.Getenv("WHOIS_UPSTREAM_LIMIT"); upstreamLimit != "" {
+		if limit, err := strconv.Atoi(upstreamLimit); err == nil {
+			config.Server.UpstreamLimit = limit
 		}
 	}
 

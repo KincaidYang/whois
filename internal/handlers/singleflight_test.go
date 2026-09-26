@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"sync/atomic"
 	"testing"
 	"testing/synctest"
@@ -14,13 +16,13 @@ import (
 
 // TestDedupedQueryWaiterCancel verifies that a waiter whose context ends
 // stops waiting immediately, while the flight itself keeps running and
-// delivers its result to the remaining waiters — and that as long as one
-// waiter remains, no extra concurrency slot is transferred to the flight
-// (the surviving waiter's handler slot already covers it).
+// delivers its result to the remaining waiters, holding exactly one upstream
+// permit throughout however many waiters it has.
 func TestDedupedQueryWaiterCancel(t *testing.T) {
 	setupFlightTest(t)
 
 	synctest.Test(t, func(t *testing.T) {
+		config.UpstreamLimiter = make(chan struct{}, 4)
 		var flights atomic.Int32
 		release := make(chan struct{})
 		started := make(chan struct{})
@@ -49,9 +51,11 @@ func TestDedupedQueryWaiterCancel(t *testing.T) {
 			outCh <- out
 		}()
 		// Wait blocks until every other bubbled goroutine is durably blocked,
-		// which is exactly "the second waiter has joined the flight" — the thing
-		// the old 100ms sleep was guessing at.
+		// which is exactly "the second waiter has joined the flight".
 		synctest.Wait()
+		if n := len(config.UpstreamLimiter); n != 1 {
+			t.Fatalf("flight with two waiters holds %d permits, want 1", n)
+		}
 
 		cancel()
 		select {
@@ -61,13 +65,6 @@ func TestDedupedQueryWaiterCancel(t *testing.T) {
 			}
 		case <-time.After(2 * time.Second):
 			t.Fatal("canceled waiter did not return until the flight finished")
-		}
-
-		// A waiter is still attached, so the flight must not be charged a slot
-		// of its own; in the real server the surviving waiter's handler slot
-		// covers it.
-		if n := len(config.ConcurrencyLimiter); n != 0 {
-			t.Fatalf("flight with a live waiter holds %d slots, want 0", n)
 		}
 
 		close(release)
@@ -80,26 +77,26 @@ func TestDedupedQueryWaiterCancel(t *testing.T) {
 			t.Fatal("surviving waiter never received the flight result")
 		}
 
-		// The flight is done; its slot must be released again.
-		waitFor(t, "the flight's limiter slot to be released", func() bool {
-			return len(config.ConcurrencyLimiter) == 0
-		})
-
+		synctest.Wait()
+		if n := len(config.UpstreamLimiter); n != 0 {
+			t.Fatalf("finished flight left %d permits held, want 0", n)
+		}
 		if n := flights.Load(); n != 1 {
 			t.Errorf("flight ran %d times, want 1 (waiters must share one flight)", n)
 		}
 	})
 }
 
-// TestDedupedQueryCanceledWaitersShareOneSlot verifies that no matter how
-// many waiters cancel while sharing one flight, the detached flight is
-// charged exactly one concurrency slot — not one per canceled waiter, which
-// would let clients drain the limiter by querying one slow resource and
-// disconnecting.
-func TestDedupedQueryCanceledWaitersShareOneSlot(t *testing.T) {
+// TestDedupedQueryDetachedFlightHoldsOnePermit verifies a flight whose
+// waiters all cancel after it started keeps running on exactly one permit —
+// its own, taken before querying — and returns it when done. Before permits
+// were per flight, a canceled waiter's slot was handed over asynchronously,
+// leaving a window in which the running query was not counted at all.
+func TestDedupedQueryDetachedFlightHoldsOnePermit(t *testing.T) {
 	setupFlightTest(t)
 
 	synctest.Test(t, func(t *testing.T) {
+		config.UpstreamLimiter = make(chan struct{}, 4)
 		release := make(chan struct{})
 		started := make(chan struct{})
 		fn := func(context.Context) (queryOutcome, error) {
@@ -121,12 +118,6 @@ func TestDedupedQueryCanceledWaitersShareOneSlot(t *testing.T) {
 		}
 		<-started
 		synctest.Wait()
-		flightsMu.Lock()
-		joined := flights[key] != nil && flights[key].waiters == waiters
-		flightsMu.Unlock()
-		if !joined {
-			t.Fatal("not all waiters joined the flight")
-		}
 
 		cancel()
 		for range waiters {
@@ -135,19 +126,179 @@ func TestDedupedQueryCanceledWaitersShareOneSlot(t *testing.T) {
 			}
 		}
 
-		// Once every bubbled goroutine is durably blocked, all cancellations
-		// have been processed and nothing can change the count any more, so
-		// one check replaces the old 300ms "does it creep up?" poll.
 		synctest.Wait()
-		if n := len(config.ConcurrencyLimiter); n != 1 {
-			t.Fatalf("detached flight holds %d slots, want exactly 1", n)
+		if n := len(config.UpstreamLimiter); n != 1 {
+			t.Fatalf("detached flight holds %d permits, want exactly 1", n)
 		}
 
 		close(release)
 		synctest.Wait()
-		if n := len(config.ConcurrencyLimiter); n != 0 {
-			t.Fatalf("finished flight left %d slots held, want 0", n)
+		if n := len(config.UpstreamLimiter); n != 0 {
+			t.Fatalf("finished flight left %d permits held, want 0", n)
 		}
+	})
+}
+
+// TestDedupedQueryUpstreamLimit verifies server.upstreamLimit bounds the
+// number of flights querying upstream at once: distinct keys beyond the limit
+// queue for a permit instead of running, and all complete once permits free
+// up. This is what bounds batch fan-out, which dispatches one flight per item.
+func TestDedupedQueryUpstreamLimit(t *testing.T) {
+	setupFlightTest(t)
+
+	synctest.Test(t, func(t *testing.T) {
+		const limit, queries = 2, 6
+		config.UpstreamLimiter = make(chan struct{}, limit)
+
+		var running, peak atomic.Int32
+		release := make(chan struct{})
+		fn := func(context.Context) (queryOutcome, error) {
+			n := running.Add(1)
+			for {
+				p := peak.Load()
+				if n <= p || peak.CompareAndSwap(p, n) {
+					break
+				}
+			}
+			<-release
+			running.Add(-1)
+			return queryOutcome{body: "ok"}, nil
+		}
+
+		done := make(chan error, queries)
+		for i := range queries {
+			go func() {
+				_, err := dedupedQuery(context.Background(), fmt.Sprintf("whois:sflimit%d", i), false, fn)
+				done <- err
+			}()
+		}
+
+		synctest.Wait()
+		if n := running.Load(); n != limit {
+			t.Fatalf("%d flights querying upstream, want exactly the limit (%d)", n, limit)
+		}
+
+		close(release)
+		for range queries {
+			if err := <-done; err != nil {
+				t.Errorf("query failed: %v", err)
+			}
+		}
+		if p := peak.Load(); p > limit {
+			t.Errorf("peak concurrent upstream queries = %d, want at most %d", p, limit)
+		}
+	})
+}
+
+// TestDedupedQueryAbandonsQueuedFlight verifies a flight still queuing for a
+// permit when its last waiter leaves never queries upstream, and leaves the
+// registry at once so the next caller for that key starts a fresh flight
+// instead of joining one that is giving up.
+func TestDedupedQueryAbandonsQueuedFlight(t *testing.T) {
+	setupFlightTest(t)
+
+	synctest.Test(t, func(t *testing.T) {
+		config.UpstreamLimiter = make(chan struct{}, 1)
+
+		// Occupy the only permit.
+		releaseBlocker := make(chan struct{})
+		blockerDone := make(chan struct{})
+		go func() {
+			defer close(blockerDone)
+			_, _ = dedupedQuery(context.Background(), "whois:sfblocker", false, func(context.Context) (queryOutcome, error) {
+				<-releaseBlocker
+				return queryOutcome{body: "blocker"}, nil
+			})
+		}()
+		synctest.Wait()
+
+		const key = "whois:sfabandon"
+		var queuedRuns atomic.Int32
+		ctx, cancel := context.WithCancel(context.Background())
+		errCh := make(chan error, 1)
+		go func() {
+			_, err := dedupedQuery(ctx, key, false, func(context.Context) (queryOutcome, error) {
+				queuedRuns.Add(1)
+				return queryOutcome{body: "late"}, nil
+			})
+			errCh <- err
+		}()
+		synctest.Wait()
+
+		cancel()
+		if err := <-errCh; !errors.Is(err, context.Canceled) {
+			t.Errorf("waiter error = %v, want context.Canceled", err)
+		}
+		synctest.Wait()
+		flightsMu.Lock()
+		_, registered := flights[key]
+		flightsMu.Unlock()
+		if registered {
+			t.Error("abandoned flight is still registered")
+		}
+
+		// A new caller gets a fresh flight, which runs once the permit frees.
+		freshDone := make(chan queryOutcome, 1)
+		go func() {
+			out, _ := dedupedQuery(context.Background(), key, false, func(context.Context) (queryOutcome, error) {
+				return queryOutcome{body: "fresh"}, nil
+			})
+			freshDone <- out
+		}()
+		close(releaseBlocker)
+		<-blockerDone
+		if out := <-freshDone; out.body != "fresh" {
+			t.Errorf("new caller got %q, want its own fresh flight's result", out.body)
+		}
+		synctest.Wait()
+		if n := queuedRuns.Load(); n != 0 {
+			t.Errorf("abandoned flight queried upstream %d times, want 0", n)
+		}
+		if n := len(config.UpstreamLimiter); n != 0 {
+			t.Errorf("%d permits still held after everything finished, want 0", n)
+		}
+	})
+}
+
+// TestDedupedQueryQueueDeadlineIsUpstreamBusy verifies a request whose
+// deadline passes while its flight is still queuing for a permit is told the
+// upstream budget is full (429), not that the upstream query failed (500).
+func TestDedupedQueryQueueDeadlineIsUpstreamBusy(t *testing.T) {
+	setupFlightTest(t)
+
+	synctest.Test(t, func(t *testing.T) {
+		config.UpstreamLimiter = make(chan struct{}, 1)
+		releaseBlocker := make(chan struct{})
+		blockerDone := make(chan struct{})
+		go func() {
+			defer close(blockerDone)
+			_, _ = dedupedQuery(context.Background(), "whois:sfbusyblocker", false, func(context.Context) (queryOutcome, error) {
+				<-releaseBlocker
+				return queryOutcome{}, nil
+			})
+		}()
+		synctest.Wait()
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_, err := dedupedQuery(ctx, "whois:sfbusy", false, func(context.Context) (queryOutcome, error) {
+			return queryOutcome{}, nil
+		})
+		if !errors.Is(err, utils.ErrUpstreamBusy) {
+			t.Errorf("error = %v, want ErrUpstreamBusy", err)
+		}
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("error = %v, want it to still wrap context.DeadlineExceeded", err)
+		}
+
+		rc := NewResponseCapture()
+		utils.HandleQueryError(ctx, rc, err)
+		if rc.StatusCode() != http.StatusTooManyRequests {
+			t.Errorf("status = %d, want 429", rc.StatusCode())
+		}
+
+		close(releaseBlocker)
+		<-blockerDone
 	})
 }
 
@@ -350,15 +501,142 @@ func TestRefreshFlightOwnsCacheEntry(t *testing.T) {
 	}
 }
 
-// setupFlightTest gives a flight test its own cache and concurrency limiter
+// TestAcquirePermitReturnsPermitWhenAbandoned covers the race in which a
+// flight's last waiter abandons it while a permit is also free: select may
+// pick either ready case, and when the send wins the permit must be handed
+// back rather than kept by a flight that will never query. Repeating makes
+// both outcomes all but certain to occur (each run is a fair coin).
+func TestAcquirePermitReturnsPermitWhenAbandoned(t *testing.T) {
+	limiter := make(chan struct{}, 1)
+	for range 100 {
+		f := &flight{done: make(chan struct{}), abandon: make(chan struct{}), abandoned: true}
+		close(f.abandon)
+		if err := f.acquirePermit(context.Background(), limiter); !errors.Is(err, context.Canceled) {
+			t.Fatalf("abandoned flight: err = %v, want context.Canceled", err)
+		}
+		if n := len(limiter); n != 0 {
+			t.Fatalf("abandoned flight kept %d permits, want 0", n)
+		}
+	}
+}
+
+// TestAcquirePermitReturnsPermitWhenExpired covers the same race against the
+// flight's own timeout: an expired flight that wins the send must not query
+// with a dead context (a wasted upstream attempt reported as a generic 500),
+// but hand the permit back and report the busy upstream budget.
+func TestAcquirePermitReturnsPermitWhenExpired(t *testing.T) {
+	limiter := make(chan struct{}, 1)
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	for range 100 {
+		f := &flight{done: make(chan struct{}), abandon: make(chan struct{})}
+		if err := f.acquirePermit(ctx, limiter); !errors.Is(err, utils.ErrUpstreamBusy) {
+			t.Fatalf("expired flight: err = %v, want ErrUpstreamBusy", err)
+		}
+		if n := len(limiter); n != 0 {
+			t.Fatalf("expired flight kept %d permits, want 0", n)
+		}
+		if f.permitted {
+			t.Fatal("expired flight was marked permitted")
+		}
+	}
+}
+
+// TestAbandonedRefreshDoesNotSupersedeRegular verifies a refresh that is
+// abandoned while still queuing for a permit leaves an overlapping regular
+// flight's cache write alone: it never queried, so there is no forced result
+// for the regular one to defer to.
+func TestAbandonedRefreshDoesNotSupersedeRegular(t *testing.T) {
+	setupFlightTest(t)
+
+	synctest.Test(t, func(t *testing.T) {
+		config.UpstreamLimiter = make(chan struct{}, 1)
+		const key = "whois:sfabandonedrefresh"
+
+		// The regular flight takes the only permit and blocks.
+		releaseRegular := make(chan struct{})
+		regularDone := make(chan struct{})
+		go func() {
+			defer close(regularDone)
+			_, _ = dedupedQuery(context.Background(), key, false, func(context.Context) (queryOutcome, error) {
+				<-releaseRegular
+				return queryOutcome{body: "regular"}, nil
+			})
+		}()
+		synctest.Wait()
+
+		// A refresh for the same key queues behind it, then its caller leaves.
+		ctx, cancel := context.WithCancel(context.Background())
+		refreshErr := make(chan error, 1)
+		go func() {
+			_, err := dedupedQuery(ctx, key, true, func(context.Context) (queryOutcome, error) {
+				return queryOutcome{body: "refreshed"}, nil
+			})
+			refreshErr <- err
+		}()
+		synctest.Wait()
+		cancel()
+		if err := <-refreshErr; !errors.Is(err, context.Canceled) {
+			t.Fatalf("refresh waiter error = %v, want context.Canceled", err)
+		}
+
+		close(releaseRegular)
+		<-regularDone
+		got, err := config.CacheManager.Get(context.Background(), key)
+		if err != nil || !got.Found || got.Data != "regular" {
+			t.Errorf("cache = %+v, %v; want the regular flight's result written", got, err)
+		}
+	})
+}
+
+// TestDedupedQueryFlightTimeoutCoversQueueing verifies a flight's timeout
+// counts from its creation: one that queues for a permit past RequestTimeout
+// gives up with ErrUpstreamBusy instead of starting a fresh timeout for the
+// query, which would let it outlive the shutdown drain.
+func TestDedupedQueryFlightTimeoutCoversQueueing(t *testing.T) {
+	setupFlightTest(t)
+
+	synctest.Test(t, func(t *testing.T) {
+		config.UpstreamLimiter = make(chan struct{}, 1)
+		releaseBlocker := make(chan struct{})
+		blockerDone := make(chan struct{})
+		go func() {
+			defer close(blockerDone)
+			_, _ = dedupedQuery(context.Background(), "whois:sfqueueblocker", false, func(context.Context) (queryOutcome, error) {
+				<-releaseBlocker
+				return queryOutcome{}, nil
+			})
+		}()
+		synctest.Wait()
+
+		// The waiter itself never gives up, so only the flight's own timeout
+		// can end the queuing.
+		var ran atomic.Bool
+		_, err := dedupedQuery(context.Background(), "whois:sfqueued", false, func(context.Context) (queryOutcome, error) {
+			ran.Store(true)
+			return queryOutcome{}, nil
+		})
+		if !errors.Is(err, utils.ErrUpstreamBusy) {
+			t.Errorf("error = %v, want ErrUpstreamBusy once the flight's timeout passed in the queue", err)
+		}
+		if ran.Load() {
+			t.Error("a flight that timed out in the queue must not query upstream")
+		}
+
+		close(releaseBlocker)
+		<-blockerDone
+	})
+}
+
+// setupFlightTest gives a flight test its own cache and upstream limiter
 // without running config.Load. The cleanup waits for the flight registry to
 // drain first: a detached flight still writes the cache after its callers are
 // gone, and restoring config.CacheManager under it would be a data race.
 func setupFlightTest(t *testing.T) {
 	t.Helper()
-	oldCache, oldLimiter, oldTTL := config.CacheManager, config.ConcurrencyLimiter, config.CacheExpiration
+	oldCache, oldLimiter, oldTTL := config.CacheManager, config.UpstreamLimiter, config.CacheExpiration
 	config.CacheManager = utils.NewMemoryCache(10, time.Minute, 0)
-	config.ConcurrencyLimiter = make(chan struct{}, 4)
+	config.UpstreamLimiter = make(chan struct{}, 4)
 	config.CacheExpiration = time.Minute
 	t.Cleanup(func() {
 		waitFor(t, "the flight registry to drain", func() bool {
@@ -366,7 +644,7 @@ func setupFlightTest(t *testing.T) {
 			defer flightsMu.Unlock()
 			return len(flights) == 0
 		})
-		config.CacheManager, config.ConcurrencyLimiter, config.CacheExpiration = oldCache, oldLimiter, oldTTL
+		config.CacheManager, config.UpstreamLimiter, config.CacheExpiration = oldCache, oldLimiter, oldTTL
 	})
 }
 

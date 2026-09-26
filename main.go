@@ -203,8 +203,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 
 // batchHandler serves POST /batch. Like serve it occupies one concurrency
-// slot and runs under the shared request timeout; the batch's internal
-// fan-out is bounded separately (handlers.HandleBatch).
+// slot and runs under the shared request timeout. Its items fan out at most
+// batchConcurrency at a time (handlers.RunBatch), and each item's upstream
+// query takes its own server.upstreamLimit permit like any other lookup.
 func batchHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		utils.WriteMethodNotAllowed(w, http.MethodPost)

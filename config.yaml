@@ -3,6 +3,9 @@ server:
   port: 8043
   # Maximum number of concurrent requests; further requests get 429.
   rateLimit: 60
+  # Maximum number of upstream WHOIS/RDAP queries running at once, counting
+  # every lookup (single, batch items, MCP). Defaults to rateLimit.
+  # upstreamLimit: 60
 
 log:
   # Minimum log level: debug, info, warn, error.

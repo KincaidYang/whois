@@ -274,6 +274,21 @@ func TestLoadConfig(t *testing.T) {
 			t.Fatalf("err = %v, want the negative rateLimit error", err)
 		}
 	})
+	t.Run("upstreamLimit follows rateLimit, or its own env", func(t *testing.T) {
+		writeConfig(t, "config.yaml", "server:\n  rateLimit: 30\n")
+		cfg, _, err := loadConfig()
+		if err != nil || cfg.Server.UpstreamLimit != 30 {
+			t.Fatalf("upstreamLimit = %d, %v; want it to default to rateLimit (30)", cfg.Server.UpstreamLimit, err)
+		}
+		t.Setenv("WHOIS_UPSTREAM_LIMIT", "7")
+		if cfg, _, err = loadConfig(); err != nil || cfg.Server.UpstreamLimit != 7 {
+			t.Fatalf("upstreamLimit = %d, %v; want the env override (7)", cfg.Server.UpstreamLimit, err)
+		}
+		t.Setenv("WHOIS_UPSTREAM_LIMIT", "-1")
+		if _, _, err = loadConfig(); err == nil || !strings.Contains(err.Error(), "server.upstreamLimit") {
+			t.Fatalf("err = %v, want the negative upstreamLimit error", err)
+		}
+	})
 	t.Run("invalid auth entry", func(t *testing.T) {
 		writeConfig(t, "config.yaml", "auth:\n  keys:\n    - key: same\n    - key: same\n")
 		if _, _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "duplicate key") {
@@ -290,8 +305,8 @@ func TestLoadConfig(t *testing.T) {
 		if len(clients) != 1 || clients[0].Key != "k1" || clients[0].Name != "key1" {
 			t.Errorf("clients = %+v, want one normalized client for k1", clients)
 		}
-		if cfg.Server.Port != 9000 || cfg.Server.RateLimit != 100 {
-			t.Errorf("server = %+v, want the file's port and the default rateLimit", cfg.Server)
+		if cfg.Server.Port != 9000 || cfg.Server.RateLimit != 100 || cfg.Server.UpstreamLimit != 100 {
+			t.Errorf("server = %+v, want the file's port, the default rateLimit and upstreamLimit following it", cfg.Server)
 		}
 		if len(cfg.Auth.Keys) != 1 || cfg.Auth.Keys[0].Key != "k1" {
 			t.Errorf("auth.keys = %+v, want the env override", cfg.Auth.Keys)
