@@ -362,7 +362,9 @@ func ParseRDAPResponseforIP(response, query string) (model.IPInfo, error) {
 		return model.IPInfo{}, fmt.Errorf("%w: unparseable query %q: %w", ErrInvalidResponse, query, err)
 	}
 	start, end = start.Unmap(), end.Unmap()
-	if start.BitLen() != first.BitLen() || first.Less(start) || end.Less(last) {
+	// Both endpoints must be in the query's family: netip orders every IPv6
+	// address after every IPv4 one, so a mixed range would otherwise pass.
+	if start.BitLen() != first.BitLen() || end.BitLen() != first.BitLen() || first.Less(start) || end.Less(last) {
 		return model.IPInfo{}, fmt.Errorf("%w: network %s - %s does not cover %s", ErrInvalidResponse, start, end, query)
 	}
 

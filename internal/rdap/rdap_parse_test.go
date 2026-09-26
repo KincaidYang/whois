@@ -395,6 +395,7 @@ func TestParseRDAPRejectsWrongObject(t *testing.T) {
 		{"ip not covering", ip("198.51.100.1"), `{"startAddress": "192.0.2.0", "endAddress": "192.0.2.255"}`, ErrInvalidResponse},
 		{"ip prefix wider than network", ip("192.0.2.0/23"), `{"startAddress": "192.0.2.0", "endAddress": "192.0.2.255"}`, ErrInvalidResponse},
 		{"ip family mismatch", ip("2001:db8::1"), `{"startAddress": "0.0.0.0", "endAddress": "255.255.255.255"}`, ErrInvalidResponse},
+		{"ip mixed-family range", ip("192.0.2.1"), `{"startAddress": "192.0.2.0", "endAddress": "2001:db8::"}`, ErrInvalidResponse},
 		{"asn null", asn(64500), `null`, ErrInvalidResponse},
 		{"asn outside range", asn(64500), `{"handle": "AS64501", "startAutnum": 64501, "endAutnum": 64501}`, ErrInvalidResponse},
 		{"asn wrong class", asn(64500), `{"objectClassName": "domain", "handle": "AS64500"}`, ErrInvalidResponse},
