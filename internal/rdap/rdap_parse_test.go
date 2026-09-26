@@ -2,10 +2,12 @@ package rdap
 
 import (
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/KincaidYang/whois/internal/model"
+	"github.com/KincaidYang/whois/internal/utils"
 )
 
 // TestParseRDAPDomainRegistrar covers the common gTLD shape (modeled on
@@ -35,7 +37,7 @@ func TestParseRDAPDomainRegistrar(t *testing.T) {
 		}
 	}`
 
-	info, err := ParseRDAPResponseforDomain(response)
+	info, err := ParseRDAPResponseforDomain(response, "example.com")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -79,7 +81,7 @@ func TestParseRDAPDomainNonIANAPublicId(t *testing.T) {
 		]
 	}`
 
-	info, err := ParseRDAPResponseforDomain(response)
+	info, err := ParseRDAPResponseforDomain(response, "nominet.uk")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -107,7 +109,7 @@ func TestParseRDAPDomainKeyDataOnly(t *testing.T) {
 		}
 	}`
 
-	info, err := ParseRDAPResponseforDomain(response)
+	info, err := ParseRDAPResponseforDomain(response, "denic.de")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -135,7 +137,7 @@ func TestParseRDAPDomainNestedRegistrar(t *testing.T) {
 		}]
 	}`
 
-	info, err := ParseRDAPResponseforDomain(response)
+	info, err := ParseRDAPResponseforDomain(response, "example.org")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,7 +155,7 @@ func TestParseRDAPDomainNoRegistrar(t *testing.T) {
 		"secureDNS": {"delegationSigned": true, "dsData": [{"keyTag": 1, "algorithm": 13, "digestType": 2, "digest": "AB"}]}
 	}`
 
-	info, err := ParseRDAPResponseforDomain(response)
+	info, err := ParseRDAPResponseforDomain(response, "registro.br")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -173,7 +175,7 @@ func TestParseRDAPDomainDsDataWithoutBoolean(t *testing.T) {
 		"secureDNS": {"dsData": [{"keyTag": 5, "algorithm": 8, "digestType": 2, "digest": "CD"}]}
 	}`
 
-	info, err := ParseRDAPResponseforDomain(response)
+	info, err := ParseRDAPResponseforDomain(response, "example.fr")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -183,7 +185,7 @@ func TestParseRDAPDomainDsDataWithoutBoolean(t *testing.T) {
 }
 
 func TestParseRDAPDomainMalformed(t *testing.T) {
-	if _, err := ParseRDAPResponseforDomain(`{"ldhName": 42`); err == nil {
+	if _, err := ParseRDAPResponseforDomain(`{"ldhName": 42`, "example.com"); err == nil {
 		t.Fatal("expected error for malformed JSON")
 	}
 }
@@ -242,7 +244,7 @@ func TestParseRDAPIP(t *testing.T) {
 		"remarks": [{"title": "Note", "description": ["Documentation range"]}]
 	}`
 
-	info, err := ParseRDAPResponseforIP(response)
+	info, err := ParseRDAPResponseforIP(response, "192.0.2.1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -271,10 +273,12 @@ func TestParseRDAPIP(t *testing.T) {
 func TestParseRDAPIPV6Prefix(t *testing.T) {
 	response := `{
 		"handle": "2001-DB8",
+		"startAddress": "2001:db8::",
+		"endAddress": "2001:db8:ffff:ffff:ffff:ffff:ffff:ffff",
 		"cidr0_cidrs": [{"v6prefix": "2001:db8::", "length": 32}]
 	}`
 
-	info, err := ParseRDAPResponseforIP(response)
+	info, err := ParseRDAPResponseforIP(response, "2001:db8::/48")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -290,6 +294,8 @@ func TestParseRDAPIPV6Prefix(t *testing.T) {
 func TestParseRDAPIPMultipleCIDRs(t *testing.T) {
 	response := `{
 		"handle": "NET-192-0-2-0-1",
+		"startAddress": "192.0.2.0",
+		"endAddress": "192.0.2.191",
 		"cidr0_cidrs": [
 			{"v4prefix": "192.0.2.0", "length": 25},
 			{"length": 0},
@@ -297,7 +303,7 @@ func TestParseRDAPIPMultipleCIDRs(t *testing.T) {
 		]
 	}`
 
-	info, err := ParseRDAPResponseforIP(response)
+	info, err := ParseRDAPResponseforIP(response, "192.0.2.0/25")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -313,7 +319,7 @@ func TestParseRDAPIPMultipleCIDRs(t *testing.T) {
 }
 
 func TestParseRDAPIPMalformed(t *testing.T) {
-	if _, err := ParseRDAPResponseforIP(`not json`); err == nil {
+	if _, err := ParseRDAPResponseforIP(`not json`, "192.0.2.1"); err == nil {
 		t.Fatal("expected error for malformed JSON")
 	}
 }
@@ -331,7 +337,7 @@ func TestParseRDAPASN(t *testing.T) {
 		"remarks": [{"title": "Note", "description": ["Documentation ASN"]}]
 	}`
 
-	info, err := ParseRDAPResponseforASN(response)
+	info, err := ParseRDAPResponseforASN(response, 64500)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -351,7 +357,116 @@ func TestParseRDAPASN(t *testing.T) {
 }
 
 func TestParseRDAPASNMalformed(t *testing.T) {
-	if _, err := ParseRDAPResponseforASN(`[`); err == nil {
+	if _, err := ParseRDAPResponseforASN(`[`, 64500); err == nil {
 		t.Fatal("expected error for malformed JSON")
+	}
+}
+
+// TestParseRDAPRejectsWrongObject covers responses that are valid JSON but do
+// not describe the requested object. Each must fail rather than become an
+// empty success that would be served and cached as a real answer; an in-body
+// 404 error object must read as not-found.
+func TestParseRDAPRejectsWrongObject(t *testing.T) {
+	type parse func(string) error
+	domain := func(name string) parse {
+		return func(r string) error { _, err := ParseRDAPResponseforDomain(r, name); return err }
+	}
+	ip := func(query string) parse {
+		return func(r string) error { _, err := ParseRDAPResponseforIP(r, query); return err }
+	}
+	asn := func(n uint32) parse {
+		return func(r string) error { _, err := ParseRDAPResponseforASN(r, n); return err }
+	}
+	cases := []struct {
+		name     string
+		parse    parse
+		response string
+		want     error
+	}{
+		{"domain null", domain("example.com"), `null`, ErrInvalidResponse},
+		{"domain empty object", domain("example.com"), `{}`, ErrInvalidResponse},
+		{"domain error object", domain("example.com"), `{"errorCode": 500, "title": "Internal"}`, ErrInvalidResponse},
+		{"domain in-body 404", domain("example.com"), `{"errorCode": 404, "title": "Not Found"}`, utils.ErrResourceNotFound},
+		{"domain wrong class", domain("example.com"), `{"objectClassName": "entity", "ldhName": "example.com"}`, ErrInvalidResponse},
+		{"domain other name", domain("example.com"), `{"objectClassName": "domain", "ldhName": "example.net"}`, ErrInvalidResponse},
+		{"ip empty object", ip("192.0.2.1"), `{}`, ErrInvalidResponse},
+		{"ip in-body 404", ip("192.0.2.1"), `{"errorCode": 404}`, utils.ErrResourceNotFound},
+		{"ip wrong class", ip("192.0.2.1"), `{"objectClassName": "autnum", "startAddress": "192.0.2.0", "endAddress": "192.0.2.255"}`, ErrInvalidResponse},
+		{"ip not covering", ip("198.51.100.1"), `{"startAddress": "192.0.2.0", "endAddress": "192.0.2.255"}`, ErrInvalidResponse},
+		{"ip prefix wider than network", ip("192.0.2.0/23"), `{"startAddress": "192.0.2.0", "endAddress": "192.0.2.255"}`, ErrInvalidResponse},
+		{"ip family mismatch", ip("2001:db8::1"), `{"startAddress": "0.0.0.0", "endAddress": "255.255.255.255"}`, ErrInvalidResponse},
+		{"ip mixed-family range", ip("192.0.2.1"), `{"startAddress": "192.0.2.0", "endAddress": "2001:db8::"}`, ErrInvalidResponse},
+		{"asn null", asn(64500), `null`, ErrInvalidResponse},
+		{"asn outside range", asn(64500), `{"handle": "AS64501", "startAutnum": 64501, "endAutnum": 64501}`, ErrInvalidResponse},
+		{"asn wrong class", asn(64500), `{"objectClassName": "domain", "handle": "AS64500"}`, ErrInvalidResponse},
+		{"asn other handle, no range", asn(64500), `{"objectClassName": "autnum", "handle": "AS64501"}`, ErrInvalidResponse},
+		{"asn opaque handle, no range", asn(64500), `{"objectClassName": "autnum", "handle": "EXAMPLE-AS"}`, ErrInvalidResponse},
+		{"asn no handle, no range", asn(64500), `{"objectClassName": "autnum"}`, ErrInvalidResponse},
+		{"asn start only", asn(64500), `{"handle": "AS64500", "startAutnum": 70000}`, ErrInvalidResponse},
+		{"asn end only", asn(64500), `{"handle": "AS64500", "endAutnum": 64500}`, ErrInvalidResponse},
+		{"asn inverted range", asn(64500), `{"startAutnum": 64511, "endAutnum": 64496}`, ErrInvalidResponse},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if err := c.parse(c.response); !errors.Is(err, c.want) {
+				t.Errorf("err = %v, want %v", err, c.want)
+			}
+		})
+	}
+}
+
+// TestParseRDAPAcceptsEquivalentSpellings covers the variations real servers
+// send for the right object: uppercase and trailing-dot names (Verisign
+// answers EXAMPLE.COM), a U-label name for an IDN query, an IPv4-mapped
+// start address, a single address inside the network, and an autnum given
+// only by an "AS<number>" handle.
+func TestParseRDAPAcceptsEquivalentSpellings(t *testing.T) {
+	if _, err := ParseRDAPResponseforDomain(`{"objectClassName": "domain", "ldhName": "EXAMPLE.COM."}`, "example.com"); err != nil {
+		t.Errorf("uppercase/trailing-dot ldhName: %v", err)
+	}
+	if _, err := ParseRDAPResponseforDomain(`{"unicodeName": "müller.com"}`, "xn--mller-kva.com"); err != nil {
+		t.Errorf("unicodeName for an IDN query: %v", err)
+	}
+	if _, err := ParseRDAPResponseforIP(`{"startAddress": "::ffff:192.0.2.0", "endAddress": "192.0.2.255"}`, "192.0.2.77"); err != nil {
+		t.Errorf("IPv4-mapped start address: %v", err)
+	}
+	if _, err := ParseRDAPResponseforIP(`{"startAddress": "2001:db8::", "endAddress": "2001:db8::ffff"}`, "2001:db8::/112"); err != nil {
+		t.Errorf("prefix exactly the network: %v", err)
+	}
+	if _, err := ParseRDAPResponseforASN(`{"objectClassName": "autnum", "handle": "as64500"}`, 64500); err != nil {
+		t.Errorf("autnum without a range, named by its handle: %v", err)
+	}
+	if _, err := ParseRDAPResponseforASN(`{"startAutnum": 64496, "endAutnum": 64511}`, 64500); err != nil {
+		t.Errorf("ASN inside a block: %v", err)
+	}
+}
+
+// TestParseRDAPIPStringCIDRLength covers registro.br, which sends the cidr0
+// length as a string, and lengths that are not a valid integer prefix length
+// for the family: those entries are dropped, never coerced into a fabricated
+// prefix (20.5 must not become /20).
+func TestParseRDAPIPStringCIDRLength(t *testing.T) {
+	parse := func(cidrs string) []string {
+		t.Helper()
+		info, err := ParseRDAPResponseforIP(`{"objectClassName": "ip network", "startAddress": "200.160.0.0",
+			"endAddress": "200.160.15.255", "cidr0_cidrs": [`+cidrs+`]}`, "200.160.2.3")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		return info.CIDRs
+	}
+	if got := parse(`{"length": "20", "v4prefix": "200.160.0.0"}`); !reflect.DeepEqual(got, []string{"200.160.0.0/20"}) {
+		t.Errorf("string length: CIDRs = %v, want [200.160.0.0/20]", got)
+	}
+	if got := parse(`{"length": 20, "v4prefix": "200.160.0.0"}`); !reflect.DeepEqual(got, []string{"200.160.0.0/20"}) {
+		t.Errorf("numeric length: CIDRs = %v, want [200.160.0.0/20]", got)
+	}
+	for _, bad := range []string{`"20.5"`, `20.5`, `"NaN"`, `"twenty"`, `null`, `-1`, `33`} {
+		if got := parse(`{"length": ` + bad + `, "v4prefix": "200.160.0.0"}`); len(got) != 0 {
+			t.Errorf("length %s: CIDRs = %v, want the entry dropped", bad, got)
+		}
+	}
+	if got := parse(`{"length": 48, "v6prefix": "2001:db8::"}`); !reflect.DeepEqual(got, []string{"2001:db8::/48"}) {
+		t.Errorf("v6 length 48: CIDRs = %v, want it kept (valid for IPv6)", got)
 	}
 }

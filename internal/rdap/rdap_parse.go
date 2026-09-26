@@ -2,12 +2,18 @@ package rdap
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/KincaidYang/whois/internal/model"
+	"github.com/KincaidYang/whois/internal/utils"
+	"golang.org/x/net/idna"
 )
 
 // Internal structs for safe RDAP JSON deserialization.
@@ -55,7 +61,18 @@ type rdapSecureDNS struct {
 	KeyData          []rdapKeyData `json:"keyData"`
 }
 
+// rdapCommon holds the members every RDAP response may carry that decide
+// whether it describes the requested object at all: its class, and the
+// errorCode/title of an RFC 9083 error response (which some servers send
+// with HTTP 200).
+type rdapCommon struct {
+	ObjectClassName string `json:"objectClassName"`
+	ErrorCode       int    `json:"errorCode"`
+	Title           string `json:"title"`
+}
+
 type rdapDomainResponse struct {
+	rdapCommon
 	LdhName     string           `json:"ldhName"`
 	UnicodeName string           `json:"unicodeName"`
 	Status      []string         `json:"status"`
@@ -65,10 +82,33 @@ type rdapDomainResponse struct {
 	SecureDNS   *rdapSecureDNS   `json:"secureDNS"`
 }
 
+// cidrLength holds the cidr0 prefix length as sent: a JSON number, or a
+// string holding one — registro.br (reached through LACNIC redirects for
+// Brazilian space) sends "20", which used to fail the whole response. It is
+// validated where it is used, so a malformed length drops that one prefix
+// instead of being coerced into a fabricated one.
+type cidrLength string
+
+func (l *cidrLength) UnmarshalJSON(b []byte) error {
+	s := string(b)
+	if s == "null" {
+		s = ""
+	}
+	*l = cidrLength(strings.Trim(s, `"`))
+	return nil
+}
+
+// bits returns the length as an integer valid for an address of maxBits
+// bits (32 or 128), or false.
+func (l cidrLength) bits(maxBits int) (int, bool) {
+	n, err := strconv.Atoi(string(l))
+	return n, err == nil && n >= 0 && n <= maxBits
+}
+
 type rdapCIDR struct {
-	V4Prefix string  `json:"v4prefix"`
-	V6Prefix string  `json:"v6prefix"`
-	Length   float64 `json:"length"`
+	V4Prefix string     `json:"v4prefix"`
+	V6Prefix string     `json:"v6prefix"`
+	Length   cidrLength `json:"length"`
 }
 
 type rdapRemark struct {
@@ -77,6 +117,7 @@ type rdapRemark struct {
 }
 
 type rdapIPResponse struct {
+	rdapCommon
 	Handle       string       `json:"handle"`
 	StartAddress string       `json:"startAddress"`
 	EndAddress   string       `json:"endAddress"`
@@ -90,11 +131,80 @@ type rdapIPResponse struct {
 }
 
 type rdapASNResponse struct {
-	Handle  string       `json:"handle"`
-	Name    string       `json:"name"`
-	Status  []string     `json:"status"`
-	Events  []rdapEvent  `json:"events"`
-	Remarks []rdapRemark `json:"remarks"`
+	rdapCommon
+	Handle      string       `json:"handle"`
+	StartAutnum *uint32      `json:"startAutnum"`
+	EndAutnum   *uint32      `json:"endAutnum"`
+	Name        string       `json:"name"`
+	Status      []string     `json:"status"`
+	Events      []rdapEvent  `json:"events"`
+	Remarks     []rdapRemark `json:"remarks"`
+}
+
+// ErrInvalidResponse marks an RDAP response that parsed as JSON but does not
+// describe the requested object: null or an empty object, an error object, a
+// different object class, or another resource than the one asked for. It is
+// never cached, unlike a real result or a not-found.
+var ErrInvalidResponse = errors.New("invalid RDAP response")
+
+// checkCommon rejects error objects and objects of the wrong class. An error
+// object with errorCode 404 is the server saying not-found in the body
+// instead of the status line, and is reported as such. A missing
+// objectClassName is tolerated: RFC 9083 requires it, but the identity checks
+// that follow are what actually tie the response to the query.
+func checkCommon(c rdapCommon, wantClass string) error {
+	switch {
+	case c.ErrorCode == http.StatusNotFound:
+		return utils.ErrResourceNotFound
+	case c.ErrorCode != 0:
+		return fmt.Errorf("%w: error object %d %q", ErrInvalidResponse, c.ErrorCode, c.Title)
+	case c.ObjectClassName != "" && !strings.EqualFold(c.ObjectClassName, wantClass):
+		return fmt.Errorf("%w: objectClassName %q, want %q", ErrInvalidResponse, c.ObjectClassName, wantClass)
+	}
+	return nil
+}
+
+// normalizeDomainName reduces a domain name to the form names are compared
+// in: lowercase A-labels, no trailing root dot.
+func normalizeDomainName(name string) string {
+	name = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
+	if ascii, err := idna.ToASCII(name); err == nil {
+		return ascii
+	}
+	return name
+}
+
+// addrRange returns the first and last address a query covers: an address
+// covers itself, a prefix its whole block.
+func addrRange(query string) (first, last netip.Addr, err error) {
+	if !strings.Contains(query, "/") {
+		a, err := netip.ParseAddr(query)
+		return a.Unmap(), a.Unmap(), err
+	}
+	p, err := netip.ParsePrefix(query)
+	if err != nil {
+		return netip.Addr{}, netip.Addr{}, err
+	}
+	p = p.Masked()
+	first = p.Addr().Unmap()
+	b := first.AsSlice()
+	hostBits := first.BitLen() - p.Bits()
+	for i := len(b) - 1; hostBits > 0; i-- {
+		n := min(hostBits, 8)
+		b[i] |= byte(1<<n - 1)
+		hostBits -= n
+	}
+	last, _ = netip.AddrFromSlice(b)
+	return first, last, nil
+}
+
+// handleASN reads the ASN out of an "AS<number>" handle (case-insensitive).
+func handleASN(handle string) (uint32, bool) {
+	if len(handle) < 3 || !strings.EqualFold(handle[:2], "AS") {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(handle[2:], 10, 32)
+	return uint32(n), err == nil
 }
 
 // extractRegistrarName extracts the "fn" (full name) property from a vCard array.
@@ -128,11 +238,28 @@ func extractRegistrarName(vcardArray []json.RawMessage) string {
 	return ""
 }
 
-// ParseRDAPResponseforDomain parses the RDAP response for a domain and returns a DomainInfo structure.
-func ParseRDAPResponseforDomain(response string) (model.DomainInfo, error) {
+// ParseRDAPResponseforDomain parses the RDAP response for domain (the name
+// that was queried) into a DomainInfo. A response that is not a domain object
+// for that very name is rejected with ErrInvalidResponse (or
+// utils.ErrResourceNotFound for an in-body 404) rather than turned into an
+// empty success.
+func ParseRDAPResponseforDomain(response, domain string) (model.DomainInfo, error) {
 	var rdap rdapDomainResponse
 	if err := json.Unmarshal([]byte(response), &rdap); err != nil {
 		return model.DomainInfo{}, err
+	}
+	if err := checkCommon(rdap.rdapCommon, model.ObjectClassDomain); err != nil {
+		return model.DomainInfo{}, err
+	}
+	name := rdap.LdhName
+	if name == "" {
+		name = rdap.UnicodeName
+	}
+	if name == "" {
+		return model.DomainInfo{}, fmt.Errorf("%w: no ldhName or unicodeName", ErrInvalidResponse)
+	}
+	if got, want := normalizeDomainName(name), normalizeDomainName(domain); got != want {
+		return model.DomainInfo{}, fmt.Errorf("%w: describes %q, queried %q", ErrInvalidResponse, got, want)
 	}
 
 	info := model.DomainInfo{
@@ -225,11 +352,32 @@ func findRegistrarEntity(entities []rdapEntity) *rdapEntity {
 	return nil
 }
 
-// ParseRDAPResponseforIP parses the RDAP response for an IP address.
-func ParseRDAPResponseforIP(response string) (model.IPInfo, error) {
+// ParseRDAPResponseforIP parses the RDAP response for query (an address or
+// a prefix). The network it describes must cover the whole query — a
+// registry answers with the enclosing network, so containment, not equality,
+// is what ties the two together.
+func ParseRDAPResponseforIP(response, query string) (model.IPInfo, error) {
 	var rdap rdapIPResponse
 	if err := json.Unmarshal([]byte(response), &rdap); err != nil {
 		return model.IPInfo{}, err
+	}
+	if err := checkCommon(rdap.rdapCommon, model.ObjectClassIPNetwork); err != nil {
+		return model.IPInfo{}, err
+	}
+	start, errStart := netip.ParseAddr(rdap.StartAddress)
+	end, errEnd := netip.ParseAddr(rdap.EndAddress)
+	if errStart != nil || errEnd != nil {
+		return model.IPInfo{}, fmt.Errorf("%w: startAddress %q / endAddress %q", ErrInvalidResponse, rdap.StartAddress, rdap.EndAddress)
+	}
+	first, last, err := addrRange(query)
+	if err != nil {
+		return model.IPInfo{}, fmt.Errorf("%w: unparseable query %q: %w", ErrInvalidResponse, query, err)
+	}
+	start, end = start.Unmap(), end.Unmap()
+	// Both endpoints must be in the query's family: netip orders every IPv6
+	// address after every IPv4 one, so a mixed range would otherwise pass.
+	if start.BitLen() != first.BitLen() || end.BitLen() != first.BitLen() || first.Less(start) || end.Less(last) {
+		return model.IPInfo{}, fmt.Errorf("%w: network %s - %s does not cover %s", ErrInvalidResponse, start, end, query)
 	}
 
 	info := model.IPInfo{
@@ -246,16 +394,18 @@ func ParseRDAPResponseforIP(response string) (model.IPInfo, error) {
 		info.Type = *rdap.Type
 	}
 
+	// Entries without a prefix, or with a length that is not an integer
+	// valid for the family, are skipped rather than coerced.
 	for _, cidr := range rdap.Cidr0Cidrs {
-		var prefix string
-		if cidr.V4Prefix != "" {
-			prefix = fmt.Sprintf("%s/%d", cidr.V4Prefix, int(cidr.Length))
-		} else if cidr.V6Prefix != "" {
-			prefix = fmt.Sprintf("%s/%d", cidr.V6Prefix, int(cidr.Length))
-		} else {
+		base, maxBits := cidr.V4Prefix, 32
+		if base == "" {
+			base, maxBits = cidr.V6Prefix, 128
+		}
+		bits, ok := cidr.Length.bits(maxBits)
+		if base == "" || !ok {
 			continue
 		}
-		info.CIDRs = append(info.CIDRs, prefix)
+		info.CIDRs = append(info.CIDRs, fmt.Sprintf("%s/%d", base, bits))
 	}
 	if len(info.CIDRs) > 0 {
 		// Matches the pre-CIDRs behavior exactly (the loop above used to
@@ -285,11 +435,31 @@ func ParseRDAPResponseforIP(response string) (model.IPInfo, error) {
 	return info, nil
 }
 
-// ParseRDAPResponseforASN parses the RDAP response for an ASN.
-func ParseRDAPResponseforASN(response string) (model.ASNInfo, error) {
+// ParseRDAPResponseforASN parses the RDAP response for asn. When the
+// response gives its range (startAutnum/endAutnum) the ASN must fall in it.
+// Without a range, the handle is all that identifies the object, so it must
+// read "AS<number>" for this very ASN; anything else is rejected.
+func ParseRDAPResponseforASN(response string, asn uint32) (model.ASNInfo, error) {
 	var rdap rdapASNResponse
 	if err := json.Unmarshal([]byte(response), &rdap); err != nil {
 		return model.ASNInfo{}, err
+	}
+	if err := checkCommon(rdap.rdapCommon, model.ObjectClassAutnum); err != nil {
+		return model.ASNInfo{}, err
+	}
+	switch {
+	case rdap.StartAutnum != nil && rdap.EndAutnum != nil:
+		if *rdap.StartAutnum > *rdap.EndAutnum || asn < *rdap.StartAutnum || asn > *rdap.EndAutnum {
+			return model.ASNInfo{}, fmt.Errorf("%w: range AS%d-AS%d does not cover AS%d", ErrInvalidResponse, *rdap.StartAutnum, *rdap.EndAutnum, asn)
+		}
+	case rdap.StartAutnum != nil || rdap.EndAutnum != nil:
+		// Half a range is malformed; the bound given may even exclude the
+		// query, so it must not fall back to the handle.
+		return model.ASNInfo{}, fmt.Errorf("%w: incomplete autnum range", ErrInvalidResponse)
+	default:
+		if n, ok := handleASN(rdap.Handle); !ok || n != asn {
+			return model.ASNInfo{}, fmt.Errorf("%w: no autnum range, and handle %q does not name AS%d", ErrInvalidResponse, rdap.Handle, asn)
+		}
 	}
 
 	info := model.ASNInfo{

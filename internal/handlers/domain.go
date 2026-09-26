@@ -209,7 +209,7 @@ func queryRDAPDomain(ctx context.Context, domain, tld string) (queryOutcome, err
 		return queryOutcome{}, err
 	}
 
-	domainInfo, err := rdap.ParseRDAPResponseforDomain(queryResult)
+	domainInfo, err := rdap.ParseRDAPResponseforDomain(queryResult, domain)
 	if err != nil {
 		return queryOutcome{}, err
 	}

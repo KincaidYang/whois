@@ -47,7 +47,7 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 			return queryOutcome{}, err
 		}
 
-		asnInfo, err := rdap.ParseRDAPResponseforASN(queryResult)
+		asnInfo, err := rdap.ParseRDAPResponseforASN(queryResult, uint32(asnUint))
 		if err != nil {
 			return queryOutcome{}, err
 		}

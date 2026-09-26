@@ -39,7 +39,7 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 			return queryOutcome{}, err
 		}
 
-		ipInfo, err := rdap.ParseRDAPResponseforIP(queryResult)
+		ipInfo, err := rdap.ParseRDAPResponseforIP(queryResult, resource)
 		if err != nil {
 			return queryOutcome{}, err
 		}

@@ -44,6 +44,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   indirect dependencies are refreshed to their latest releases.
 
 ### Fixed
+- RDAP responses are now checked against the query before being served and
+  cached. Anything that merely parsed as JSON used to count as a result:
+  `null`, `{}`, an RFC 9083 error object sent with HTTP 200, another object
+  class, or a different resource altogether became a `200` with empty fields,
+  cached for a full `cache.expiration`. Now the object class must match (when
+  given), a domain's `ldhName`/`unicodeName` must be the queried name, an IP
+  network's `startAddress`–`endAddress` must cover the queried address or
+  prefix, and an autnum's range (when given) must contain the queried ASN.
+  Anything else is a `500` that is not cached, except an in-body error object
+  with `errorCode` 404, which reads as not-found.
+- IP lookups in Brazilian address space (LACNIC redirects them to
+  registro.br) no longer fail: registro.br sends the `cidr0_cidrs` length as
+  a string, which made the whole response undecodable. A prefix length that
+  is not an integer valid for its address family (e.g. `"20.5"`) now drops
+  that one entry instead of being coerced into a prefix nobody announced.
 - IP network responses now carry every CIDR prefix an RDAP response lists
   (`cidrs`); previously only the last one seen was kept, silently dropping
   earlier blocks when a network was announced as more than one prefix.

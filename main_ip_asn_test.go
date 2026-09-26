@@ -82,7 +82,7 @@ func TestIPSpellingsShareOneCacheEntry(t *testing.T) {
 	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
 		upstreamHits.Add(1)
 		gotPath.Store(r.URL.Path)
-		_, _ = w.Write([]byte(`{"objectClassName":"ip network","handle":"NET-ZZV6TEST"}`))
+		_, _ = w.Write([]byte(`{"objectClassName":"ip network","handle":"NET-ZZV6TEST","startAddress":"2001:db8:1234::","endAddress":"2001:db8:1234:ffff:ffff:ffff:ffff:ffff"}`))
 	}, "2001:db8:1234::/48")
 
 	w := httptest.NewRecorder()
@@ -118,7 +118,7 @@ func TestCIDRHostBitsMasked(t *testing.T) {
 	var gotPath atomic.Value
 	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
 		gotPath.Store(r.URL.Path)
-		_, _ = w.Write([]byte(`{"objectClassName":"ip network","handle":"NET-ZZCIDRTEST"}`))
+		_, _ = w.Write([]byte(`{"objectClassName":"ip network","handle":"NET-ZZCIDRTEST","startAddress":"198.51.100.0","endAddress":"198.51.100.255"}`))
 	}, "198.51.100.0/24")
 
 	w := httptest.NewRecorder()
@@ -180,7 +180,7 @@ func TestHandleIPNegativeCacheDenied(t *testing.T) {
 // overwrites it with the upstream result.
 func TestHandleIPRefresh(t *testing.T) {
 	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"objectClassName":"ip network","handle":"NET-FRESH"}`))
+		_, _ = w.Write([]byte(`{"objectClassName":"ip network","handle":"NET-FRESH","startAddress":"192.0.2.128","endAddress":"192.0.2.255"}`))
 	}, "192.0.2.128/25")
 
 	key := handlers.CacheKeyPrefix + "192.0.2.160"
@@ -209,7 +209,7 @@ func TestHandleASNMissAndHit(t *testing.T) {
 	var gotPath atomic.Value
 	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
 		gotPath.Store(r.URL.Path)
-		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS-ZZASNTEST"}`))
+		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS-ZZASNTEST","startAutnum":4199999990,"endAutnum":4199999999}`))
 	}, "4199999990-4199999999")
 
 	w := httptest.NewRecorder()
@@ -245,7 +245,7 @@ func TestHandleASNLeadingZeros(t *testing.T) {
 	var upstreamCalls atomic.Int32
 	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
 		upstreamCalls.Add(1)
-		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS-ZZASNTEST"}`))
+		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS-ZZASNTEST","startAutnum":4199999990,"endAutnum":4199999999}`))
 	}, "4199999990-4199999999")
 
 	mux := newTestMux()
@@ -285,7 +285,7 @@ func TestHandleASNMaxUint32(t *testing.T) {
 // TestHandleASNRefresh verifies the refresh path for ASN queries.
 func TestHandleASNRefresh(t *testing.T) {
 	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS-FRESH"}`))
+		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS-FRESH","startAutnum":4199999990,"endAutnum":4199999999}`))
 	}, "4199999990-4199999999")
 
 	w := httptest.NewRecorder()
