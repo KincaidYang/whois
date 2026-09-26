@@ -752,7 +752,8 @@ func overrideConfigWithEnv(config *Config) error {
 			}
 		}
 		if len(keys) == 0 {
-			return fmt.Errorf("WHOIS_AUTH_KEYS is set but contains no key (got %q); unset it to use auth.keys from the configuration file", authKeys)
+			// The value itself is deliberately not echoed: it is a secret slot.
+			return fmt.Errorf("WHOIS_AUTH_KEYS is set but contains no key (only whitespace or commas); unset it to use auth.keys from the configuration file")
 		}
 		config.Auth.Keys = keys
 	}
