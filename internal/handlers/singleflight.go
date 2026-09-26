@@ -223,23 +223,75 @@ func (f *flight) run(ctx context.Context, cacheKey, fkey string, fn func(context
 
 	outcome, err := fn(qctx)
 
+	// Write before publishing the result, so a caller that has seen the
+	// response can rely on the cache being populated.
+	f.commit(qctx, cacheKey, outcome, err)
+	f.publish(fkey, outcome, err)
+}
+
+// commitLocks serializes cache commits per key. A commit is the superseded
+// check plus the write that follows it; they must happen as one step, or a
+// regular flight could pass the check, stall, and land its older result on
+// top of a refresh that took ownership of the entry and wrote in between.
+// With the lock, either the regular commit finishes first (and the refresh,
+// which marks ownership before querying and so commits later, overwrites it)
+// or it sees the superseded mark and skips. Entries are reference-counted and
+// dropped when unused; the lock is per key, so a slow cache write (Redis)
+// only holds up commits for that same key. It orders commits within this
+// process only — instances sharing Redis are not coordinated.
+var (
+	commitLocksMu sync.Mutex
+	commitLocks   = make(map[string]*commitLock)
+)
+
+type commitLock struct {
+	mu   sync.Mutex
+	refs int // guarded by commitLocksMu
+}
+
+// lockCommit takes the commit lock for key and returns its release.
+func lockCommit(key string) (unlock func()) {
+	commitLocksMu.Lock()
+	l, ok := commitLocks[key]
+	if !ok {
+		l = &commitLock{}
+		commitLocks[key] = l
+	}
+	l.refs++
+	commitLocksMu.Unlock()
+
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		commitLocksMu.Lock()
+		if l.refs--; l.refs == 0 {
+			delete(commitLocks, key)
+		}
+		commitLocksMu.Unlock()
+	}
+}
+
+// commit records the flight's result in the cache — the result, or a
+// short-TTL negative marker for a stable not-found/denied error — unless an
+// overlapping refresh owns the entry. See commitLocks for why the check and
+// the write happen under one per-key lock.
+func (f *flight) commit(ctx context.Context, cacheKey string, outcome queryOutcome, err error) {
+	unlock := lockCommit(cacheKey)
+	defer unlock()
+
 	flightsMu.Lock()
 	superseded := f.superseded
 	flightsMu.Unlock()
 
-	// Write before publishing the result, so a caller that has seen the
-	// response can rely on the cache being populated.
 	switch {
 	case superseded:
 	case err != nil:
-		utils.CacheNegativeResult(qctx, config.CacheManager, cacheKey, err, config.NegativeCacheExpiration)
+		utils.CacheNegativeResult(ctx, config.CacheManager, cacheKey, err, config.NegativeCacheExpiration)
 	default:
-		if err := utils.SetToCache(qctx, config.CacheManager, cacheKey, outcome.body, config.CacheExpiration); err != nil {
-			slog.WarnContext(qctx, "cache write error", "key", cacheKey, "err", err)
+		if err := utils.SetToCache(ctx, config.CacheManager, cacheKey, outcome.body, config.CacheExpiration); err != nil {
+			slog.WarnContext(ctx, "cache write error", "key", cacheKey, "err", err)
 		}
 	}
-
-	f.publish(fkey, outcome, err)
 }
 
 // publish unregisters f and hands its result to the waiters. The registry
