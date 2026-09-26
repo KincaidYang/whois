@@ -1,6 +1,9 @@
 package utils
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestIsASN(t *testing.T) {
 	tests := []struct {
@@ -82,6 +85,25 @@ func TestIsDomain(t *testing.T) {
 		{"例子.cn", true},                  // IDN (Chinese label, ASCII TLD)
 		{"例子.中国", true},                  // IDN with internationalized (punycode) TLD
 		{"xn--fsqu00a.xn--fiqs8s", true}, // already-punycode IDN + punycode TLD
+	}
+
+	// Every label is within its own 63-octet limit, but the whole name is
+	// 254 octets — one over RFC 1035's 253 — until the TLD is shortened.
+	label := strings.Repeat("a", 63)
+	tooLong := label + "." + label + "." + label + "." + label[:58] + ".com"
+	atLimit := label + "." + label + "." + label + "." + label[:58] + ".co"
+	tests = append(tests,
+		struct {
+			input    string
+			expected bool
+		}{tooLong, false},
+		struct {
+			input    string
+			expected bool
+		}{atLimit, true},
+	)
+	if len(tooLong) != 254 || len(atLimit) != 253 {
+		t.Fatalf("fixture lengths %d/%d, want 254/253", len(tooLong), len(atLimit))
 	}
 
 	for _, test := range tests {

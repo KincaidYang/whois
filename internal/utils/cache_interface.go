@@ -112,6 +112,18 @@ func (mc *MemoryCache) Set(ctx context.Context, key string, value string, expira
 
 	expiresAt := time.Now().Add(expiration)
 
+	// An entry larger than the whole byte budget is not stored: making room
+	// for it would evict every other entry, so one oversized response (a big
+	// ?raw WHOIS text on a small budget) would wipe the hot set. An older
+	// value under the same key is dropped too — it is superseded, and must
+	// not keep being served. (With Redis in front, Redis still caches it.)
+	if newSize := entrySize(key, value); mc.maxBytes > 0 && newSize > mc.maxBytes {
+		if elem, ok := mc.items[key]; ok {
+			mc.removeElement(elem)
+		}
+		return nil
+	}
+
 	// Update existing entry in place and promote it. The entry count doesn't
 	// change, so maxSize is never re-checked here — only the byte budget,
 	// which a larger new value can still push over.
@@ -160,9 +172,9 @@ func (mc *MemoryCache) evictForInsert(newSize int64) {
 
 // evictOverBudget evicts LRU entries, other than the one just updated (which
 // MoveToFront has already put at the front, safe from evictOldest's
-// order.Back() as long as another entry remains), until under maxBytes. A
-// single updated entry larger than maxBytes by itself is kept rather than
-// evicted against itself. Callers must hold mc.mu.
+// order.Back() as long as another entry remains), until under maxBytes. Set
+// never stores an entry larger than maxBytes by itself, so this always
+// terminates under budget. Callers must hold mc.mu.
 func (mc *MemoryCache) evictOverBudget() {
 	for len(mc.items) > 1 && mc.maxBytes > 0 && mc.curBytes > mc.maxBytes {
 		mc.evictOldest()

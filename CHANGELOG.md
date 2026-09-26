@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
+- The MCP Registry release workflow now installs a pinned `mcp-publisher`
+  (v1.8.1) and checks its SHA-256 before running it, instead of executing
+  whatever the registry's `latest` release served at the time. The binary
+  runs with the job's OIDC token.
 - Upstream connections can no longer be steered to loopback, private
   (RFC 1918 / ULA), link-local (including the `169.254.169.254` cloud
   metadata endpoint), multicast or unspecified addresses. Registry hosts come
@@ -52,6 +56,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the write now happen under one per-key lock, so the refresh always has the
   last word. This orders writes within one instance; instances sharing Redis
   are not coordinated with each other.
+- A single response larger than the whole `cache.memoryMaxBytes` budget is
+  no longer stored in the in-memory cache. Making room for it evicted every
+  other entry first, so on a small budget one big `?raw` answer could wipe
+  the whole hot set. It is now skipped (an older value under the same key is
+  dropped); Redis, when configured, still caches it.
+- Domain names longer than 253 characters are rejected at input as invalid
+  (`400`). Each label was already capped at 63, but not the name as a whole.
 - RDAP responses are now checked against the query before being served and
   cached. Anything that merely parsed as JSON used to count as a result:
   `null`, `{}`, an RFC 9083 error object sent with HTTP 200, another object
