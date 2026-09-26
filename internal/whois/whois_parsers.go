@@ -1,6 +1,8 @@
 package whois
 
 import (
+	"errors"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -148,6 +150,47 @@ var (
 	reMultiSpace       = regexp.MustCompile(`\s+`)
 )
 
+// ErrUnrecognizedResponse marks a WHOIS answer that is neither a record the
+// parser could read (required fields missing) nor the registry's explicit
+// not-found message: a rate-limit or maintenance notice, a changed format, a
+// truncated reply. It is not cached, so the next request asks again — unlike
+// ErrDomainNotFound, which is a 404 and negative-cached.
+var ErrUnrecognizedResponse = errors.New("unrecognized WHOIS response")
+
+// Explicit not-found messages, as the registries send them (each verified
+// against a live query for a nonexistent name). Matched case-insensitively.
+const (
+	markerCN    = "No matching record"                 // CNNIC (.cn, .中国, .中國)
+	markerHK    = "The domain has not been registered" // HKIRC
+	markerTW    = "No Found"                           // TWNIC
+	markerICANN = "The queried object does not exist"  // .so, .sb, .la (ICANN-style)
+	markerRU    = "No entries found"                   // TCI (.ru, .su)
+	markerMO    = "No match for"                       // MONIC
+	markerAU    = "Domain not found"                   // auDA
+	markerSG    = "Not found:"                         // SGNIC
+	markerJP    = "No match!!"                         // JPRS
+	// KISA answers names reserved for qualified registrants (nic.kr) with
+	// this notice and no record; like an unregistered name, there is nothing
+	// to show.
+	markerKRRestricted = "restricted to specifically qualified registrants"
+)
+
+// notFoundOr classifies a response a parser could not read a record from:
+// ErrDomainNotFound when it carries one of the registry's not-found markers,
+// ErrUnrecognizedResponse (with the first line, for the logs) otherwise.
+// Treating every unreadable answer as not-found would turn a rate-limit
+// notice into a cached 404 for a name that is in fact registered.
+func notFoundOr(response string, markers ...string) error {
+	lower := strings.ToLower(response)
+	for _, m := range markers {
+		if strings.Contains(lower, strings.ToLower(m)) {
+			return utils.ErrDomainNotFound
+		}
+	}
+	first, _, _ := strings.Cut(strings.TrimSpace(response), "\n")
+	return fmt.Errorf("%w: %.120q", ErrUnrecognizedResponse, strings.TrimSpace(first))
+}
+
 // newDomainInfo seeds a DomainInfo with the v2 invariants shared by every
 // WHOIS parser: the object class discriminator and the queried name (already
 // punycode-lowercased by the handler).
@@ -270,7 +313,7 @@ func ParseWhoisResponseCN(response string, domain string) (model.DomainInfo, err
 	domainInfo.LastUpdateOfRdapDb = time.Now().UTC().Format(time.RFC3339)
 
 	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
-		return model.DomainInfo{}, utils.ErrDomainNotFound
+		return model.DomainInfo{}, notFoundOr(response, markerCN)
 	}
 
 	return domainInfo, nil
@@ -323,7 +366,7 @@ func ParseWhoisResponseHK(response string, domain string) (model.DomainInfo, err
 	domainInfo.LastUpdateOfRdapDb = time.Now().UTC().Format(time.RFC3339)
 
 	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
-		return model.DomainInfo{}, utils.ErrDomainNotFound
+		return model.DomainInfo{}, notFoundOr(response, markerHK)
 	}
 
 	return domainInfo, nil
@@ -380,7 +423,7 @@ func ParseWhoisResponseTW(response string, domain string) (model.DomainInfo, err
 	domainInfo.LastUpdateOfRdapDb = time.Now().UTC().Format(time.RFC3339)
 
 	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
-		return model.DomainInfo{}, utils.ErrDomainNotFound
+		return model.DomainInfo{}, notFoundOr(response, markerTW)
 	}
 
 	return domainInfo, nil
@@ -463,7 +506,7 @@ func ParseWhoisResponseSO(response string, domain string) (model.DomainInfo, err
 	}
 
 	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
-		return model.DomainInfo{}, utils.ErrDomainNotFound
+		return model.DomainInfo{}, notFoundOr(response, markerICANN)
 	}
 
 	return domainInfo, nil
@@ -517,7 +560,7 @@ func ParseWhoisResponseRU(response string, domain string) (model.DomainInfo, err
 	}
 
 	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
-		return model.DomainInfo{}, utils.ErrDomainNotFound
+		return model.DomainInfo{}, notFoundOr(response, markerRU)
 	}
 
 	return domainInfo, nil
@@ -600,7 +643,7 @@ func ParseWhoisResponseSB(response string, domain string) (model.DomainInfo, err
 	}
 
 	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
-		return model.DomainInfo{}, utils.ErrDomainNotFound
+		return model.DomainInfo{}, notFoundOr(response, markerICANN)
 	}
 
 	return domainInfo, nil
@@ -635,7 +678,7 @@ func ParseWhoisResponseMO(response string, domain string) (model.DomainInfo, err
 	domainInfo.LastUpdateOfRdapDb = time.Now().UTC().Format(time.RFC3339)
 
 	if domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
-		return model.DomainInfo{}, utils.ErrDomainNotFound
+		return model.DomainInfo{}, notFoundOr(response, markerMO)
 	}
 
 	return domainInfo, nil
@@ -716,7 +759,7 @@ func ParseWhoisResponseAU(response string, domain string) (model.DomainInfo, err
 	}
 
 	if domainInfo.Registrar == "" {
-		return model.DomainInfo{}, utils.ErrDomainNotFound
+		return model.DomainInfo{}, notFoundOr(response, markerAU)
 	}
 
 	return domainInfo, nil
@@ -776,7 +819,7 @@ func ParseWhoisResponseSG(response string, domain string) (model.DomainInfo, err
 	}
 
 	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
-		return model.DomainInfo{}, utils.ErrDomainNotFound
+		return model.DomainInfo{}, notFoundOr(response, markerSG)
 	}
 
 	return domainInfo, nil
@@ -854,7 +897,7 @@ func ParseWhoisResponseLA(response string, domain string) (model.DomainInfo, err
 
 	// 验证必要字段
 	if domainInfo.Registrar == "" || domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
-		return model.DomainInfo{}, utils.ErrDomainNotFound
+		return model.DomainInfo{}, notFoundOr(response, markerICANN)
 	}
 
 	return domainInfo, nil
@@ -934,7 +977,7 @@ func ParseWhoisResponseJP(response string, domain string) (model.DomainInfo, err
 
 	// 验证必要字段
 	if domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
-		return model.DomainInfo{}, utils.ErrDomainNotFound
+		return model.DomainInfo{}, notFoundOr(response, markerJP)
 	}
 
 	return domainInfo, nil
@@ -982,7 +1025,7 @@ func ParseWhoisResponseEU(response string, domain string) (model.DomainInfo, err
 	domainInfo.LastUpdateOfRdapDb = time.Now().UTC().Format(time.RFC3339)
 
 	if domainInfo.Registrar == "" {
-		return model.DomainInfo{}, utils.ErrDomainNotFound
+		return model.DomainInfo{}, notFoundOr(response)
 	}
 
 	return domainInfo, nil
@@ -1033,9 +1076,10 @@ func ParseWhoisResponseKR(response string, domain string) (model.DomainInfo, err
 	// 设置数据库更新时间为数据处理时间
 	domainInfo.LastUpdateOfRdapDb = time.Now().UTC().Format(time.RFC3339)
 
-	// 注册资格受限的域名（如 nic.kr）不返回任何字段，与未注册同样处理
+	// 注册资格受限的域名（如 nic.kr）不返回任何字段，与未注册同样处理；
+	// 其他缺字段的响应（限流、维护等）不当作未注册
 	if domainInfo.RegistrationDate == "" || domainInfo.ExpirationDate == "" {
-		return model.DomainInfo{}, utils.ErrDomainNotFound
+		return model.DomainInfo{}, notFoundOr(response, markerKRRestricted)
 	}
 
 	return domainInfo, nil
