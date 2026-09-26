@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -155,16 +156,49 @@ func TestNormalizeAuthClients(t *testing.T) {
 func TestEnvOverrideAuthKeys(t *testing.T) {
 	t.Setenv("WHOIS_AUTH_KEYS", "k1, k2 ,,k3")
 	var cfg Config
-	overrideConfigWithEnv(&cfg)
+	if err := overrideConfigWithEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
 	if len(cfg.Auth.Keys) != 3 || cfg.Auth.Keys[0].Key != "k1" || cfg.Auth.Keys[1].Key != "k2" || cfg.Auth.Keys[2].Key != "k3" {
 		t.Errorf("auth.keys from env: %+v", cfg.Auth.Keys)
+	}
+}
+
+// A WHOIS_AUTH_KEYS value that yields no key must fail rather than replace
+// the configured keys with an empty list, which would turn auth off.
+func TestEnvOverrideAuthKeysWithoutKeyFails(t *testing.T) {
+	for _, val := range []string{" ", ",", " , ,, "} {
+		t.Run(strconv.Quote(val), func(t *testing.T) {
+			t.Setenv("WHOIS_AUTH_KEYS", val)
+			var cfg Config
+			cfg.Auth.Keys = []AuthKeySpec{{Key: "from-file"}}
+			if err := overrideConfigWithEnv(&cfg); err == nil {
+				t.Fatal("expected an error for a WHOIS_AUTH_KEYS value with no key")
+			}
+			if len(cfg.Auth.Keys) != 1 || cfg.Auth.Keys[0].Key != "from-file" {
+				t.Errorf("configured keys must be left untouched, got %+v", cfg.Auth.Keys)
+			}
+		})
+	}
+
+	// An empty value still means "not set": the file's keys stay in effect.
+	t.Setenv("WHOIS_AUTH_KEYS", "")
+	var cfg Config
+	cfg.Auth.Keys = []AuthKeySpec{{Key: "from-file"}}
+	if err := overrideConfigWithEnv(&cfg); err != nil {
+		t.Fatalf("empty WHOIS_AUTH_KEYS: %v", err)
+	}
+	if len(cfg.Auth.Keys) != 1 {
+		t.Errorf("empty WHOIS_AUTH_KEYS must not touch auth.keys, got %+v", cfg.Auth.Keys)
 	}
 }
 
 func TestEnvOverrideProxySuffixes(t *testing.T) {
 	t.Setenv("WHOIS_PROXY_SUFFIXES", "com, net ,,org")
 	var cfg Config
-	overrideConfigWithEnv(&cfg)
+	if err := overrideConfigWithEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
 	want := []string{"com", "net", "org"}
 	if len(cfg.Proxy.Suffixes) != len(want) {
 		t.Fatalf("proxy.suffixes from env: %+v, want %+v", cfg.Proxy.Suffixes, want)
@@ -179,7 +213,9 @@ func TestEnvOverrideProxySuffixes(t *testing.T) {
 func TestEnvOverrideBootstrapInterval(t *testing.T) {
 	t.Setenv("WHOIS_BOOTSTRAP_INTERVAL", "3600")
 	var cfg Config
-	overrideConfigWithEnv(&cfg)
+	if err := overrideConfigWithEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
 	if cfg.Bootstrap.Interval != 3600 {
 		t.Errorf("bootstrap.interval from env: %d, want 3600", cfg.Bootstrap.Interval)
 	}
@@ -187,7 +223,9 @@ func TestEnvOverrideBootstrapInterval(t *testing.T) {
 	t.Setenv("WHOIS_BOOTSTRAP_INTERVAL", "not-a-number")
 	cfg = Config{}
 	cfg.Bootstrap.Interval = 86400
-	overrideConfigWithEnv(&cfg)
+	if err := overrideConfigWithEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
 	if cfg.Bootstrap.Interval != 86400 {
 		t.Errorf("invalid env should keep existing value: %d, want 86400", cfg.Bootstrap.Interval)
 	}
@@ -201,7 +239,9 @@ func TestEnvOverrideBoolValues(t *testing.T) {
 	}{{"true", true}, {"True", true}, {"1", true}, {"false", false}, {"0", false}, {" TRUE ", true}} {
 		t.Setenv("WHOIS_REDIS_TLS", tc.val)
 		cfg := Config{}
-		overrideConfigWithEnv(&cfg)
+		if err := overrideConfigWithEnv(&cfg); err != nil {
+			t.Fatal(err)
+		}
 		if cfg.Redis.TLS != tc.want {
 			t.Errorf("WHOIS_REDIS_TLS=%q: got %v, want %v", tc.val, cfg.Redis.TLS, tc.want)
 		}
@@ -211,7 +251,9 @@ func TestEnvOverrideBoolValues(t *testing.T) {
 	t.Setenv("WHOIS_REDIS_TLS", "yes")
 	cfg := Config{}
 	cfg.Redis.TLS = true
-	overrideConfigWithEnv(&cfg)
+	if err := overrideConfigWithEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
 	if !cfg.Redis.TLS {
 		t.Error("unrecognized WHOIS_REDIS_TLS=yes must keep the existing true value, not force false")
 	}

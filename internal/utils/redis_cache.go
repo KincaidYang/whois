@@ -113,10 +113,13 @@ func (rc *RedisCache) Get(ctx context.Context, key string) (CacheResult, error) 
 	}
 }
 
-// Set stores a value in Redis cache
+// Set stores a value in Redis cache. It returns errRedisUnhealthy without
+// writing while the connection is unhealthy.
 func (rc *RedisCache) Set(ctx context.Context, key string, value string, expiration time.Duration) error {
 	if !rc.IsHealthy() {
-		return nil // Silently skip if unhealthy
+		// Skipped, not written: FallbackCache must be able to tell this
+		// apart from success to track the key as missing from Redis.
+		return errRedisUnhealthy
 	}
 
 	err := rc.client.Set(ctx, key, value, expiration).Err()
@@ -135,14 +138,13 @@ func (rc *RedisCache) Set(ctx context.Context, key string, value string, expirat
 	return nil
 }
 
-// errRedisUnhealthy is returned by Del when it skips the delete because the
-// connection is currently unhealthy. Unlike Set (whose silent skip is
-// covered by FallbackCache's separate dirty-key tracking), Del's caller
-// (flushDirty) uses the return value itself to decide whether a key was
-// actually purged, so a skipped delete must not be reported the same as a
-// successful one — nil here would make flushDirty drop the key from dirty
-// tracking despite doing nothing, losing it for good.
-var errRedisUnhealthy = errors.New("redis: unhealthy, delete skipped")
+// errRedisUnhealthy is returned by Set and Del when they skip the operation
+// because the connection is currently unhealthy. FallbackCache relies on
+// telling a skip apart from success: a skipped Set must still mark the key
+// dirty (the health flag can flip between FallbackCache's own check and
+// Set's), and a skipped Del must not drop the key from dirty tracking
+// despite doing nothing.
+var errRedisUnhealthy = errors.New("redis: unhealthy, operation skipped")
 
 // Del removes keys from Redis cache outright. Used by FallbackCache to purge
 // stale entries left over from an outage. A no-op returning nil when there

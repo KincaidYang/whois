@@ -177,7 +177,10 @@ func load() {
 	}
 
 	// Override configuration with environment variables if they exist
-	overrideConfigWithEnv(&config)
+	if err := overrideConfigWithEnv(&config); err != nil {
+		slog.Error("invalid configuration", "err", err)
+		os.Exit(1)
+	}
 
 	// Set up structured logger as early as possible so all subsequent
 	// init messages use the configured level and JSON format.
@@ -625,7 +628,12 @@ func parseBoolEnv(name, val string, current bool) bool {
 	}
 }
 
-func overrideConfigWithEnv(config *Config) {
+// overrideConfigWithEnv applies WHOIS_* environment overrides to config. It
+// fails only for a value that cannot be applied safely: WHOIS_AUTH_KEYS set
+// to something that yields no key at all (whitespace, stray commas) would
+// otherwise replace the configured keys with an empty list and silently turn
+// authentication off.
+func overrideConfigWithEnv(config *Config) error {
 	// Override Redis configuration. WHOIS_REDIS_ADDR distinguishes "set to
 	// empty" from "unset": an explicitly empty value disables Redis (memory-only
 	// mode), which is otherwise unreachable in deployments whose baked-in config
@@ -743,8 +751,12 @@ func overrideConfigWithEnv(config *Config) {
 				keys = append(keys, AuthKeySpec{Key: key})
 			}
 		}
+		if len(keys) == 0 {
+			return fmt.Errorf("WHOIS_AUTH_KEYS is set but contains no key (got %q); unset it to use auth.keys from the configuration file", authKeys)
+		}
 		config.Auth.Keys = keys
 	}
+	return nil
 }
 
 // initVersionInfo reads version information from Go build info

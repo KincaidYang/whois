@@ -271,6 +271,12 @@ func NewFallbackCache(primary, fallback Cache) *FallbackCache {
 func (fc *FallbackCache) Get(ctx context.Context, key string) (CacheResult, error) {
 	if fc.primary.IsHealthy() {
 		fc.flushDirty(ctx)
+		// A key still dirty after the flush means the purge did not happen
+		// (e.g. the DEL timed out), so primary may still hold the pre-outage
+		// value; reading it would shadow the newer one in fallback.
+		if fc.isDirty(key) {
+			return fc.fallback.Get(ctx, key)
+		}
 		result, err := fc.primary.Get(ctx, key)
 		if err == nil && result.Found {
 			return result, nil
@@ -287,13 +293,23 @@ func (fc *FallbackCache) Set(ctx context.Context, key string, value string, expi
 
 	if fc.primary.IsHealthy() {
 		primaryErr = fc.primary.Set(ctx, key, value, expiration)
-		if primaryErr != nil {
+		switch {
+		case errors.Is(primaryErr, errRedisUnhealthy):
+			// Primary turned unhealthy between the check above and its own
+			// and skipped the write: the same situation as the
+			// already-unhealthy branch below, not a failure to report.
+			primaryErr = nil
+			fc.markDirty(key)
+		case primaryErr != nil:
 			// IsHealthy() was true when the attempt started, but the write
 			// itself failed (Set flips health false on its own error path)
 			// — primary does not have this value either way, same as the
 			// already-unhealthy case below.
 			fc.markDirty(key)
-		} else {
+		default:
+			// Primary now holds this very value, so it must not be purged
+			// as stale by the flush that follows.
+			fc.clearDirty(key)
 			fc.flushDirty(ctx)
 		}
 	} else {
@@ -322,6 +338,21 @@ func (fc *FallbackCache) markDirty(key string) {
 		return
 	}
 	fc.dirty[key] = struct{}{}
+}
+
+// isDirty reports whether key is tracked as written to fallback only.
+func (fc *FallbackCache) isDirty(key string) bool {
+	fc.dirtyMu.Lock()
+	defer fc.dirtyMu.Unlock()
+	_, ok := fc.dirty[key]
+	return ok
+}
+
+// clearDirty stops tracking key, once primary holds its current value again.
+func (fc *FallbackCache) clearDirty(key string) {
+	fc.dirtyMu.Lock()
+	defer fc.dirtyMu.Unlock()
+	delete(fc.dirty, key)
 }
 
 // flushDirty purges primary's copy of every dirty key, so a stale pre-outage

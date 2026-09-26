@@ -49,6 +49,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   own deadline into account, not just a fixed 10s from when the connection
   was established; a request whose deadline was already close by dial time
   could previously wait out the full 10s regardless.
+- Startup now fails when `WHOIS_AUTH_KEYS` is set to a value that contains
+  no key at all (whitespace, stray commas). Such a value used to replace the
+  keys from `auth.keys` with an empty list, silently turning authentication
+  off. An empty `WHOIS_AUTH_KEYS` is still treated as unset.
+- `.so` and `.sb` WHOIS results no longer carry a trailing carriage return in
+  `registrar` and `registrarIanaId`, and their `lastUpdateOfRdapDb` is
+  normalized to RFC 3339 again instead of keeping the registry's ` <<<`
+  marker. Both registries answer with CRLF line endings, which these two
+  parsers did not strip.
+- Nameservers from WHOIS responses no longer keep a trailing root dot
+  (`.ru`/`.su` print `ns1.example.com.`), matching the RDAP path, which
+  already stripped it.
+- Three more ways a stale pre-outage Redis value could win after recovery
+  are closed: a key whose purge failed (for instance on the purge's own
+  timeout, which does not mark Redis unhealthy) is now read from memory
+  until the purge succeeds, instead of from Redis; a write that Redis skipped
+  because its health flipped mid-call is now tracked like any other
+  memory-only write; and a successful write to a key still awaiting purge
+  (e.g. a `?refresh` right after recovery) is no longer deleted from Redis by
+  the purge that follows it.
 
 ## [1.3.0] - 2026-08-22
 

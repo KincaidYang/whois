@@ -323,12 +323,13 @@ func TestRedisCacheErrorFlipsHealth(t *testing.T) {
 		t.Fatal("a Redis error must flip the health flag off")
 	}
 
-	// While unhealthy, Get short-circuits to a miss and Set is a silent no-op.
+	// While unhealthy, Get short-circuits to a miss and Set skips the write,
+	// reporting the skip so FallbackCache can track the key.
 	if r, err := rc.Get(ctx, "k"); err != nil || r.Found {
 		t.Errorf("unhealthy Get = %+v, %v; want silent miss", r, err)
 	}
-	if err := rc.Set(ctx, "k", "v", time.Minute); err != nil {
-		t.Errorf("unhealthy Set = %v; want silent nil", err)
+	if err := rc.Set(ctx, "k", "v", time.Minute); !errors.Is(err, errRedisUnhealthy) {
+		t.Errorf("unhealthy Set = %v; want errRedisUnhealthy", err)
 	}
 
 	// A later health check against a recovered server restores service.
@@ -393,8 +394,8 @@ func TestRedisCacheCancelledContextKeepsHealth(t *testing.T) {
 	}
 }
 
-// TestRedisCacheDel verifies Del removes keys outright and is a silent no-op
-// when unhealthy or given no keys, matching Set's existing behavior.
+// TestRedisCacheDel verifies Del removes keys outright, is a no-op for no
+// keys, and reports errRedisUnhealthy (like Set) when it skips the delete.
 func TestRedisCacheDel(t *testing.T) {
 	ctx := context.Background()
 	s := newFakeRedisServer(t)

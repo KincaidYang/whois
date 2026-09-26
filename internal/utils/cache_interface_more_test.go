@@ -286,10 +286,6 @@ func TestFallbackCacheUnhealthyPrimary(t *testing.T) {
 	}
 }
 
-// TestFallbackCacheRecoveryPurgesStaleDirtyKeys covers the scenario a stale
-// primary entry, untouched during an outage, would otherwise shadow a
-// newer value written to fallback for the rest of its original TTL once
-// primary recovers.
 // TestFallbackCacheMarksDirtyOnPrimarySetFailure covers the case where
 // primary looked healthy when the write started, but the write itself
 // failed (a transient error, discovered by this very call) — the key must
@@ -325,6 +321,10 @@ func TestFallbackCacheMarksDirtyOnPrimarySetFailure(t *testing.T) {
 	}
 }
 
+// TestFallbackCacheRecoveryPurgesStaleDirtyKeys covers the scenario a stale
+// primary entry, untouched during an outage, would otherwise shadow a
+// newer value written to fallback for the rest of its original TTL once
+// primary recovers.
 func TestFallbackCacheRecoveryPurgesStaleDirtyKeys(t *testing.T) {
 	ctx := context.Background()
 	// Primary starts down, already holding a pre-outage value for "k".
@@ -369,8 +369,11 @@ func TestFallbackCacheFlushDirtyRetriesOnFailure(t *testing.T) {
 
 	primary.healthy = true
 	primary.delErr = errors.New("boom")
-	if _, err := fc.Get(ctx, "k"); err != nil {
-		t.Fatalf("Get: %v", err)
+	// The purge failed, so primary still holds the pre-outage value (a real
+	// DEL can fail this way without flipping health, e.g. on its own
+	// timeout); it must not be served over the newer fallback value.
+	if r, err := fc.Get(ctx, "k"); err != nil || !r.Found || r.Data != "new" {
+		t.Fatalf("Get after failed purge = %+v, %v; want the fallback value, not primary's stale one", r, err)
 	}
 	if len(primary.dels) != 1 {
 		t.Fatalf("expected one attempted Del, got %d", len(primary.dels))
@@ -390,6 +393,58 @@ func TestFallbackCacheFlushDirtyRetriesOnFailure(t *testing.T) {
 	}
 	if !r.Found || r.Data != "new" {
 		t.Errorf("Get (retry) = %+v, want the fallback value once the stale primary entry is finally purged", r)
+	}
+}
+
+// TestFallbackCacheMarksDirtyWhenPrimarySkipsWrite covers primary turning
+// unhealthy between FallbackCache's own health check and primary's: the write
+// is skipped (errRedisUnhealthy), which must count as a fallback-only write —
+// tracked dirty and not reported as a failure.
+func TestFallbackCacheMarksDirtyWhenPrimarySkipsWrite(t *testing.T) {
+	ctx := context.Background()
+	primary := &stubCache{healthy: true, setErr: errRedisUnhealthy, data: map[string]string{"k": "old"}}
+	fallback := &stubCache{healthy: true}
+	fc := NewFallbackCache(primary, fallback)
+
+	if err := fc.Set(ctx, "k", "new", time.Minute); err != nil {
+		t.Fatalf("a skipped primary write must not be reported as an error, got %v", err)
+	}
+	if !fc.isDirty("k") {
+		t.Fatal("k must be tracked dirty when primary skipped the write")
+	}
+	if fallback.data["k"] != "new" {
+		t.Error("fallback missed the write")
+	}
+}
+
+// TestFallbackCacheSetDoesNotPurgeOwnWrite covers a dirty key rewritten once
+// primary is healthy again without a Get in between (a ?refresh query skips
+// the cache read): the successful write must clear the key's dirty mark, not
+// be deleted from primary as stale by the flush that follows it.
+func TestFallbackCacheSetDoesNotPurgeOwnWrite(t *testing.T) {
+	ctx := context.Background()
+	primary := &stubCache{healthy: false, data: map[string]string{"k": "old", "other": "old"}}
+	fallback := &stubCache{healthy: true}
+	fc := NewFallbackCache(primary, fallback)
+
+	for _, k := range []string{"k", "other"} {
+		if err := fc.Set(ctx, k, "during-outage", time.Minute); err != nil {
+			t.Fatalf("Set during outage: %v", err)
+		}
+	}
+
+	primary.healthy = true
+	if err := fc.Set(ctx, "k", "fresh", time.Minute); err != nil {
+		t.Fatalf("Set after recovery: %v", err)
+	}
+	if primary.data["k"] != "fresh" {
+		t.Errorf("primary k = %q, want the value just written, not purged", primary.data["k"])
+	}
+	if _, ok := primary.data["other"]; ok {
+		t.Error("the other dirty key must still be purged by the flush")
+	}
+	if fc.isDirty("k") || fc.isDirty("other") {
+		t.Error("no key should remain dirty after a successful write and flush")
 	}
 }
 

@@ -35,7 +35,9 @@ func TestOverrideConfigWithEnvAllFields(t *testing.T) {
 
 	var cfg Config
 	cfg.MCP.LocalhostProtection = true
-	overrideConfigWithEnv(&cfg)
+	if err := overrideConfigWithEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	checks := []struct {
 		name string
@@ -75,7 +77,9 @@ func TestOverrideConfigWithEnvExplicitEmptyRedisAddr(t *testing.T) {
 	t.Setenv("WHOIS_REDIS_ADDR", "")
 	cfg := Config{}
 	cfg.Redis.Addr = "baked-in:6379"
-	overrideConfigWithEnv(&cfg)
+	if err := overrideConfigWithEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
 	if cfg.Redis.Addr != "" {
 		t.Errorf("redis.addr = %q, want cleared by explicit empty env", cfg.Redis.Addr)
 	}
@@ -87,7 +91,9 @@ func TestOverrideConfigWithEnvBadNumbersIgnored(t *testing.T) {
 	cfg := Config{}
 	cfg.Server.Port = 8043
 	cfg.Redis.DB = 1
-	overrideConfigWithEnv(&cfg)
+	if err := overrideConfigWithEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
 	if cfg.Server.Port != 8043 || cfg.Redis.DB != 1 {
 		t.Errorf("port/db = %d/%d, want unparseable env values ignored (8043/1)", cfg.Server.Port, cfg.Redis.DB)
 	}

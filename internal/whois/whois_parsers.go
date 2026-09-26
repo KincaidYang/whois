@@ -209,11 +209,12 @@ func attachDSData(info *model.DomainInfo, raw string) {
 	}
 }
 
-// lowerAll lowercases every entry (nameserver hostnames are normalized to
-// lowercase, matching the RDAP path).
+// lowerAll normalizes nameserver hostnames the way the RDAP path does:
+// lowercase, and without the trailing root dot some registries (.ru/.su)
+// print as part of an FQDN.
 func lowerAll(in []string) []string {
 	for i, s := range in {
-		in[i] = strings.ToLower(strings.TrimSpace(s))
+		in[i] = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(s)), ".")
 	}
 	return in
 }
@@ -388,6 +389,11 @@ func ParseWhoisResponseTW(response string, domain string) (model.DomainInfo, err
 func ParseWhoisResponseSO(response string, domain string) (model.DomainInfo, error) {
 	domainInfo := newDomainInfo(domain)
 
+	// The registry answers with CRLF line endings; without this every "(.*)"
+	// capture keeps a trailing \r (registrar, IANA ID) and the " <<<" suffix
+	// on the database timestamp is never stripped, so it fails to normalize.
+	response = strings.ReplaceAll(response, "\r", "")
+
 	// 解析注册商
 	matchRegistrar := reSORegistrar.FindStringSubmatch(response)
 	if len(matchRegistrar) > 1 {
@@ -519,6 +525,11 @@ func ParseWhoisResponseRU(response string, domain string) (model.DomainInfo, err
 
 func ParseWhoisResponseSB(response string, domain string) (model.DomainInfo, error) {
 	domainInfo := newDomainInfo(domain)
+
+	// The registry answers with CRLF line endings; without this every "(.*)"
+	// capture keeps a trailing \r (registrar, IANA ID) and the " <<<" suffix
+	// on the database timestamp is never stripped, so it fails to normalize.
+	response = strings.ReplaceAll(response, "\r", "")
 
 	// 解析创建日期
 	matchCreationDate := reSBCreationDate.FindStringSubmatch(response)
