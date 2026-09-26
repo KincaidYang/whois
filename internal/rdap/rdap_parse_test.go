@@ -399,6 +399,9 @@ func TestParseRDAPRejectsWrongObject(t *testing.T) {
 		{"asn null", asn(64500), `null`, ErrInvalidResponse},
 		{"asn outside range", asn(64500), `{"handle": "AS64501", "startAutnum": 64501, "endAutnum": 64501}`, ErrInvalidResponse},
 		{"asn wrong class", asn(64500), `{"objectClassName": "domain", "handle": "AS64500"}`, ErrInvalidResponse},
+		{"asn other handle, no range", asn(64500), `{"objectClassName": "autnum", "handle": "AS64501"}`, ErrInvalidResponse},
+		{"asn opaque handle, no range", asn(64500), `{"objectClassName": "autnum", "handle": "EXAMPLE-AS"}`, ErrInvalidResponse},
+		{"asn no handle, no range", asn(64500), `{"objectClassName": "autnum"}`, ErrInvalidResponse},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -413,7 +416,7 @@ func TestParseRDAPRejectsWrongObject(t *testing.T) {
 // send for the right object: uppercase and trailing-dot names (Verisign
 // answers EXAMPLE.COM), a U-label name for an IDN query, an IPv4-mapped
 // start address, a single address inside the network, and an autnum given
-// only by handle.
+// only by an "AS<number>" handle.
 func TestParseRDAPAcceptsEquivalentSpellings(t *testing.T) {
 	if _, err := ParseRDAPResponseforDomain(`{"objectClassName": "domain", "ldhName": "EXAMPLE.COM."}`, "example.com"); err != nil {
 		t.Errorf("uppercase/trailing-dot ldhName: %v", err)
@@ -427,8 +430,8 @@ func TestParseRDAPAcceptsEquivalentSpellings(t *testing.T) {
 	if _, err := ParseRDAPResponseforIP(`{"startAddress": "2001:db8::", "endAddress": "2001:db8::ffff"}`, "2001:db8::/112"); err != nil {
 		t.Errorf("prefix exactly the network: %v", err)
 	}
-	if _, err := ParseRDAPResponseforASN(`{"objectClassName": "autnum", "handle": "AS64500"}`, 64500); err != nil {
-		t.Errorf("autnum without a range: %v", err)
+	if _, err := ParseRDAPResponseforASN(`{"objectClassName": "autnum", "handle": "as64500"}`, 64500); err != nil {
+		t.Errorf("autnum without a range, named by its handle: %v", err)
 	}
 	if _, err := ParseRDAPResponseforASN(`{"startAutnum": 64496, "endAutnum": 64511}`, 64500); err != nil {
 		t.Errorf("ASN inside a block: %v", err)

@@ -209,7 +209,7 @@ func TestHandleASNMissAndHit(t *testing.T) {
 	var gotPath atomic.Value
 	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
 		gotPath.Store(r.URL.Path)
-		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS-ZZASNTEST"}`))
+		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS-ZZASNTEST","startAutnum":4199999990,"endAutnum":4199999999}`))
 	}, "4199999990-4199999999")
 
 	w := httptest.NewRecorder()
@@ -245,7 +245,7 @@ func TestHandleASNLeadingZeros(t *testing.T) {
 	var upstreamCalls atomic.Int32
 	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
 		upstreamCalls.Add(1)
-		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS-ZZASNTEST"}`))
+		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS-ZZASNTEST","startAutnum":4199999990,"endAutnum":4199999999}`))
 	}, "4199999990-4199999999")
 
 	mux := newTestMux()
@@ -285,7 +285,7 @@ func TestHandleASNMaxUint32(t *testing.T) {
 // TestHandleASNRefresh verifies the refresh path for ASN queries.
 func TestHandleASNRefresh(t *testing.T) {
 	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS-FRESH"}`))
+		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS-FRESH","startAutnum":4199999990,"endAutnum":4199999999}`))
 	}, "4199999990-4199999999")
 
 	w := httptest.NewRecorder()

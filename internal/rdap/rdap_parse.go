@@ -195,6 +195,15 @@ func addrRange(query string) (first, last netip.Addr, err error) {
 	return first, last, nil
 }
 
+// handleASN reads the ASN out of an "AS<number>" handle (case-insensitive).
+func handleASN(handle string) (uint32, bool) {
+	if len(handle) < 3 || !strings.EqualFold(handle[:2], "AS") {
+		return 0, false
+	}
+	n, err := strconv.ParseUint(handle[2:], 10, 32)
+	return uint32(n), err == nil
+}
+
 // extractRegistrarName extracts the "fn" (full name) property from a vCard array.
 // The vCard format per RFC 7095 is: ["vcard", [["fn", {}, "text", "Name"], ...]]
 func extractRegistrarName(vcardArray []json.RawMessage) string {
@@ -422,8 +431,9 @@ func ParseRDAPResponseforIP(response, query string) (model.IPInfo, error) {
 }
 
 // ParseRDAPResponseforASN parses the RDAP response for asn. When the
-// response gives its range (startAutnum/endAutnum) the ASN must fall in it;
-// a response with neither a range nor a handle identifies nothing.
+// response gives its range (startAutnum/endAutnum) the ASN must fall in it.
+// Without a range, the handle is all that identifies the object, so it must
+// read "AS<number>" for this very ASN; anything else is rejected.
 func ParseRDAPResponseforASN(response string, asn uint32) (model.ASNInfo, error) {
 	var rdap rdapASNResponse
 	if err := json.Unmarshal([]byte(response), &rdap); err != nil {
@@ -432,13 +442,12 @@ func ParseRDAPResponseforASN(response string, asn uint32) (model.ASNInfo, error)
 	if err := checkCommon(rdap.rdapCommon, model.ObjectClassAutnum); err != nil {
 		return model.ASNInfo{}, err
 	}
-	switch {
-	case rdap.StartAutnum != nil && rdap.EndAutnum != nil:
+	if rdap.StartAutnum != nil && rdap.EndAutnum != nil {
 		if asn < *rdap.StartAutnum || asn > *rdap.EndAutnum {
 			return model.ASNInfo{}, fmt.Errorf("%w: range AS%d-AS%d does not cover AS%d", ErrInvalidResponse, *rdap.StartAutnum, *rdap.EndAutnum, asn)
 		}
-	case rdap.Handle == "":
-		return model.ASNInfo{}, fmt.Errorf("%w: no handle or autnum range", ErrInvalidResponse)
+	} else if n, ok := handleASN(rdap.Handle); !ok || n != asn {
+		return model.ASNInfo{}, fmt.Errorf("%w: no autnum range, and handle %q does not name AS%d", ErrInvalidResponse, rdap.Handle, asn)
 	}
 
 	info := model.ASNInfo{
