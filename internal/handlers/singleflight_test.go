@@ -501,6 +501,64 @@ func TestRefreshFlightOwnsCacheEntry(t *testing.T) {
 	}
 }
 
+// TestAcquirePermitReturnsPermitWhenAbandoned covers the race in which a
+// flight's last waiter abandons it while a permit is also free: select may
+// pick either ready case, and when the send wins the permit must be handed
+// back rather than kept by a flight that will never query. Repeating makes
+// both outcomes all but certain to occur (each run is a fair coin).
+func TestAcquirePermitReturnsPermitWhenAbandoned(t *testing.T) {
+	limiter := make(chan struct{}, 1)
+	for range 100 {
+		f := &flight{done: make(chan struct{}), abandon: make(chan struct{}), abandoned: true}
+		close(f.abandon)
+		if err := f.acquirePermit(context.Background(), limiter); !errors.Is(err, context.Canceled) {
+			t.Fatalf("abandoned flight: err = %v, want context.Canceled", err)
+		}
+		if n := len(limiter); n != 0 {
+			t.Fatalf("abandoned flight kept %d permits, want 0", n)
+		}
+	}
+}
+
+// TestDedupedQueryFlightTimeoutCoversQueueing verifies a flight's timeout
+// counts from its creation: one that queues for a permit past RequestTimeout
+// gives up with ErrUpstreamBusy instead of starting a fresh timeout for the
+// query, which would let it outlive the shutdown drain.
+func TestDedupedQueryFlightTimeoutCoversQueueing(t *testing.T) {
+	setupFlightTest(t)
+
+	synctest.Test(t, func(t *testing.T) {
+		config.UpstreamLimiter = make(chan struct{}, 1)
+		releaseBlocker := make(chan struct{})
+		blockerDone := make(chan struct{})
+		go func() {
+			defer close(blockerDone)
+			_, _ = dedupedQuery(context.Background(), "whois:sfqueueblocker", false, func(context.Context) (queryOutcome, error) {
+				<-releaseBlocker
+				return queryOutcome{}, nil
+			})
+		}()
+		synctest.Wait()
+
+		// The waiter itself never gives up, so only the flight's own timeout
+		// can end the queuing.
+		var ran atomic.Bool
+		_, err := dedupedQuery(context.Background(), "whois:sfqueued", false, func(context.Context) (queryOutcome, error) {
+			ran.Store(true)
+			return queryOutcome{}, nil
+		})
+		if !errors.Is(err, utils.ErrUpstreamBusy) {
+			t.Errorf("error = %v, want ErrUpstreamBusy once the flight's timeout passed in the queue", err)
+		}
+		if ran.Load() {
+			t.Error("a flight that timed out in the queue must not query upstream")
+		}
+
+		close(releaseBlocker)
+		<-blockerDone
+	})
+}
+
 // setupFlightTest gives a flight test its own cache and upstream limiter
 // without running config.Load. The cleanup waits for the flight registry to
 // drain first: a detached flight still writes the cache after its callers are

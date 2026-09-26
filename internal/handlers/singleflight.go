@@ -65,9 +65,11 @@ const refreshFlightPrefix = "refresh\x00"
 // batch request fans out into several flights). Until it has a permit the
 // flight is tied to its waiters: if they all leave first, it is abandoned and
 // removed from the registry without ever querying. Once it holds a permit it
-// is detached: it gets its own timeout, independent of the first caller's
-// context, and runs to completion even if every waiter leaves, still
-// populating the cache for later requests. Stable not-found/denied errors are
+// is detached and runs to completion even if every waiter leaves, still
+// populating the cache for later requests. Its timeout is its own,
+// independent of the first caller's context, and counts from the flight's
+// creation, so queuing for a permit and querying together never exceed
+// RequestTimeout. Stable not-found/denied errors are
 // negative-cached once per flight.
 //
 // Each flight also holds an entry in the shutdown wait group for its whole
@@ -135,29 +137,33 @@ func dedupedQuery(ctx context.Context, key string, refresh bool, fn func(context
 	}
 }
 
-// acquirePermit takes an upstream permit for f, or reports false if f was
-// abandoned first. (UpstreamLimiter is nil only in tests that bypass
-// config.Load, which run unlimited.)
-func (f *flight) acquirePermit() bool {
-	limiter := config.UpstreamLimiter
+// acquirePermit takes an upstream permit for f. It gives up and returns an
+// error if f is abandoned first (every waiter left) or if ctx — the flight's
+// own timeout, which covers queuing as well as the query itself — ends
+// before a permit frees up. A nil limiter means unlimited (only tests that
+// bypass config.Load run without one).
+func (f *flight) acquirePermit(ctx context.Context, limiter chan struct{}) error {
 	if limiter != nil {
 		select {
 		case limiter <- struct{}{}:
 		case <-f.abandon:
-			return false
+			return context.Canceled
+		case <-ctx.Done():
+			return fmt.Errorf("%w: %w", utils.ErrUpstreamBusy, ctx.Err())
 		}
 	}
 	flightsMu.Lock()
 	defer flightsMu.Unlock()
 	if f.abandoned {
-		// Both select cases were ready and the send won; give the permit back.
+		// Both the send and abandon were ready and the send won; give the
+		// permit back.
 		if limiter != nil {
 			<-limiter
 		}
-		return false
+		return context.Canceled
 	}
 	f.permitted = true
-	return true
+	return nil
 }
 
 // run waits for an upstream permit, executes the flight, records its result
@@ -170,13 +176,22 @@ func (f *flight) acquirePermit() bool {
 func (f *flight) run(ctx context.Context, cacheKey, fkey string, fn func(context.Context) (queryOutcome, error)) {
 	defer config.Wg.Done()
 
-	if !f.acquirePermit() {
-		// Abandoned: every waiter is gone and the flight is already out of the
-		// registry, so there is nobody to answer and nothing to cache.
-		f.publish(fkey, queryOutcome{}, context.Canceled)
+	// One timeout covers the flight's whole life, queuing for a permit
+	// included, so a flight never outlives RequestTimeout from its creation.
+	// Shutdown relies on that bound: it drains requests for RequestTimeout
+	// plus a few seconds and then closes the cache, which a flight that
+	// restarted its clock after queuing could still be writing to.
+	qctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), config.RequestTimeout)
+	defer cancel()
+
+	limiter := config.UpstreamLimiter
+	if err := f.acquirePermit(qctx, limiter); err != nil {
+		// Abandoned (nobody is waiting, and the flight is already out of the
+		// registry) or out of time before a permit freed up; either way there
+		// is no upstream answer and nothing to cache.
+		f.publish(fkey, queryOutcome{}, err)
 		return
 	}
-	limiter := config.UpstreamLimiter
 	metrics.UpstreamInFlight.Inc()
 	defer func() {
 		metrics.UpstreamInFlight.Dec()
@@ -184,11 +199,6 @@ func (f *flight) run(ctx context.Context, cacheKey, fkey string, fn func(context
 			<-limiter
 		}
 	}()
-
-	// The timeout starts once the permit is held: time spent queuing was
-	// bounded by the waiters' own deadlines, not charged to the query.
-	qctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), config.RequestTimeout)
-	defer cancel()
 
 	outcome, err := fn(qctx)
 
