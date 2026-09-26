@@ -44,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   indirect dependencies are refreshed to their latest releases.
 
 ### Fixed
+- A `?refresh` result can no longer be overwritten by an older regular
+  lookup of the same resource. A regular lookup that had already checked it
+  was not superseded, then stalled in its cache write (a slow Redis round
+  trip is enough), could land its result — possibly a not-found marker — on
+  top of the refresh that took over and wrote in the meantime. The check and
+  the write now happen under one per-key lock, so the refresh always has the
+  last word. This orders writes within one instance; instances sharing Redis
+  are not coordinated with each other.
 - RDAP responses are now checked against the query before being served and
   cached. Anything that merely parsed as JSON used to count as a result:
   `null`, `{}`, an RFC 9083 error object sent with HTTP 200, another object

@@ -628,6 +628,74 @@ func TestDedupedQueryFlightTimeoutCoversQueueing(t *testing.T) {
 	})
 }
 
+// gateCache blocks the Set of one particular value until released, so a test
+// can hold a flight inside its cache commit.
+type gateCache struct {
+	utils.Cache
+	value   string
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (g *gateCache) Set(ctx context.Context, key, value string, expiration time.Duration) error {
+	if value == g.value {
+		close(g.entered)
+		<-g.release
+	}
+	return g.Cache.Set(ctx, key, value, expiration)
+}
+
+// TestRefreshWinsOverStalledRegularCommit covers a regular flight that passed
+// its superseded check and stalled in the cache write while a refresh took
+// ownership of the entry, queried and committed. The refresh's commit must
+// wait for the stalled one rather than land first and be overwritten by the
+// older result.
+func TestRefreshWinsOverStalledRegularCommit(t *testing.T) {
+	setupFlightTest(t)
+	gate := &gateCache{Cache: config.CacheManager, value: "regular", entered: make(chan struct{}), release: make(chan struct{})}
+	config.CacheManager = gate
+	const key = "whois:sfcommitorder"
+
+	regularDone := make(chan struct{})
+	go func() {
+		defer close(regularDone)
+		_, _ = dedupedQuery(context.Background(), key, false, func(context.Context) (queryOutcome, error) {
+			return queryOutcome{body: "regular"}, nil
+		})
+	}()
+	<-gate.entered // past the superseded check, stalled in the write
+
+	refreshDone := make(chan error, 1)
+	go func() {
+		_, err := dedupedQuery(context.Background(), key, true, func(context.Context) (queryOutcome, error) {
+			return queryOutcome{body: "refreshed"}, nil
+		})
+		refreshDone <- err
+	}()
+	waitFor(t, "the refresh to queue behind the stalled commit", func() bool {
+		commitLocksMu.Lock()
+		defer commitLocksMu.Unlock()
+		l := commitLocks[key]
+		return l != nil && l.refs == 2
+	})
+
+	close(gate.release)
+	<-regularDone
+	if err := <-refreshDone; err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	got, err := config.CacheManager.Get(context.Background(), key)
+	if err != nil || !got.Found || got.Data != "refreshed" {
+		t.Errorf("cache = %+v, %v; want the refreshed result to have the last word", got, err)
+	}
+	commitLocksMu.Lock()
+	n := len(commitLocks)
+	commitLocksMu.Unlock()
+	if n != 0 {
+		t.Errorf("%d commit locks left behind, want 0", n)
+	}
+}
+
 // setupFlightTest gives a flight test its own cache and upstream limiter
 // without running config.Load. The cleanup waits for the flight registry to
 // drain first: a detached flight still writes the cache after its callers are
