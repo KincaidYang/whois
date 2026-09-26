@@ -25,7 +25,10 @@ func TestBlocked(t *testing.T) {
 		"::ffff:127.0.0.1": true, // IPv4-mapped loopback
 		"8.8.8.8":          false,
 		"2001:4860::8888":  false,
-		"100.64.0.1":       false, // CGNAT: left alone
+		"100.64.0.1":       false, // CGNAT: left alone …
+		"100.100.100.200":  true,  // … except Alibaba Cloud's metadata endpoint
+		"169.254.0.23":     true,  // Tencent Cloud metadata
+		"fd00:ec2::254":    true,  // AWS IPv6 metadata
 		"198.18.0.1":       false, // fake-IP DNS range of Clash/Surge
 	}
 	for s, want := range cases {

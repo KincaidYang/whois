@@ -24,7 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rebinding cannot slip past it) for RDAP, IANA bootstrap and WHOIS
   connections. Redirects are limited to 5 hops and may not downgrade https to
   http. `100.64.0.0/10` and `198.18.0.0/15` stay reachable, since fake-IP DNS
-  modes of common proxy tools resolve every name into them. Requests through
+  modes of common proxy tools resolve every name into them — except Alibaba
+  Cloud's metadata endpoint `100.100.100.200`, which sits inside the former. Requests through
   a configured `proxy.server` keep connecting to the proxy wherever it is;
   their redirects get the same scheme and literal-address checks.
 

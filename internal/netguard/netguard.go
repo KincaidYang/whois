@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
 	"sync/atomic"
 	"syscall"
 )
@@ -40,12 +41,24 @@ func SetAllowPrivateForTesting(allow bool) {
 	allowPrivate.Store(allow)
 }
 
+// metadataAddrs are cloud instance metadata endpoints outside the ranges
+// blocked() refuses wholesale. Alibaba Cloud ECS serves metadata (including
+// instance credentials) at 100.100.100.200, inside the CGNAT range left open
+// below. The other major clouds use link-local (169.254.169.254, Tencent's
+// 169.254.0.23) or ULA (AWS fd00:ec2::254) addresses, already covered.
+var metadataAddrs = []netip.Addr{
+	netip.MustParseAddr("100.100.100.200"),
+}
+
 // blocked reports whether a is an address no public registry is reachable
-// at. 100.64.0.0/10 and 198.18.0.0/15 are deliberately allowed: fake-IP DNS
-// modes of common proxy tools (Clash, Surge) resolve every name into them,
-// and blocking those would break such deployments outright.
+// at. 100.64.0.0/10 and 198.18.0.0/15 are otherwise deliberately allowed:
+// fake-IP DNS modes of common proxy tools (Clash, Surge) resolve every name
+// into them, and blocking those would break such deployments outright.
 func blocked(a netip.Addr) bool {
 	a = a.Unmap()
+	if slices.Contains(metadataAddrs, a) {
+		return true
+	}
 	return a.IsLoopback() ||
 		a.IsPrivate() ||
 		a.IsLinkLocalUnicast() ||
