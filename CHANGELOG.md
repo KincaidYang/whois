@@ -40,7 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with `errorCode` 404, which reads as not-found.
 - IP lookups in Brazilian address space (LACNIC redirects them to
   registro.br) no longer fail: registro.br sends the `cidr0_cidrs` length as
-  a string, which made the whole response undecodable.
+  a string, which made the whole response undecodable. A prefix length that
+  is not an integer valid for its address family (e.g. `"20.5"`) now drops
+  that one entry instead of being coerced into a prefix nobody announced.
 - IP network responses now carry every CIDR prefix an RDAP response lists
   (`cidrs`); previously only the last one seen was kept, silently dropping
   earlier blocks when a network was announced as more than one prefix.

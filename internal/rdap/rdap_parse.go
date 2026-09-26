@@ -82,30 +82,33 @@ type rdapDomainResponse struct {
 	SecureDNS   *rdapSecureDNS   `json:"secureDNS"`
 }
 
-// flexInt decodes a JSON number or a string holding one. The cidr0
-// extension defines length as a number, but registro.br (reached through
-// LACNIC redirects for Brazilian space) sends it as a string ("20"), which
-// used to fail the whole response.
-type flexInt int
+// cidrLength holds the cidr0 prefix length as sent: a JSON number, or a
+// string holding one — registro.br (reached through LACNIC redirects for
+// Brazilian space) sends "20", which used to fail the whole response. It is
+// validated where it is used, so a malformed length drops that one prefix
+// instead of being coerced into a fabricated one.
+type cidrLength string
 
-func (n *flexInt) UnmarshalJSON(b []byte) error {
-	s := strings.Trim(string(b), `"`)
-	if s == "" || s == "null" {
-		*n = 0
-		return nil
+func (l *cidrLength) UnmarshalJSON(b []byte) error {
+	s := string(b)
+	if s == "null" {
+		s = ""
 	}
-	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return fmt.Errorf("cidr0 length %s: %w", b, err)
-	}
-	*n = flexInt(v)
+	*l = cidrLength(strings.Trim(s, `"`))
 	return nil
 }
 
+// bits returns the length as an integer valid for an address of maxBits
+// bits (32 or 128), or false.
+func (l cidrLength) bits(maxBits int) (int, bool) {
+	n, err := strconv.Atoi(string(l))
+	return n, err == nil && n >= 0 && n <= maxBits
+}
+
 type rdapCIDR struct {
-	V4Prefix string  `json:"v4prefix"`
-	V6Prefix string  `json:"v6prefix"`
-	Length   flexInt `json:"length"`
+	V4Prefix string     `json:"v4prefix"`
+	V6Prefix string     `json:"v6prefix"`
+	Length   cidrLength `json:"length"`
 }
 
 type rdapRemark struct {
@@ -391,16 +394,18 @@ func ParseRDAPResponseforIP(response, query string) (model.IPInfo, error) {
 		info.Type = *rdap.Type
 	}
 
+	// Entries without a prefix, or with a length that is not an integer
+	// valid for the family, are skipped rather than coerced.
 	for _, cidr := range rdap.Cidr0Cidrs {
-		var prefix string
-		if cidr.V4Prefix != "" {
-			prefix = fmt.Sprintf("%s/%d", cidr.V4Prefix, int(cidr.Length))
-		} else if cidr.V6Prefix != "" {
-			prefix = fmt.Sprintf("%s/%d", cidr.V6Prefix, int(cidr.Length))
-		} else {
+		base, maxBits := cidr.V4Prefix, 32
+		if base == "" {
+			base, maxBits = cidr.V6Prefix, 128
+		}
+		bits, ok := cidr.Length.bits(maxBits)
+		if base == "" || !ok {
 			continue
 		}
-		info.CIDRs = append(info.CIDRs, prefix)
+		info.CIDRs = append(info.CIDRs, fmt.Sprintf("%s/%d", base, bits))
 	}
 	if len(info.CIDRs) > 0 {
 		// Matches the pre-CIDRs behavior exactly (the loop above used to

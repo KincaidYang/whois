@@ -442,23 +442,31 @@ func TestParseRDAPAcceptsEquivalentSpellings(t *testing.T) {
 }
 
 // TestParseRDAPIPStringCIDRLength covers registro.br, which sends the cidr0
-// length as a string; any other non-numeric value still fails the parse.
+// length as a string, and lengths that are not a valid integer prefix length
+// for the family: those entries are dropped, never coerced into a fabricated
+// prefix (20.5 must not become /20).
 func TestParseRDAPIPStringCIDRLength(t *testing.T) {
-	response := `{"objectClassName": "ip network", "startAddress": "200.160.0.0", "endAddress": "200.160.15.255",
-		"cidr0_cidrs": [{"length": "20", "v4prefix": "200.160.0.0"}]}`
-	info, err := ParseRDAPResponseforIP(response, "200.160.2.3")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	parse := func(cidrs string) []string {
+		t.Helper()
+		info, err := ParseRDAPResponseforIP(`{"objectClassName": "ip network", "startAddress": "200.160.0.0",
+			"endAddress": "200.160.15.255", "cidr0_cidrs": [`+cidrs+`]}`, "200.160.2.3")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		return info.CIDRs
 	}
-	if info.CIDR != "200.160.0.0/20" {
-		t.Errorf("CIDR = %q, want 200.160.0.0/20", info.CIDR)
+	if got := parse(`{"length": "20", "v4prefix": "200.160.0.0"}`); !reflect.DeepEqual(got, []string{"200.160.0.0/20"}) {
+		t.Errorf("string length: CIDRs = %v, want [200.160.0.0/20]", got)
 	}
-	if _, err := ParseRDAPResponseforIP(`{"startAddress": "200.160.0.0", "endAddress": "200.160.15.255",
-		"cidr0_cidrs": [{"length": "twenty", "v4prefix": "200.160.0.0"}]}`, "200.160.2.3"); err == nil {
-		t.Error("a non-numeric length must still fail")
+	if got := parse(`{"length": 20, "v4prefix": "200.160.0.0"}`); !reflect.DeepEqual(got, []string{"200.160.0.0/20"}) {
+		t.Errorf("numeric length: CIDRs = %v, want [200.160.0.0/20]", got)
 	}
-	if _, err := ParseRDAPResponseforIP(`{"startAddress": "200.160.0.0", "endAddress": "200.160.15.255",
-		"cidr0_cidrs": [{"length": null, "v4prefix": "200.160.0.0"}]}`, "200.160.2.3"); err != nil {
-		t.Errorf("a null length must decode as absent: %v", err)
+	for _, bad := range []string{`"20.5"`, `20.5`, `"NaN"`, `"twenty"`, `null`, `-1`, `33`} {
+		if got := parse(`{"length": ` + bad + `, "v4prefix": "200.160.0.0"}`); len(got) != 0 {
+			t.Errorf("length %s: CIDRs = %v, want the entry dropped", bad, got)
+		}
+	}
+	if got := parse(`{"length": 48, "v6prefix": "2001:db8::"}`); !reflect.DeepEqual(got, []string{"2001:db8::/48"}) {
+		t.Errorf("v6 length 48: CIDRs = %v, want it kept (valid for IPv6)", got)
 	}
 }
