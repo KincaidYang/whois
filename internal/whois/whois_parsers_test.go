@@ -182,16 +182,9 @@ DNSSEC: unsigned
 }
 
 func TestParseWhoisResponseLA_DomainNotFound(t *testing.T) {
-	response := `Domain Name: NOTFOUND.LA
-Registry Domain ID:
-Registrar WHOIS Server:
-Registrar URL:
-Updated Date:
-Creation Date:
-Registry Expiry Date:
-Name Server: NS1.EXAMPLE.COM
-DNSSEC: unsigned
->>> Last update of WHOIS database: 2025-10-12T04:26:45.0Z <<<`
+	// Live whois.nic.la answer for an unregistered name.
+	response := "The queried object does not exist: DOMAIN NOT FOUND\r\n" +
+		">>> Last update of WHOIS database: 2026-09-26T15:35:35.0Z <<<\r\n"
 
 	domain := "notfound.la"
 	_, err := ParseWhoisResponseLA(response, domain)
@@ -241,7 +234,7 @@ func TestParseWhoisResponseHK(t *testing.T) {
 }
 
 func TestParseWhoisResponseHK_NotFound(t *testing.T) {
-	response := "Domain Name: notfound.hk\r\nDomain Status: Not Registered\r\n"
+	response := "The domain has not been registered.\n" // live whois.hkirc.hk
 	_, err := ParseWhoisResponseHK(response, "notfound.hk")
 	if !errors.Is(err, utils.ErrDomainNotFound) {
 		t.Errorf("expected ErrDomainNotFound, got %v", err)
@@ -283,7 +276,7 @@ Domain servers in listed order:
 }
 
 func TestParseWhoisResponseTW_NotFound(t *testing.T) {
-	response := `No match for "NOTFOUND.TW".`
+	response := "No Found\n" // live whois.twnic.net.tw
 	_, err := ParseWhoisResponseTW(response, "notfound.tw")
 	if !errors.Is(err, utils.ErrDomainNotFound) {
 		t.Errorf("expected ErrDomainNotFound, got %v", err)
@@ -325,7 +318,9 @@ Last update of WHOIS database: 2025-10-12T05:44:20Z <<<`
 }
 
 func TestParseWhoisResponseSO_NotFound(t *testing.T) {
-	response := `Domain Status: available`
+	// Live whois.nic.so answer for an unregistered name.
+	response := "Domain Name: notfound.so\r\nThe queried object does not exist: No Object Found\r\n" +
+		">>> Last update of WHOIS database: 2026-09-26T15:30:40.869Z <<<\r\n"
 	_, err := ParseWhoisResponseSO(response, "notfound.so")
 	if !errors.Is(err, utils.ErrDomainNotFound) {
 		t.Errorf("expected ErrDomainNotFound, got %v", err)
@@ -402,7 +397,8 @@ Last update of WHOIS database: 2025-10-12T05:44:20Z <<<`
 }
 
 func TestParseWhoisResponseSB_NotFound(t *testing.T) {
-	response := `Domain Status: available`
+	// Live whois.nic.net.sb answer for an unregistered name.
+	response := "Domain Name: notfound.com.sb\r\nThe queried object does not exist: No Object Found\r\n"
 	_, err := ParseWhoisResponseSB(response, "notfound.sb")
 	if !errors.Is(err, utils.ErrDomainNotFound) {
 		t.Errorf("expected ErrDomainNotFound, got %v", err)
@@ -440,7 +436,7 @@ Domain name servers:
 }
 
 func TestParseWhoisResponseMO_NotFound(t *testing.T) {
-	response := `No object found.`
+	response := "% Domain Information over Whois protocol\n%\n\nNo match for notfound.mo\n" // live whois.monic.mo
 	_, err := ParseWhoisResponseMO(response, "notfound.mo")
 	if !errors.Is(err, utils.ErrDomainNotFound) {
 		t.Errorf("expected ErrDomainNotFound, got %v", err)
@@ -482,7 +478,7 @@ func TestParseWhoisResponseAU(t *testing.T) {
 }
 
 func TestParseWhoisResponseAU_NotFound(t *testing.T) {
-	response := "% No Data Found\r\n"
+	response := "Domain not found.\r\n" // live whois.auda.org.au
 	_, err := ParseWhoisResponseAU(response, "notfound.com.au")
 	if !errors.Is(err, utils.ErrDomainNotFound) {
 		t.Errorf("expected ErrDomainNotFound, got %v", err)
@@ -519,7 +515,7 @@ func TestParseWhoisResponseSG(t *testing.T) {
 }
 
 func TestParseWhoisResponseSG_NotFound(t *testing.T) {
-	response := "% Domain not registered\r\n"
+	response := "Not found: notfound.sg\r\n" // live whois.sgnic.sg
 	_, err := ParseWhoisResponseSG(response, "notfound.sg")
 	if !errors.Is(err, utils.ErrDomainNotFound) {
 		t.Errorf("expected ErrDomainNotFound, got %v", err)
@@ -1030,5 +1026,46 @@ func TestParseWhoisResponseRU_NameserverTrailingDot(t *testing.T) {
 	want := []string{"ns1.example.com", "ns2.example.com"}
 	if len(info.Nameservers) != len(want) || info.Nameservers[0] != want[0] || info.Nameservers[1] != want[1] {
 		t.Errorf("Nameservers: got %q, want %q", info.Nameservers, want)
+	}
+}
+
+// TestParseWhoisUnreadableIsNotNotFound verifies an answer that is neither a
+// record nor the registry's not-found message — a rate-limit or maintenance
+// notice, an empty or truncated reply — is reported as unrecognized, not as
+// not-found. The latter is a 404 that gets negative-cached, which for a
+// registered name would be a wrong, sticky answer.
+func TestParseWhoisUnreadableIsNotNotFound(t *testing.T) {
+	parsers := map[string]func(string, string) (model.DomainInfo, error){
+		"cn": ParseWhoisResponseCN, "hk": ParseWhoisResponseHK, "tw": ParseWhoisResponseTW,
+		"so": ParseWhoisResponseSO, "ru": ParseWhoisResponseRU, "sb": ParseWhoisResponseSB,
+		"mo": ParseWhoisResponseMO, "au": ParseWhoisResponseAU, "sg": ParseWhoisResponseSG,
+		"la": ParseWhoisResponseLA, "jp": ParseWhoisResponseJP, "eu": ParseWhoisResponseEU,
+		"kr": ParseWhoisResponseKR,
+	}
+	responses := []string{
+		"",
+		"%ERROR:201: access denied\r\n",
+		"Query rate limit exceeded. Please try again later.\n",
+		"The WHOIS service is under maintenance.\n",
+		"Domain Name: example\n", // truncated
+	}
+	for tld, parse := range parsers {
+		for _, r := range responses {
+			_, err := parse(r, "example."+tld)
+			if errors.Is(err, utils.ErrDomainNotFound) {
+				t.Errorf("%s: %q read as not-found", tld, r)
+			} else if !errors.Is(err, ErrUnrecognizedResponse) {
+				t.Errorf("%s: %q: err = %v, want ErrUnrecognizedResponse", tld, r, err)
+			}
+		}
+	}
+}
+
+// TestParseWhoisResponseCN_NotFound pins CNNIC's not-found message, which had
+// no test before (live whois.cnnic.cn answer).
+func TestParseWhoisResponseCN_NotFound(t *testing.T) {
+	_, err := ParseWhoisResponseCN("No matching record.\r\n", "notfound.cn")
+	if !errors.Is(err, utils.ErrDomainNotFound) {
+		t.Errorf("expected ErrDomainNotFound, got %v", err)
 	}
 }

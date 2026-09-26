@@ -59,6 +59,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a string, which made the whole response undecodable. A prefix length that
   is not an integer valid for its address family (e.g. `"20.5"`) now drops
   that one entry instead of being coerced into a prefix nobody announced.
+- WHOIS answers are reported as not-found only when they carry the
+  registry's own not-found message. Every parser used to treat any response
+  missing a required field as a nonexistent domain, so a rate-limit or
+  maintenance notice, a truncated reply or a changed format became a `404`
+  for a registered name, negative-cached for `cache.negativeExpiration`
+  (SGNIC's current format, for one, would have been read that way). Such
+  answers are now a `500` that is not cached. The not-found messages were
+  taken from live queries against each registry (CNNIC, HKIRC, TWNIC, .so,
+  .sb, TCI, MONIC, auDA, SGNIC, LANIC, JPRS; EURid and KISA were already
+  matched explicitly), and the test fixtures now use those real texts
+  instead of invented ones.
 - IP network responses now carry every CIDR prefix an RDAP response lists
   (`cidrs`); previously only the last one seen was kept, silently dropping
   earlier blocks when a network was announced as more than one prefix.
