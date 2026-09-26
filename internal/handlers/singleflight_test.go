@@ -520,6 +520,75 @@ func TestAcquirePermitReturnsPermitWhenAbandoned(t *testing.T) {
 	}
 }
 
+// TestAcquirePermitReturnsPermitWhenExpired covers the same race against the
+// flight's own timeout: an expired flight that wins the send must not query
+// with a dead context (a wasted upstream attempt reported as a generic 500),
+// but hand the permit back and report the busy upstream budget.
+func TestAcquirePermitReturnsPermitWhenExpired(t *testing.T) {
+	limiter := make(chan struct{}, 1)
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	for range 100 {
+		f := &flight{done: make(chan struct{}), abandon: make(chan struct{})}
+		if err := f.acquirePermit(ctx, limiter); !errors.Is(err, utils.ErrUpstreamBusy) {
+			t.Fatalf("expired flight: err = %v, want ErrUpstreamBusy", err)
+		}
+		if n := len(limiter); n != 0 {
+			t.Fatalf("expired flight kept %d permits, want 0", n)
+		}
+		if f.permitted {
+			t.Fatal("expired flight was marked permitted")
+		}
+	}
+}
+
+// TestAbandonedRefreshDoesNotSupersedeRegular verifies a refresh that is
+// abandoned while still queuing for a permit leaves an overlapping regular
+// flight's cache write alone: it never queried, so there is no forced result
+// for the regular one to defer to.
+func TestAbandonedRefreshDoesNotSupersedeRegular(t *testing.T) {
+	setupFlightTest(t)
+
+	synctest.Test(t, func(t *testing.T) {
+		config.UpstreamLimiter = make(chan struct{}, 1)
+		const key = "whois:sfabandonedrefresh"
+
+		// The regular flight takes the only permit and blocks.
+		releaseRegular := make(chan struct{})
+		regularDone := make(chan struct{})
+		go func() {
+			defer close(regularDone)
+			_, _ = dedupedQuery(context.Background(), key, false, func(context.Context) (queryOutcome, error) {
+				<-releaseRegular
+				return queryOutcome{body: "regular"}, nil
+			})
+		}()
+		synctest.Wait()
+
+		// A refresh for the same key queues behind it, then its caller leaves.
+		ctx, cancel := context.WithCancel(context.Background())
+		refreshErr := make(chan error, 1)
+		go func() {
+			_, err := dedupedQuery(ctx, key, true, func(context.Context) (queryOutcome, error) {
+				return queryOutcome{body: "refreshed"}, nil
+			})
+			refreshErr <- err
+		}()
+		synctest.Wait()
+		cancel()
+		if err := <-refreshErr; !errors.Is(err, context.Canceled) {
+			t.Fatalf("refresh waiter error = %v, want context.Canceled", err)
+		}
+
+		close(releaseRegular)
+		<-regularDone
+		got, err := config.CacheManager.Get(context.Background(), key)
+		if err != nil || !got.Found || got.Data != "regular" {
+			t.Errorf("cache = %+v, %v; want the regular flight's result written", got, err)
+		}
+	})
+}
+
 // TestDedupedQueryFlightTimeoutCoversQueueing verifies a flight's timeout
 // counts from its creation: one that queues for a permit past RequestTimeout
 // gives up with ErrUpstreamBusy instead of starting a fresh timeout for the

@@ -39,6 +39,11 @@ type flight struct {
 	permitted  bool // holds an upstream permit; can no longer be abandoned
 	abandoned  bool // abandon has been closed
 	superseded bool // an overlapping refresh flight owns the cache entry
+
+	// cacheKey is the entry this flight writes; refresh marks a ?refresh
+	// flight, which takes ownership of that entry once it starts querying.
+	cacheKey string
+	refresh  bool
 }
 
 var (
@@ -84,18 +89,13 @@ func dedupedQuery(ctx context.Context, key string, refresh bool, fn func(context
 	flightsMu.Lock()
 	f, ok := flights[fkey]
 	if !ok {
-		f = &flight{done: make(chan struct{}), abandon: make(chan struct{})}
-		// A refresh flight owns the cache entry for as long as it runs: a
-		// regular flight overlapping it skips its own write, whichever of the
-		// two started first. Otherwise the regular query — issued seconds
-		// earlier, and possibly answering not-found — could land on top of the
-		// forced result and survive there for a whole TTL.
-		if refresh {
-			if regular, running := flights[key]; running {
-				regular.superseded = true
+		f = &flight{done: make(chan struct{}), abandon: make(chan struct{}), cacheKey: key, refresh: refresh}
+		// A regular flight started while a refresh is already querying is
+		// superseded from the outset (see acquirePermit for the other order).
+		if !refresh {
+			if r, refreshing := flights[refreshFlightPrefix+key]; refreshing && r.permitted {
+				f.superseded = true
 			}
-		} else if _, refreshing := flights[refreshFlightPrefix+key]; refreshing {
-			f.superseded = true
 		}
 		flights[fkey] = f
 		// The caller's own wait-group entry is still held here (handlers Add
@@ -142,6 +142,14 @@ func dedupedQuery(ctx context.Context, key string, refresh bool, fn func(context
 // own timeout, which covers queuing as well as the query itself — ends
 // before a permit frees up. A nil limiter means unlimited (only tests that
 // bypass config.Load run without one).
+//
+// A refresh flight takes ownership of its cache entry here, once it is
+// certain to query: a regular flight overlapping it skips its own write,
+// whichever of the two started first. Otherwise the regular query — issued
+// seconds earlier, and possibly answering not-found — could land on top of
+// the forced result and survive there for a whole TTL. A refresh that never
+// gets this far (abandoned, or timed out in the queue) produces no result, so
+// it must not suppress the regular one's write.
 func (f *flight) acquirePermit(ctx context.Context, limiter chan struct{}) error {
 	if limiter != nil {
 		select {
@@ -154,15 +162,28 @@ func (f *flight) acquirePermit(ctx context.Context, limiter chan struct{}) error
 	}
 	flightsMu.Lock()
 	defer flightsMu.Unlock()
-	if f.abandoned {
-		// Both the send and abandon were ready and the send won; give the
-		// permit back.
+	// select picks at random among ready cases, so the send may have won even
+	// though the flight was already abandoned or out of time; either way it
+	// must not query, and the permit goes back.
+	var err error
+	switch {
+	case f.abandoned:
+		err = context.Canceled
+	case ctx.Err() != nil:
+		err = fmt.Errorf("%w: %w", utils.ErrUpstreamBusy, ctx.Err())
+	}
+	if err != nil {
 		if limiter != nil {
 			<-limiter
 		}
-		return context.Canceled
+		return err
 	}
 	f.permitted = true
+	if f.refresh {
+		if regular, running := flights[f.cacheKey]; running {
+			regular.superseded = true
+		}
+	}
 	return nil
 }
 
