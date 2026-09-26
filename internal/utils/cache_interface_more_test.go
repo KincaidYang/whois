@@ -174,16 +174,46 @@ func TestMemoryCacheByteBudgetEvictsOnGrowingUpdate(t *testing.T) {
 
 // TestMemoryCacheByteBudgetKeepsOversizedSingleEntry verifies a single entry
 // larger than the byte budget is kept rather than evicted against itself.
-func TestMemoryCacheByteBudgetKeepsOversizedSingleEntry(t *testing.T) {
+// TestMemoryCacheByteBudgetSkipsOversizedEntry verifies an entry larger than
+// the whole byte budget is not stored, and does not evict anything to make
+// room it could never have: one oversized response must not wipe the cache.
+// Replacing an existing key with an oversized value drops the older value.
+func TestMemoryCacheByteBudgetSkipsOversizedEntry(t *testing.T) {
 	ctx := context.Background()
-	cache := NewMemoryCache(100, time.Hour, 5)
+	cache := NewMemoryCache(100, time.Hour, 20)
 	defer func() { _ = cache.Close() }()
 
-	if err := cache.Set(ctx, "big", "this value alone exceeds the budget", time.Hour); err != nil {
-		t.Fatalf("Set: %v", err)
+	for _, k := range []string{"a", "b"} {
+		if err := cache.Set(ctx, k, "small", time.Hour); err != nil {
+			t.Fatalf("Set %s: %v", k, err)
+		}
 	}
-	if r, _ := cache.Get(ctx, "big"); !r.Found {
-		t.Error("an oversized single entry must still be stored, not evicted against itself")
+	if err := cache.Set(ctx, "big", "this value alone exceeds the budget", time.Hour); err != nil {
+		t.Fatalf("Set big: %v", err)
+	}
+	if r, _ := cache.Get(ctx, "big"); r.Found {
+		t.Error("an entry larger than the whole budget must not be stored")
+	}
+	for _, k := range []string{"a", "b"} {
+		if r, _ := cache.Get(ctx, k); !r.Found {
+			t.Errorf("%s was evicted to make room for an entry that was never stored", k)
+		}
+	}
+
+	if err := cache.Set(ctx, "a", "now this one has grown far past the budget", time.Hour); err != nil {
+		t.Fatalf("Set a (oversized): %v", err)
+	}
+	if r, _ := cache.Get(ctx, "a"); r.Found {
+		t.Error("the superseded value of a must be dropped, not kept")
+	}
+	if r, _ := cache.Get(ctx, "b"); !r.Found {
+		t.Error("b must survive an oversized write to another key")
+	}
+	cache.mu.Lock()
+	cur := cache.curBytes
+	cache.mu.Unlock()
+	if want := entrySize("b", "small"); cur != want {
+		t.Errorf("curBytes = %d, want %d (only b left)", cur, want)
 	}
 }
 

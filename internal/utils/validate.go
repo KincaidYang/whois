@@ -69,5 +69,11 @@ func IsDomain(resource string) bool {
 	if err != nil {
 		return false
 	}
-	return domainRegex.MatchString(ascii)
+	// The regex bounds each label at 63 octets; RFC 1035 also bounds the
+	// whole name at 253 (255 on the wire), which only a length check can.
+	return len(ascii) <= maxDomainLength && domainRegex.MatchString(ascii)
 }
+
+// maxDomainLength is the longest domain name in presentation form, without
+// the trailing root dot (RFC 1035 section 2.3.4).
+const maxDomainLength = 253
