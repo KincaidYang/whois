@@ -83,6 +83,10 @@ func TestCheckRedirect(t *testing.T) {
 	if err := CheckRedirect(req("http://rdap2.example/domain/x"), httpsVia); err == nil {
 		t.Error("https→http downgrade must be refused")
 	}
+	upgraded := []*http.Request{req("http://rdap.example/domain/x"), req("https://rdap.example/domain/x")}
+	if err := CheckRedirect(req("http://rdap2.example/domain/x"), upgraded); err == nil {
+		t.Error("http→https→http must be refused as a downgrade")
+	}
 	if err := CheckRedirect(req("https://169.254.169.254/latest"), httpsVia); !errors.Is(err, ErrBlockedAddress) {
 		t.Errorf("redirect to metadata IP = %v, want ErrBlockedAddress", err)
 	}

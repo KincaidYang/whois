@@ -97,7 +97,10 @@ func CheckRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= maxRedirects {
 		return fmt.Errorf("stopped after %d redirects", maxRedirects)
 	}
-	if via[0].URL.Scheme == "https" && req.URL.Scheme != "https" {
+	// Compare with the hop being redirected from, not the first request: a
+	// chain that starts on http, reaches https and then drops back to http is
+	// a downgrade too.
+	if via[len(via)-1].URL.Scheme == "https" && req.URL.Scheme != "https" {
 		return fmt.Errorf("refusing redirect from https to %s://%s", req.URL.Scheme, req.URL.Host)
 	}
 	if allowPrivate.Load() {
