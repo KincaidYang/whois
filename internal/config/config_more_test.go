@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -35,7 +36,9 @@ func TestOverrideConfigWithEnvAllFields(t *testing.T) {
 
 	var cfg Config
 	cfg.MCP.LocalhostProtection = true
-	overrideConfigWithEnv(&cfg)
+	if err := overrideConfigWithEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
 
 	checks := []struct {
 		name string
@@ -75,7 +78,9 @@ func TestOverrideConfigWithEnvExplicitEmptyRedisAddr(t *testing.T) {
 	t.Setenv("WHOIS_REDIS_ADDR", "")
 	cfg := Config{}
 	cfg.Redis.Addr = "baked-in:6379"
-	overrideConfigWithEnv(&cfg)
+	if err := overrideConfigWithEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
 	if cfg.Redis.Addr != "" {
 		t.Errorf("redis.addr = %q, want cleared by explicit empty env", cfg.Redis.Addr)
 	}
@@ -87,7 +92,9 @@ func TestOverrideConfigWithEnvBadNumbersIgnored(t *testing.T) {
 	cfg := Config{}
 	cfg.Server.Port = 8043
 	cfg.Redis.DB = 1
-	overrideConfigWithEnv(&cfg)
+	if err := overrideConfigWithEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
 	if cfg.Server.Port != 8043 || cfg.Redis.DB != 1 {
 		t.Errorf("port/db = %d/%d, want unparseable env values ignored (8043/1)", cfg.Server.Port, cfg.Redis.DB)
 	}
@@ -226,4 +233,68 @@ func TestInitializeCacheManagerRedisUnavailableFallback(t *testing.T) {
 		t.Error("fallback memory cache must keep the manager healthy")
 	}
 	_ = fc.Close()
+}
+
+// TestLoadConfig covers every way loadConfig refuses startup, plus the
+// happy path, against a configuration file in a temporary working directory.
+func TestLoadConfig(t *testing.T) {
+	writeConfig := func(t *testing.T, name, content string) {
+		t.Helper()
+		dir := t.TempDir()
+		t.Chdir(dir)
+		if name != "" {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+
+	t.Run("no file", func(t *testing.T) {
+		writeConfig(t, "", "")
+		if _, _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "failed to open configuration file") {
+			t.Fatalf("err = %v, want a missing-file error", err)
+		}
+	})
+	t.Run("unparseable", func(t *testing.T) {
+		writeConfig(t, "config.yaml", "server: [unclosed")
+		if _, _, err := loadConfig(); err == nil {
+			t.Fatal("expected a parse error")
+		}
+	})
+	t.Run("keyless auth env", func(t *testing.T) {
+		writeConfig(t, "config.yaml", "auth:\n  keys:\n    - key: from-file\n")
+		t.Setenv("WHOIS_AUTH_KEYS", " , ")
+		if _, _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "WHOIS_AUTH_KEYS") {
+			t.Fatalf("err = %v, want the WHOIS_AUTH_KEYS error", err)
+		}
+	})
+	t.Run("invalid value", func(t *testing.T) {
+		writeConfig(t, "config.yaml", "server:\n  rateLimit: -1\n")
+		if _, _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "server.rateLimit") {
+			t.Fatalf("err = %v, want the negative rateLimit error", err)
+		}
+	})
+	t.Run("invalid auth entry", func(t *testing.T) {
+		writeConfig(t, "config.yaml", "auth:\n  keys:\n    - key: same\n    - key: same\n")
+		if _, _, err := loadConfig(); err == nil || !strings.Contains(err.Error(), "duplicate key") {
+			t.Fatalf("err = %v, want the duplicate-key error", err)
+		}
+	})
+	t.Run("valid", func(t *testing.T) {
+		writeConfig(t, "config.yaml", "server:\n  port: 9000\n")
+		t.Setenv("WHOIS_AUTH_KEYS", "k1")
+		cfg, clients, err := loadConfig()
+		if err != nil {
+			t.Fatalf("loadConfig: %v", err)
+		}
+		if len(clients) != 1 || clients[0].Key != "k1" || clients[0].Name != "key1" {
+			t.Errorf("clients = %+v, want one normalized client for k1", clients)
+		}
+		if cfg.Server.Port != 9000 || cfg.Server.RateLimit != 100 {
+			t.Errorf("server = %+v, want the file's port and the default rateLimit", cfg.Server)
+		}
+		if len(cfg.Auth.Keys) != 1 || cfg.Auth.Keys[0].Key != "k1" {
+			t.Errorf("auth.keys = %+v, want the env override", cfg.Auth.Keys)
+		}
+	})
 }

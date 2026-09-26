@@ -3,6 +3,7 @@ package whois
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -952,5 +953,82 @@ func TestParseWhoisResponseJP_Signed(t *testing.T) {
 	}}
 	if !reflect.DeepEqual(info.SecureDNS.DSData, want) {
 		t.Errorf("DSData: got %+v, want %+v", info.SecureDNS.DSData, want)
+	}
+}
+
+// whois.nic.so and whois.nic.net.sb answer with CRLF line endings (the
+// fixtures above are LF-only). Without normalization the registrar and IANA
+// ID kept a trailing \r and the database timestamp kept its " <<<" marker.
+func TestParseWhoisResponseSOSB_CRLF(t *testing.T) {
+	crlf := func(lines ...string) string { return strings.Join(lines, "\r\n") + "\r\n" }
+	cases := []struct {
+		name  string
+		parse func(string, string) (model.DomainInfo, error)
+		body  string
+	}{
+		{"so", ParseWhoisResponseSO, crlf(
+			"Domain Name: example.so",
+			"Updated Date: 2025-12-23T10:34:08Z",
+			"Creation Date: 2011-01-24T00:00:00Z",
+			"Registry Expiry Date: 2027-01-24T00:00:00Z",
+			"Registrar: Example Registrar",
+			"Registrar IANA ID: 292",
+			"Domain Status: active https://icann.org/epp#active",
+			"Name Server: ns1.example.com",
+			"DNSSEC: unsigned",
+			">>> Last update of WHOIS database: 2026-09-26T13:54:43.412Z <<<",
+		)},
+		{"sb", ParseWhoisResponseSB, crlf(
+			"Domain Name: example.com.sb",
+			"Updated Date: 2026-03-25T10:39:29Z",
+			"Creation Date: 2007-11-14T21:18:38Z",
+			"Registry Expiry Date: 2027-04-26T07:00:00Z",
+			"Registrar: Example Registrar",
+			"Registrar IANA ID: 292",
+			"Domain Status: active https://icann.org/epp#active",
+			"Name Server: ns1.example.com",
+			"DNSSEC: unsigned",
+			">>> Last update of WHOIS database: 2026-09-26T13:54:36.643Z <<<",
+		)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			info, err := c.parse(c.body, "example."+c.name)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if info.Registrar != "Example Registrar" {
+				t.Errorf("Registrar: got %q", info.Registrar)
+			}
+			if info.RegistrarIANAID != "292" {
+				t.Errorf("RegistrarIANAID: got %q", info.RegistrarIANAID)
+			}
+			if _, err := time.Parse(time.RFC3339, info.LastUpdateOfRdapDb); err != nil {
+				t.Errorf("LastUpdateOfRdapDb not normalized: got %q", info.LastUpdateOfRdapDb)
+			}
+			if len(info.Status) != 1 || info.Status[0] != "active" {
+				t.Errorf("Status: got %q", info.Status)
+			}
+		})
+	}
+}
+
+// .ru/.su print nameservers as FQDNs with the trailing root dot; the RDAP path
+// strips it, so the WHOIS path must too for the output to be uniform.
+func TestParseWhoisResponseRU_NameserverTrailingDot(t *testing.T) {
+	response := "domain:        EXAMPLE.RU\n" +
+		"nserver:       ns1.example.com.\n" +
+		"nserver:       NS2.example.com.\n" +
+		"state:         REGISTERED, DELEGATED, VERIFIED\n" +
+		"registrar:     RU-CENTER-RU\n" +
+		"created:       2004-03-03T21:00:00Z\n" +
+		"paid-till:     2027-03-04T21:00:00Z\n"
+	info, err := ParseWhoisResponseRU(response, "example.ru")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"ns1.example.com", "ns2.example.com"}
+	if len(info.Nameservers) != len(want) || info.Nameservers[0] != want[0] || info.Nameservers[1] != want[1] {
+		t.Errorf("Nameservers: got %q, want %q", info.Nameservers, want)
 	}
 }
