@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Built-in IANA server lists refreshed (October 2026): `.bh` and `.البحرين`
+  (`xn--mgbcpq6gpa1a`) now have an RDAP server (`rdap.bhregistry.bh`), so
+  their lookups go to RDAP first; `.bh`'s WHOIS server moved from
+  `whois.nic.bh` to `whois.bhregistry.bh`, and `.البحرين` gained the same one
+  for `?raw=1`. `.juniper` was dropped from both lists — IANA now marks the
+  TLD as retired — so its lookups answer 404.
+
 ## [1.4.0] - 2026-09-26
 
 ### Security
