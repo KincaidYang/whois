@@ -5,7 +5,7 @@ go 1.27.1
 require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/prometheus/client_golang v1.24.1
-	github.com/redis/go-redis/v9 v9.22.0
+	github.com/redis/go-redis/v9 v9.23.0
 	golang.org/x/net v0.59.0
 	golang.org/x/time v0.16.0
 	gopkg.in/yaml.v3 v3.0.1
