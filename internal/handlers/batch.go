@@ -135,8 +135,14 @@ func HandleBatch(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 // collapsed by the singleflight layer the handlers already use. Shared by
 // the HTTP /batch endpoint and the MCP whois_batch_lookup tool.
 func RunBatch(ctx context.Context, queries []string) []BatchItem {
+	return runBatch(ctx, queries, make(chan struct{}, batchConcurrency))
+}
+
+// runBatch is RunBatch with the concurrency semaphore passed in, so a test
+// can hand it one that never has room and reach the "deadline expired while
+// queued" case on every run instead of by chance.
+func runBatch(ctx context.Context, queries []string, sem chan struct{}) []BatchItem {
 	results := make([]BatchItem, len(queries))
-	sem := make(chan struct{}, batchConcurrency)
 	var wg sync.WaitGroup
 	for i, query := range queries {
 		wg.Add(1)
