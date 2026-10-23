@@ -160,6 +160,23 @@ func TestMCPBatchChargeFollowsProtocolVersion(t *testing.T) {
 	}
 }
 
+// TestMCPBatchRejectedBySDKNotCharged verifies a legacy-protocol batch the
+// SDK rejects whole — here tools/call objects missing the JSON-RPC fields —
+// costs only the request's own token.
+func TestMCPBatchRejectedBySDKNotCharged(t *testing.T) {
+	withTestAuthClients(t, []config.AuthClient{limitedClient("mcp-key", "mcp", 3)})
+
+	body := `[{"method":"tools/call"},{"method":"tools/call"},{"method":"tools/call"}]`
+	if w := mcpRequest("mcp-key", body); w.Code != http.StatusBadRequest {
+		t.Fatalf("malformed batch: expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	for i := range 2 {
+		if !infoAllowed(t, "mcp-key") {
+			t.Fatalf("follow-up request %d rejected: the rejected batch was charged", i+1)
+		}
+	}
+}
+
 func TestCountBatchToolCalls(t *testing.T) {
 	cases := []struct {
 		body string
@@ -167,7 +184,12 @@ func TestCountBatchToolCalls(t *testing.T) {
 	}{
 		{`{"jsonrpc":"2.0","id":1,"method":"tools/call"}`, 0},
 		{"  \n\t" + mcpBatch(4), 4},
-		{`[{"method":"tools/call"},{"method":"tools/list"},{"method":"notifications/initialized"}]`, 1},
+		{`[{"jsonrpc":"2.0","id":1,"method":"tools/call"},{"jsonrpc":"2.0","id":2,"method":"tools/list"},{"jsonrpc":"2.0","method":"notifications/initialized"}]`, 1},
+		// A notification is not a call, even with method tools/call.
+		{`[{"jsonrpc":"2.0","method":"tools/call"},{"jsonrpc":"2.0","id":1,"method":"tools/call"}]`, 1},
+		// One undecodable message makes the SDK reject the whole batch.
+		{`[{"jsonrpc":"2.0","id":1,"method":"tools/call"},{"method":"tools/call"}]`, 0},
+		{`[{"jsonrpc":"2.0","id":1,"method":"tools/call"},42]`, 0},
 		{`[{"method":"tools/call"},`, 0},
 		{`[]`, 0},
 		{``, 0},

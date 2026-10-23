@@ -23,6 +23,7 @@ import (
 	"github.com/KincaidYang/whois/internal/metrics"
 	"github.com/KincaidYang/whois/internal/serverlist"
 	"github.com/KincaidYang/whois/internal/utils"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -226,21 +227,26 @@ func mcpVersionAllowsBatch(v string) bool {
 }
 
 // countBatchToolCalls returns how many tools/call requests a JSON-RPC batch
-// body holds, or 0 when the body is not a well-formed batch.
+// body holds, or 0 when the body is not a batch the SDK would run. It decodes
+// each message with the SDK's own jsonrpc.DecodeMessage, as the transport
+// does: one message failing to decode makes the SDK reject the whole batch
+// before anything runs, so such a batch is not charged.
 func countBatchToolCalls(body []byte) int {
 	trimmed := bytes.TrimLeft(body, " \t\r\n")
 	if len(trimmed) == 0 || trimmed[0] != '[' {
 		return 0
 	}
-	var msgs []struct {
-		Method string `json:"method"`
-	}
-	if json.Unmarshal(trimmed, &msgs) != nil {
+	var raws []json.RawMessage
+	if json.Unmarshal(trimmed, &raws) != nil {
 		return 0
 	}
 	calls := 0
-	for _, m := range msgs {
-		if m.Method == "tools/call" {
+	for _, raw := range raws {
+		msg, err := jsonrpc.DecodeMessage(raw)
+		if err != nil {
+			return 0
+		}
+		if req, ok := msg.(*jsonrpc.Request); ok && req.IsCall() && req.Method == "tools/call" {
 			calls++
 		}
 	}
@@ -260,6 +266,25 @@ func newServerHandler() http.Handler {
 	mux := http.NewServeMux()
 	registerRoutes(mux)
 	return withRequestID(withCORS(withAuth(mux)))
+}
+
+// newServer configures the HTTP server: its routes and middleware
+// (newServerHandler) and the connection timeouts and limits.
+func newServer() *http.Server {
+	return &http.Server{
+		Addr:    fmt.Sprintf(":%d", config.Port),
+		Handler: newServerHandler(),
+		// WriteTimeout must exceed the upstream query timeout (WHOIS/RDAP
+		// each allow up to 10s), since the handler queries upstream
+		// synchronously before writing the response.
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      20 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		// Queries arrive as URL paths with no cookies or auth headers, so
+		// anything beyond a few KB of headers is abuse, not a real client.
+		MaxHeaderBytes: 16 << 10, // 16 KiB
+	}
 }
 
 // registerRoutes attaches all endpoints to mux.
@@ -429,25 +454,6 @@ func serve(w http.ResponseWriter, r *http.Request, resource, want string) {
 	elapsed := time.Since(start).Seconds()
 	metrics.HTTPRequestsTotal.WithLabelValues(resourceType, strconv.Itoa(code)).Inc()
 	metrics.HTTPRequestDuration.WithLabelValues(resourceType).Observe(elapsed)
-}
-
-// newServer configures the HTTP server: its routes and middleware
-// (newServerHandler) and the connection timeouts and limits.
-func newServer() *http.Server {
-	return &http.Server{
-		Addr:    fmt.Sprintf(":%d", config.Port),
-		Handler: newServerHandler(),
-		// WriteTimeout must exceed the upstream query timeout (WHOIS/RDAP
-		// each allow up to 10s), since the handler queries upstream
-		// synchronously before writing the response.
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      20 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		// Queries arrive as URL paths with no cookies or auth headers, so
-		// anything beyond a few KB of headers is abuse, not a real client.
-		MaxHeaderBytes: 16 << 10, // 16 KiB
-	}
 }
 
 func main() {
