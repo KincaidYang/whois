@@ -34,6 +34,11 @@ The MCP face of `POST /batch`: disabled unless the operator sets
 `batch.enabled: true`, capped at `batch.maxItems` queries per call, and
 charged against per-key rate limits at one request per query.
 
+Clients on protocol 2025-03-26 (also assumed when a request carries no
+`MCP-Protocol-Version` header) may still send JSON-RPC batches; each
+`tools/call` in a batch is charged as one request, the same as sending the
+calls one by one.
+
 ## Client setup
 
 ### Claude Code

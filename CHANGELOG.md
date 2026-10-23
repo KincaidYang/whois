@@ -13,6 +13,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- `/debug/vars` is no longer served. `prometheus/client_golang` imports
+  `expvar`, which registers that endpoint on Go's default `ServeMux` as an
+  import side effect, and the server routed through the default mux — so
+  earlier releases answered it, without a
+  key on instances without `auth.keys`, exposing the process command line
+  and memory statistics. The server now builds its own mux, and
+  `/debug/vars` falls through to the query handler like any other unknown
+  path.
+- JSON-RPC batches on `/mcp` are charged per tool call against per-key rate
+  limits. The go-sdk still accepts batches from protocol 2025-03-26 clients
+  (the version it assumes when `MCP-Protocol-Version` is absent), and the
+  auth middleware charged one token per HTTP request, so a key limited to N
+  requests per minute could run any number of `whois_lookup` calls in one
+  batch. A batch of N `tools/call` messages now costs N tokens, like
+  `/batch`; one larger than the key's whole budget is answered 429. Batches
+  the SDK rejects for their protocol version are not charged. Instances
+  without `auth.keys` have no per-key budget and are unaffected; their
+  concurrency and upstream limits already applied to each call.
+
 ## [1.4.1] - 2026-10-23
 
 ### Security

@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -20,6 +23,8 @@ import (
 	"github.com/KincaidYang/whois/internal/metrics"
 	"github.com/KincaidYang/whois/internal/serverlist"
 	"github.com/KincaidYang/whois/internal/utils"
+	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -165,6 +170,123 @@ func maxBytes(next http.Handler, n int64) http.Handler {
 	})
 }
 
+// chargeMCPBatch makes a JSON-RPC batch on /mcp cost one rate-limit token
+// per tools/call it carries, the same as sending those calls one by one.
+// The go-sdk still accepts batches from clients that speak protocol
+// 2025-03-26 (the version it assumes when MCP-Protocol-Version is absent),
+// while withAuth charges one token per HTTP request, so a key with a
+// per-minute budget could otherwise run any number of lookups per token.
+// withAuth has already charged one token; this charges the rest, like
+// /batch does for its items. Bodies that are not a JSON array pass through
+// untouched, and so do requests whose protocol version forbids batching:
+// the SDK rejects those whole, so nothing runs and nothing is charged.
+func chargeMCPBatch(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		client := config.AuthClientFromContext(r.Context())
+		if r.Method != http.MethodPost || client == nil || client.Limiter == nil ||
+			!mcpVersionAllowsBatch(r.Header.Get("Mcp-Protocol-Version")) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			// Hand the SDK what was read plus the error, so it answers an
+			// oversized or broken body exactly as it would without us.
+			r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(body), errReader{err}))
+			next.ServeHTTP(w, r)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if calls := countBatchToolCalls(body); calls > 1 {
+			reservation := client.Limiter.ReserveN(time.Now(), calls-1)
+			if !reservation.OK() {
+				utils.WriteRateLimitedBatch(w)
+				return
+			}
+			if delay := reservation.Delay(); delay > 0 {
+				reservation.Cancel()
+				slog.WarnContext(r.Context(), "per-key rate limit reached", "client", client.Name, "path", r.URL.Path)
+				utils.WriteRateLimitedAfter(w, delay)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// mcpFirstNoBatchVersion is the first MCP protocol version that forbids JSON-RPC
+// batches; the go-sdk rejects a batch sent with it or any later version.
+const mcpFirstNoBatchVersion = "2025-06-18"
+
+// mcpVersionAllowsBatch mirrors the go-sdk's check: it accepts a batch when
+// the MCP-Protocol-Version header is absent (it then assumes 2025-03-26) or
+// names a supported version older than 2025-06-18. Unsupported versions are
+// rejected by the SDK before any message runs.
+func mcpVersionAllowsBatch(v string) bool {
+	return v == "" || (v < mcpFirstNoBatchVersion && slices.Contains(sdkmcp.SupportedProtocolVersions(), v))
+}
+
+// countBatchToolCalls returns how many tools/call requests a JSON-RPC batch
+// body holds, or 0 when the body is not a batch the SDK would run. It decodes
+// each message with the SDK's own jsonrpc.DecodeMessage, as the transport
+// does: one message failing to decode makes the SDK reject the whole batch
+// before anything runs, so such a batch is not charged.
+func countBatchToolCalls(body []byte) int {
+	trimmed := bytes.TrimLeft(body, " \t\r\n")
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		return 0
+	}
+	var raws []json.RawMessage
+	if json.Unmarshal(trimmed, &raws) != nil {
+		return 0
+	}
+	calls := 0
+	for _, raw := range raws {
+		msg, err := jsonrpc.DecodeMessage(raw)
+		if err != nil {
+			return 0
+		}
+		if req, ok := msg.(*jsonrpc.Request); ok && req.IsCall() && req.Method == "tools/call" {
+			calls++
+		}
+	}
+	return calls
+}
+
+// errReader is an io.Reader that always fails with err.
+type errReader struct{ err error }
+
+func (e errReader) Read([]byte) (int, error) { return 0, e.err }
+
+// newServerHandler builds the server's routes and middleware. It uses its
+// own ServeMux rather than http.DefaultServeMux: packages register debug
+// routes on the default mux as an import side effect (client_golang imports
+// expvar, which adds /debug/vars), and those must not be served.
+func newServerHandler() http.Handler {
+	mux := http.NewServeMux()
+	registerRoutes(mux)
+	return withRequestID(withCORS(withAuth(mux)))
+}
+
+// newServer configures the HTTP server: its routes and middleware
+// (newServerHandler) and the connection timeouts and limits.
+func newServer() *http.Server {
+	return &http.Server{
+		Addr:    fmt.Sprintf(":%d", config.Port),
+		Handler: newServerHandler(),
+		// WriteTimeout must exceed the upstream query timeout (WHOIS/RDAP
+		// each allow up to 10s), since the handler queries upstream
+		// synchronously before writing the response.
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      20 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		// Queries arrive as URL paths with no cookies or auth headers, so
+		// anything beyond a few KB of headers is abuse, not a real client.
+		MaxHeaderBytes: 16 << 10, // 16 KiB
+	}
+}
+
 // registerRoutes attaches all endpoints to mux.
 func registerRoutes(mux *http.ServeMux) {
 	// Health check endpoints
@@ -181,7 +303,7 @@ func registerRoutes(mux *http.ServeMux) {
 	// MCP Streamable HTTP endpoint. Cap the body like /batch does: the go-sdk
 	// transport reads the whole request into memory, so an unbounded POST would
 	// otherwise be an easy amplification vector.
-	mux.Handle("/mcp", maxBytes(mcp.NewHandler(config.Version), maxMCPBody))
+	mux.Handle("/mcp", maxBytes(chargeMCPBatch(mcp.NewHandler(config.Version)), maxMCPBody))
 
 	// Bulk query endpoint (off unless batch.enabled is set)
 	mux.HandleFunc("/batch", batchHandler)
@@ -346,22 +468,7 @@ func main() {
 		serverlist.StartBootstrapRefresh(bootstrapCtx, config.HttpClient, config.BootstrapInterval)
 	}
 
-	registerRoutes(http.DefaultServeMux)
-
-	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", config.Port),
-		Handler: withRequestID(withCORS(withAuth(http.DefaultServeMux))),
-		// WriteTimeout must exceed the upstream query timeout (WHOIS/RDAP
-		// each allow up to 10s), since the handler queries upstream
-		// synchronously before writing the response.
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      20 * time.Second,
-		IdleTimeout:       120 * time.Second,
-		// Queries arrive as URL paths with no cookies or auth headers, so
-		// anything beyond a few KB of headers is abuse, not a real client.
-		MaxHeaderBytes: 16 << 10, // 16 KiB
-	}
+	srv := newServer()
 
 	go func() {
 		slog.Info("server listening", "port", config.Port)

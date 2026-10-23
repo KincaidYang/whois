@@ -32,7 +32,7 @@ func withTestAuthClients(t *testing.T, clients []config.AuthClient) {
 // authRequest runs a request through the full production middleware chain.
 func authRequest(req *http.Request) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
-	withRequestID(withCORS(withAuth(newTestMux()))).ServeHTTP(w, req)
+	newServerHandler().ServeHTTP(w, req)
 	return w
 }
 
