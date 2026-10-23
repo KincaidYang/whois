@@ -13,7 +13,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Built with Go 1.27.3 (was 1.27.1). `govulncheck` reported 10 standard
+  library advisories reachable from this service on 1.27.1, all fixed in
+  1.27.2/1.27.3: the bundled HTTP/2 server and client (GO-2026-6603 Trailer
+  memory exhaustion, GO-2026-6610 malformed framing headers, GO-2026-6611
+  window-update CPU use, GO-2026-6612 double flow-control refund,
+  GO-2026-6617 HPACK encoder race), HTTP/1 connection desync around CONNECT
+  (GO-2026-6605, GO-2026-6613), the MIME header memory limit (GO-2026-6608),
+  ECH extension validation in `crypto/tls` (GO-2026-6607) and distrust of
+  compromised intermediate certificates in `crypto/x509` (GO-2026-6809).
+  `golang.org/x/net` moves to 0.61.0 as well, which carries the same HTTP/2
+  fixes for the module copy. `govulncheck` is clean after the upgrade.
+
 ### Changed
+- Dependencies upgraded: `go-redis` 9.23.0, `prometheus/client_golang`
+  1.25.0, `golang.org/x/net` 0.61.0, plus indirect `x/sys`, `x/sync`,
+  `x/text` and `prometheus/common`. go-redis 9.23.0 gives each client a
+  separate, lazily dialed pipeline pool (default 10), and the Redis cache's
+  `GET`+`PTTL` read goes through it — so reads no longer wait behind writes
+  for the main pool's 10 connections, and the connection ceiling to Redis
+  rises from 10 to 20 under bursts.
 - Built-in IANA server lists refreshed (October 2026): `.bh` and `.البحرين`
   (`xn--mgbcpq6gpa1a`) now have an RDAP server (`rdap.bhregistry.bh`), so
   their lookups go to RDAP first; `.bh`'s WHOIS server moved from
