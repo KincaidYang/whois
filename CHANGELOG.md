@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-23
+
 ### Security
 - Built with Go 1.27.3 (was 1.27.1). `govulncheck` reported 10 standard
   library advisories reachable from this service on 1.27.1, all fixed in
@@ -612,6 +614,7 @@ See the [release notes](https://github.com/KincaidYang/whois/releases/tag/v0.6.0
 See the [GitHub releases page](https://github.com/KincaidYang/whois/releases)
 for 0.5.x and earlier.
 
+[1.4.1]: https://github.com/KincaidYang/whois/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/KincaidYang/whois/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/KincaidYang/whois/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/KincaidYang/whois/compare/v1.1.0...v1.2.0
