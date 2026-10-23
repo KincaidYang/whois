@@ -325,7 +325,10 @@ func TestDedupedQueryShutdownDrainCoversFlight(t *testing.T) {
 	}()
 	<-started
 	cancel()
-	<-errCh // the only waiter is gone; the flight is fully detached
+	// The only waiter is gone; the flight is fully detached.
+	if err := <-errCh; !errors.Is(err, context.Canceled) {
+		t.Fatalf("waiter error = %v, want context.Canceled", err)
+	}
 
 	drained := make(chan struct{})
 	go func() {
