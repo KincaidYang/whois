@@ -142,7 +142,7 @@ docker run -d --name whois -p 8043:8043 \
 - **日志级别**：`debug` 会输出每次缓存命中和上游查询，流量大时噪声较高；生产环境建议保持 `info`
 - **RDAP 刷新间隔**：服务启动时会立即从 IANA 拉取最新 RDAP 服务器列表，之后按此间隔定期刷新；编译进二进制的数据作为拉取失败时的兜底
 - **API 认证**：默认关闭。配置 `auth.keys` 后即启用，未携带有效密钥的请求返回 401（RFC 9457 problem+json）；仅 `/health` 和 `/ready` 豁免，便于存活/就绪探针工作
-- **key 命名与按 key 限流**：`auth.keys` 的对象形式可为每个 key 设置显示名和速率限制。显示名出现在请求日志的 `client` 字段和 Prometheus 指标 `whois_client_requests_total{client,status_code}` 中，便于区分调用方；速率限制为 token bucket（次/分钟，**允许一次性用完整分钟额度**），超限返回 429 + `Retry-After` 头。批量查询按条数计入额度：一批 N 条消耗 N 个请求额度
+- **key 命名与按 key 限流**：`auth.keys` 的对象形式可为每个 key 设置显示名和速率限制。显示名出现在请求日志的 `client` 字段和 Prometheus 指标 `whois_client_requests_total{client,status_code}` 中，便于区分调用方；速率限制为 token bucket（次/分钟，**允许一次性用完整分钟额度**），超限返回 429 + `Retry-After` 头。批量查询按条数计入额度：一批 N 条消耗 N 个请求额度；`/mcp` 收到的 JSON-RPC 批量请求同样按其中的工具调用数计入
 - **批量查询**：默认关闭。建议与 `auth.keys` 一起开启——开放实例提供批量查询等于放大被滥用打上游注册局的能力
 
 

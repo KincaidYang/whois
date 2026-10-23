@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -165,6 +167,85 @@ func maxBytes(next http.Handler, n int64) http.Handler {
 	})
 }
 
+// chargeMCPBatch makes a JSON-RPC batch on /mcp cost one rate-limit token
+// per tools/call it carries, the same as sending those calls one by one.
+// The go-sdk still accepts batches from clients that speak protocol
+// 2025-03-26 (the version it assumes when MCP-Protocol-Version is absent),
+// while withAuth charges one token per HTTP request, so a key with a
+// per-minute budget could otherwise run any number of lookups per token.
+// withAuth has already charged one token; this charges the rest, like
+// /batch does for its items. Bodies that are not a JSON array pass through
+// untouched, and so do bodies the SDK will reject anyway.
+func chargeMCPBatch(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		client := config.AuthClientFromContext(r.Context())
+		if r.Method != http.MethodPost || client == nil || client.Limiter == nil {
+			next.ServeHTTP(w, r)
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			// Hand the SDK what was read plus the error, so it answers an
+			// oversized or broken body exactly as it would without us.
+			r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(body), errReader{err}))
+			next.ServeHTTP(w, r)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		if calls := countBatchToolCalls(body); calls > 1 {
+			reservation := client.Limiter.ReserveN(time.Now(), calls-1)
+			if !reservation.OK() {
+				utils.WriteRateLimitedBatch(w)
+				return
+			}
+			if delay := reservation.Delay(); delay > 0 {
+				reservation.Cancel()
+				slog.WarnContext(r.Context(), "per-key rate limit reached", "client", client.Name, "path", r.URL.Path)
+				utils.WriteRateLimitedAfter(w, delay)
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// countBatchToolCalls returns how many tools/call requests a JSON-RPC batch
+// body holds, or 0 when the body is not a well-formed batch.
+func countBatchToolCalls(body []byte) int {
+	trimmed := bytes.TrimLeft(body, " \t\r\n")
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		return 0
+	}
+	var msgs []struct {
+		Method string `json:"method"`
+	}
+	if json.Unmarshal(trimmed, &msgs) != nil {
+		return 0
+	}
+	calls := 0
+	for _, m := range msgs {
+		if m.Method == "tools/call" {
+			calls++
+		}
+	}
+	return calls
+}
+
+// errReader is an io.Reader that always fails with err.
+type errReader struct{ err error }
+
+func (e errReader) Read([]byte) (int, error) { return 0, e.err }
+
+// newServerHandler builds the server's routes and middleware. It uses its
+// own ServeMux rather than http.DefaultServeMux: packages register debug
+// routes on the default mux as an import side effect (client_golang imports
+// expvar, which adds /debug/vars), and those must not be served.
+func newServerHandler() http.Handler {
+	mux := http.NewServeMux()
+	registerRoutes(mux)
+	return withRequestID(withCORS(withAuth(mux)))
+}
+
 // registerRoutes attaches all endpoints to mux.
 func registerRoutes(mux *http.ServeMux) {
 	// Health check endpoints
@@ -181,7 +262,7 @@ func registerRoutes(mux *http.ServeMux) {
 	// MCP Streamable HTTP endpoint. Cap the body like /batch does: the go-sdk
 	// transport reads the whole request into memory, so an unbounded POST would
 	// otherwise be an easy amplification vector.
-	mux.Handle("/mcp", maxBytes(mcp.NewHandler(config.Version), maxMCPBody))
+	mux.Handle("/mcp", maxBytes(chargeMCPBatch(mcp.NewHandler(config.Version)), maxMCPBody))
 
 	// Bulk query endpoint (off unless batch.enabled is set)
 	mux.HandleFunc("/batch", batchHandler)
@@ -346,11 +427,9 @@ func main() {
 		serverlist.StartBootstrapRefresh(bootstrapCtx, config.HttpClient, config.BootstrapInterval)
 	}
 
-	registerRoutes(http.DefaultServeMux)
-
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", config.Port),
-		Handler: withRequestID(withCORS(withAuth(http.DefaultServeMux))),
+		Handler: newServerHandler(),
 		// WriteTimeout must exceed the upstream query timeout (WHOIS/RDAP
 		// each allow up to 10s), since the handler queries upstream
 		// synchronously before writing the response.
