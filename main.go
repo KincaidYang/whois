@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -22,6 +23,7 @@ import (
 	"github.com/KincaidYang/whois/internal/metrics"
 	"github.com/KincaidYang/whois/internal/serverlist"
 	"github.com/KincaidYang/whois/internal/utils"
+	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -175,11 +177,13 @@ func maxBytes(next http.Handler, n int64) http.Handler {
 // per-minute budget could otherwise run any number of lookups per token.
 // withAuth has already charged one token; this charges the rest, like
 // /batch does for its items. Bodies that are not a JSON array pass through
-// untouched, and so do bodies the SDK will reject anyway.
+// untouched, and so do requests whose protocol version forbids batching:
+// the SDK rejects those whole, so nothing runs and nothing is charged.
 func chargeMCPBatch(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		client := config.AuthClientFromContext(r.Context())
-		if r.Method != http.MethodPost || client == nil || client.Limiter == nil {
+		if r.Method != http.MethodPost || client == nil || client.Limiter == nil ||
+			!mcpVersionAllowsBatch(r.Header.Get("Mcp-Protocol-Version")) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -207,6 +211,18 @@ func chargeMCPBatch(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// mcpFirstNoBatchVersion is the first MCP protocol version that forbids JSON-RPC
+// batches; the go-sdk rejects a batch sent with it or any later version.
+const mcpFirstNoBatchVersion = "2025-06-18"
+
+// mcpVersionAllowsBatch mirrors the go-sdk's check: it accepts a batch when
+// the MCP-Protocol-Version header is absent (it then assumes 2025-03-26) or
+// names a supported version older than 2025-06-18. Unsupported versions are
+// rejected by the SDK before any message runs.
+func mcpVersionAllowsBatch(v string) bool {
+	return v == "" || (v < mcpFirstNoBatchVersion && slices.Contains(sdkmcp.SupportedProtocolVersions(), v))
 }
 
 // countBatchToolCalls returns how many tools/call requests a JSON-RPC batch
@@ -415,19 +431,10 @@ func serve(w http.ResponseWriter, r *http.Request, resource, want string) {
 	metrics.HTTPRequestDuration.WithLabelValues(resourceType).Observe(elapsed)
 }
 
-func main() {
-	// Load configuration and initialize logger, Redis client and cache.
-	config.Load()
-
-	// Start RDAP bootstrap refresh (initial fetch + periodic updates).
-	// Disabled when BootstrapInterval is 0 or unset.
-	if config.BootstrapInterval > 0 {
-		bootstrapCtx, bootstrapCancel := context.WithCancel(context.Background())
-		defer bootstrapCancel()
-		serverlist.StartBootstrapRefresh(bootstrapCtx, config.HttpClient, config.BootstrapInterval)
-	}
-
-	srv := &http.Server{
+// newServer configures the HTTP server: its routes and middleware
+// (newServerHandler) and the connection timeouts and limits.
+func newServer() *http.Server {
+	return &http.Server{
 		Addr:    fmt.Sprintf(":%d", config.Port),
 		Handler: newServerHandler(),
 		// WriteTimeout must exceed the upstream query timeout (WHOIS/RDAP
@@ -441,6 +448,21 @@ func main() {
 		// anything beyond a few KB of headers is abuse, not a real client.
 		MaxHeaderBytes: 16 << 10, // 16 KiB
 	}
+}
+
+func main() {
+	// Load configuration and initialize logger, Redis client and cache.
+	config.Load()
+
+	// Start RDAP bootstrap refresh (initial fetch + periodic updates).
+	// Disabled when BootstrapInterval is 0 or unset.
+	if config.BootstrapInterval > 0 {
+		bootstrapCtx, bootstrapCancel := context.WithCancel(context.Background())
+		defer bootstrapCancel()
+		serverlist.StartBootstrapRefresh(bootstrapCtx, config.HttpClient, config.BootstrapInterval)
+	}
+
+	srv := newServer()
 
 	go func() {
 		slog.Info("server listening", "port", config.Port)

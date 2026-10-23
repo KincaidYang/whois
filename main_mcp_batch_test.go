@@ -25,7 +25,15 @@ func mcpBatch(n int) string {
 // MCP-Protocol-Version header, which the go-sdk treats as 2025-03-26 — the
 // last protocol version that allows JSON-RPC batches.
 func mcpRequest(key, body string) *httptest.ResponseRecorder {
+	return mcpRequestVersion(key, body, "")
+}
+
+// mcpRequestVersion is mcpRequest with an explicit MCP-Protocol-Version.
+func mcpRequestVersion(key, body, version string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest("POST", "/mcp", strings.NewReader(body))
+	if version != "" {
+		req.Header.Set("MCP-Protocol-Version", version)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("X-API-Key", key)
@@ -123,6 +131,35 @@ func TestMCPOversizedBodyWithLimitedKey(t *testing.T) {
 	}
 }
 
+// TestMCPBatchChargeFollowsProtocolVersion verifies batches are charged only
+// when the SDK will run them: on 2025-03-26 (as with no header), but not on a
+// version that forbids batching or one the SDK does not support, which it
+// rejects whole.
+func TestMCPBatchChargeFollowsProtocolVersion(t *testing.T) {
+	cases := []struct {
+		version  string
+		wantCode int
+		charged  bool
+	}{
+		{"2025-03-26", http.StatusOK, true},
+		{"2025-06-18", http.StatusBadRequest, false},
+		{"2026-07-28", http.StatusBadRequest, false},
+		{"2024-01-01", http.StatusBadRequest, false},
+	}
+	for _, c := range cases {
+		t.Run(c.version, func(t *testing.T) {
+			withTestAuthClients(t, []config.AuthClient{limitedClient("mcp-key", "mcp", 3)})
+			if w := mcpRequestVersion("mcp-key", mcpBatch(3), c.version); w.Code != c.wantCode {
+				t.Fatalf("expected %d, got %d: %s", c.wantCode, w.Code, w.Body.String())
+			}
+			// Charged: 3 tokens gone. Not charged: only the request's own.
+			if got := infoAllowed(t, "mcp-key"); got == c.charged {
+				t.Errorf("charged = %v, want %v", !got, c.charged)
+			}
+		})
+	}
+}
+
 func TestCountBatchToolCalls(t *testing.T) {
 	cases := []struct {
 		body string
@@ -139,5 +176,22 @@ func TestCountBatchToolCalls(t *testing.T) {
 		if got := countBatchToolCalls([]byte(c.body)); got != c.want {
 			t.Errorf("countBatchToolCalls(%q) = %d, want %d", c.body, got, c.want)
 		}
+	}
+}
+
+// TestNewServerUsesOwnMux verifies the production server serves the routes
+// built by newServerHandler, not http.DefaultServeMux.
+func TestNewServerUsesOwnMux(t *testing.T) {
+	srv := newServer()
+	if srv.Handler == nil || srv.Handler == http.DefaultServeMux {
+		t.Fatalf("server handler = %v, want the server's own mux", srv.Handler)
+	}
+	w := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(w, httptest.NewRequest("GET", "/debug/vars", nil))
+	if w.Code == http.StatusOK {
+		t.Fatalf("/debug/vars is served: %s", w.Body.String())
+	}
+	if srv.ReadHeaderTimeout == 0 || srv.WriteTimeout == 0 || srv.MaxHeaderBytes == 0 {
+		t.Error("server timeouts or header limit not set")
 	}
 }
