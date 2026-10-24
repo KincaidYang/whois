@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-24
+
 ### Added
 - `server.metricsAddr` (`WHOIS_METRICS_ADDR`): serve `/metrics` on its own
   listen address, such as `127.0.0.1:9100`, without an API key, and stop
@@ -27,9 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `/debug/vars` is no longer served. `prometheus/client_golang` imports
   `expvar`, which registers that endpoint on Go's default `ServeMux` as an
   import side effect, and the server routed through the default mux — so
-  earlier releases answered it, without a
-  key on instances without `auth.keys`, exposing the process command line
-  and memory statistics. The server now builds its own mux, and
+  earlier releases answered it, without a key on instances without
+  `auth.keys`, exposing the process command line and memory statistics. The server now builds its own mux, and
   `/debug/vars` falls through to the query handler like any other unknown
   path.
 - JSON-RPC batches on `/mcp` are charged per tool call against per-key rate
@@ -39,7 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   requests per minute could run any number of `whois_lookup` calls in one
   batch. A batch of N `tools/call` messages now costs N tokens, like
   `/batch`; one larger than the key's whole budget is answered 429. Batches
-  the SDK rejects for their protocol version are not charged. Instances
+  the SDK rejects whole — sent with a protocol version that forbids
+  batching, or holding a message that is not valid JSON-RPC — are not
+  charged. Instances
   without `auth.keys` have no per-key budget and are unaffected; their
   concurrency and upstream limits already applied to each call.
 
@@ -644,6 +647,7 @@ See the [release notes](https://github.com/KincaidYang/whois/releases/tag/v0.6.0
 See the [GitHub releases page](https://github.com/KincaidYang/whois/releases)
 for 0.5.x and earlier.
 
+[1.5.0]: https://github.com/KincaidYang/whois/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/KincaidYang/whois/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/KincaidYang/whois/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/KincaidYang/whois/compare/v1.2.0...v1.3.0
