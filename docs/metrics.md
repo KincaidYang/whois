@@ -5,6 +5,20 @@ runtime and process collectors the client library registers by default. The
 endpoint is not exempt from API key authentication: on an instance with
 `auth.keys` configured, the scraper needs a key like any other client.
 
+That also means every key can read the metrics, including
+`whois_client_requests_total{client}` — the name and request count of every
+other key. When keys go to several downstream users, set
+`server.metricsAddr` (`WHOIS_METRICS_ADDR`) to a loopback or internal
+address such as `127.0.0.1:9100`: `/metrics` is then served there alone,
+without a key, and the main port stops serving it.
+
+```yaml
+scrape_configs:
+  - job_name: whois
+    static_configs:
+      - targets: ["127.0.0.1:9100"]
+```
+
 ## Request metrics
 
 ### `whois_http_requests_total{type, status_code}`

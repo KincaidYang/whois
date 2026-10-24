@@ -448,3 +448,49 @@ func TestProxySuffixesLowercased(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateConfigMetricsAddr(t *testing.T) {
+	for _, addr := range []string{"", "127.0.0.1:9100", ":9100", "[::1]:9100", "metrics.internal:9100"} {
+		var cfg Config
+		applyDefaults(&cfg)
+		cfg.Server.MetricsAddr = addr
+		if err := validateConfig(&cfg); err != nil {
+			t.Errorf("server.metricsAddr %q: unexpected error: %v", addr, err)
+		}
+	}
+	for _, addr := range []string{"9100", "127.0.0.1", "127.0.0.1:0", "127.0.0.1:70000", "127.0.0.1:http", "::1:9100"} {
+		var cfg Config
+		applyDefaults(&cfg)
+		cfg.Server.MetricsAddr = addr
+		err := validateConfig(&cfg)
+		if err == nil {
+			t.Errorf("server.metricsAddr %q: expected error", addr)
+			continue
+		}
+		if !strings.Contains(err.Error(), "server.metricsAddr") {
+			t.Errorf("server.metricsAddr %q: error %q does not name the offending key", addr, err)
+		}
+	}
+}
+
+func TestEnvOverrideMetricsAddr(t *testing.T) {
+	t.Setenv("WHOIS_METRICS_ADDR", " 127.0.0.1:9100 ")
+	var cfg Config
+	if err := overrideConfigWithEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.MetricsAddr != "127.0.0.1:9100" {
+		t.Errorf("server.metricsAddr from env: %q", cfg.Server.MetricsAddr)
+	}
+
+	// An empty value means "not set", like the other WHOIS_* variables.
+	t.Setenv("WHOIS_METRICS_ADDR", "")
+	cfg = Config{}
+	cfg.Server.MetricsAddr = "10.0.0.5:9100"
+	if err := overrideConfigWithEnv(&cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.MetricsAddr != "10.0.0.5:9100" {
+		t.Errorf("empty WHOIS_METRICS_ADDR must keep the file value, got %q", cfg.Server.MetricsAddr)
+	}
+}

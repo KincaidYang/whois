@@ -13,6 +13,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `server.metricsAddr` (`WHOIS_METRICS_ADDR`): serve `/metrics` on its own
+  listen address, such as `127.0.0.1:9100`, without an API key, and stop
+  serving it on the main port. With `auth.keys` set, `/metrics` used to be
+  readable with any key, and `whois_client_requests_total{client}` shows
+  every key's name and request count — a leak between users when keys are
+  handed to several of them. Unset (the default) keeps `/metrics` on the
+  main port as before. An invalid address, or one already in use, stops
+  startup.
+
 ### Security
 - `/debug/vars` is no longer served. `prometheus/client_golang` imports
   `expvar`, which registers that endpoint on Go's default `ServeMux` as an

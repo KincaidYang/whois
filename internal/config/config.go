@@ -80,6 +80,9 @@ var (
 	// since one batch request fans out into several queries.
 	UpstreamLimit   int
 	UpstreamLimiter chan struct{}
+	// MetricsAddr is the separate listen address for /metrics; empty serves
+	// /metrics on the main port.
+	MetricsAddr string
 	// ProxyServer is the proxy server
 	ProxyServer string
 	// ProxyUsername is the username for the proxy server
@@ -249,6 +252,7 @@ func load() {
 	ConcurrencyLimiter = make(chan struct{}, RateLimit)
 	UpstreamLimit = config.Server.UpstreamLimit
 	UpstreamLimiter = make(chan struct{}, UpstreamLimit)
+	MetricsAddr = config.Server.MetricsAddr
 
 	// Set the proxy server. Suffixes are lowercased to match the lookup
 	// side, which normalizes every queried resource to lowercase — an
@@ -452,6 +456,11 @@ func validateConfig(config *Config) error {
 	if config.Cache.MemoryMaxBytes < 0 {
 		return fmt.Errorf("cache.memoryMaxBytes must not be negative (got %d)", config.Cache.MemoryMaxBytes)
 	}
+	if config.Server.MetricsAddr != "" {
+		if err := validateListenAddr(config.Server.MetricsAddr); err != nil {
+			return fmt.Errorf("server.metricsAddr: %w", err)
+		}
+	}
 	if config.Proxy.Server != "" {
 		if err := validateProxyURL(config.Proxy.Server); err != nil {
 			return fmt.Errorf("proxy.server: %w", err)
@@ -470,6 +479,21 @@ func lowercaseAll(items []string) []string {
 		out[i] = strings.ToLower(s)
 	}
 	return out
+}
+
+// validateListenAddr checks that s is a host:port listen address with a
+// numeric port in 1–65535 (the host may be empty to listen on every
+// interface). A typo here would otherwise only surface as a bind error, or
+// as a random port with ":0".
+func validateListenAddr(s string) error {
+	_, port, err := net.SplitHostPort(s)
+	if err != nil {
+		return fmt.Errorf("invalid listen address %q (want host:port, e.g. 127.0.0.1:9100): %w", s, err)
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+		return fmt.Errorf("invalid port in %q (want 1-65535)", s)
+	}
+	return nil
 }
 
 // validateProxyURL checks that s is an absolute URL with a host and a scheme
@@ -736,6 +760,9 @@ func overrideConfigWithEnv(config *Config) error {
 		if limit, err := strconv.Atoi(upstreamLimit); err == nil {
 			config.Server.UpstreamLimit = limit
 		}
+	}
+	if metricsAddr := strings.TrimSpace(os.Getenv("WHOIS_METRICS_ADDR")); metricsAddr != "" {
+		config.Server.MetricsAddr = metricsAddr
 	}
 
 	// Override bootstrap configuration
