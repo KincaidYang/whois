@@ -482,6 +482,7 @@
       "get": {
         "operationId": "metrics",
         "summary": "Prometheus metrics",
+        "description": "Not served on this port when the instance sets server.metricsAddr; metrics are then served on that separate address, without authentication.",
         "responses": {
           "200": {
             "description": "Metrics in Prometheus text exposition format.",

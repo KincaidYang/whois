@@ -81,6 +81,11 @@ type Config struct {
 		// running at once, across single, batch and MCP lookups (default:
 		// RateLimit).
 		UpstreamLimit int `json:"upstreamLimit" yaml:"upstreamLimit"`
+		// MetricsAddr, when set (host:port, e.g. "127.0.0.1:9100"), serves
+		// /metrics on that address without authentication and removes it
+		// from the main port (default: empty, /metrics stays on the main
+		// port behind auth.keys).
+		MetricsAddr string `json:"metricsAddr" yaml:"metricsAddr"`
 	} `json:"server" yaml:"server"`
 	// Log holds logging settings.
 	Log struct {

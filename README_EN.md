@@ -54,6 +54,7 @@ server:
   port: 8043                   # Server listening port
   rateLimit: 60                # Maximum concurrent requests handled; further requests get 429
   upstreamLimit: 60            # Maximum concurrent upstream WHOIS/RDAP queries (default: rateLimit; batch and MCP lookups count too)
+  # metricsAddr: "127.0.0.1:9100"  # When set, /metrics is served on this address alone (no key needed) and no longer on the main port; empty (the default) keeps it on the main port
 
 log:
   level: "info"                # Log level: debug, info, warn, error (default: info)
@@ -108,6 +109,7 @@ Every configuration option can be overridden via environment variables (which ta
 | `WHOIS_PORT` | `server.port` | `8043` | HTTP listen port |
 | `WHOIS_RATE_LIMIT` | `server.rateLimit` | `100` | Maximum concurrent requests |
 | `WHOIS_UPSTREAM_LIMIT` | `server.upstreamLimit` | same as `rateLimit` | Maximum concurrent upstream queries |
+| `WHOIS_METRICS_ADDR` | `server.metricsAddr` | empty | Separate listen address for `/metrics` (e.g. `127.0.0.1:9100`) |
 | `WHOIS_LOG_LEVEL` | `log.level` | `info` | Log level: debug, info, warn, error |
 | `WHOIS_CACHE_EXPIRATION` | `cache.expiration` | `3600` | Cache TTL in seconds |
 | `WHOIS_NEGATIVE_CACHE_EXPIRATION` | `cache.negativeExpiration` | `60` | Negative-cache TTL in seconds; negative value disables |
@@ -151,7 +153,7 @@ docker run -d --name whois -p 8043:8043 \
 - **Proxy Configuration**: Some TLDs may require proxy access
 - **Log Level**: `debug` logs every cache hit and upstream query dispatch — noisy under load; `info` is recommended for production
 - **Bootstrap Interval**: On startup the service immediately fetches the latest RDAP server list from IANA, then refreshes on this interval; compiled-in data serves as fallback if the fetch fails
-- **API Authentication**: Disabled by default. Configuring `auth.keys` enables it; requests without a valid key get a 401 (RFC 9457 problem+json). Only `/health` and `/ready` are exempt so liveness/readiness probes keep working
+- **API Authentication**: Disabled by default. Configuring `auth.keys` enables it; requests without a valid key get a 401 (RFC 9457 problem+json). Only `/health` and `/ready` are exempt so liveness/readiness probes keep working. `/metrics` carries `whois_client_requests_total{client}`, so any key can read every caller's name and request count; when handing keys to several downstream users, set `server.metricsAddr` so `/metrics` is served on an internal address only
 - **Key naming and per-key rate limits**: The object form of `auth.keys` gives each key a display name and a rate limit. The name labels the caller in the request logs (`client` field) and in the `whois_client_requests_total{client,status_code}` Prometheus metric; the limit is a token bucket (requests/minute, **a full minute's budget may be spent at once**) answering over-budget requests with 429 + `Retry-After`. Batches are charged per item: a batch of N queries costs N tokens, and so does a JSON-RPC batch of N tool calls on `/mcp`
 - **Batch queries**: Off by default. Best enabled together with `auth.keys` — an open instance offering bulk queries multiplies how fast it can be abused against upstream registries
 
@@ -174,7 +176,7 @@ The service provides the following health check endpoints:
 | `GET /health` | Liveness probe - returns 200 if service is running |
 | `GET /ready` | Readiness probe - checks cache and capacity status |
 | `GET /info` | Runtime information - version, uptime, Go version, etc. |
-| `GET /metrics` | Prometheus metrics - request count, latency, cache hit rate, upstream query duration (see [docs/metrics.md](docs/metrics.md) for the full list and suggested alerts) |
+| `GET /metrics` | Prometheus metrics - request count, latency, cache hit rate, upstream query duration (see [docs/metrics.md](docs/metrics.md) for the full list and suggested alerts); served on `server.metricsAddr` instead when that is set |
 | `GET /openapi.json` | OpenAPI 3.1 specification - machine-readable description of all endpoints and response schemas |
 | `POST /mcp` | MCP Streamable HTTP endpoint - for AI assistant integration |
 | `POST /batch` | Bulk queries - multiple domains/IPs/ASNs in one request (off by default, see `batch.enabled`) |

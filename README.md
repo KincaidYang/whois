@@ -44,6 +44,7 @@ server:
   port: 8043                   # 服务监听端口
   rateLimit: 60                # 最大并发处理请求数，超出返回 429
   upstreamLimit: 60            # 程序向上游 WHOIS/RDAP 服务器发起的最大并发查询数（默认等于 rateLimit，批量与 MCP 查询同样计入）
+  # metricsAddr: "127.0.0.1:9100"  # 设置后 /metrics 改在此地址单独提供（不需要密钥），主端口不再提供；留空（默认）则仍在主端口
 
 log:
   level: "info"                # 日志级别：debug、info、warn、error（默认：info）
@@ -98,6 +99,7 @@ mcp:
 | `WHOIS_PORT` | `server.port` | `8043` | 服务监听端口 |
 | `WHOIS_RATE_LIMIT` | `server.rateLimit` | `100` | 最大并发请求数 |
 | `WHOIS_UPSTREAM_LIMIT` | `server.upstreamLimit` | 同 `rateLimit` | 最大并发上游查询数 |
+| `WHOIS_METRICS_ADDR` | `server.metricsAddr` | 空 | `/metrics` 的独立监听地址（如 `127.0.0.1:9100`） |
 | `WHOIS_LOG_LEVEL` | `log.level` | `info` | 日志级别：debug、info、warn、error |
 | `WHOIS_CACHE_EXPIRATION` | `cache.expiration` | `3600` | 缓存过期时间（秒） |
 | `WHOIS_NEGATIVE_CACHE_EXPIRATION` | `cache.negativeExpiration` | `60` | 负向缓存时间（秒），负数禁用 |
@@ -141,7 +143,7 @@ docker run -d --name whois -p 8043:8043 \
 - **代理配置**：某些TLD可能需要代理访问，可配置特定后缀使用代理
 - **日志级别**：`debug` 会输出每次缓存命中和上游查询，流量大时噪声较高；生产环境建议保持 `info`
 - **RDAP 刷新间隔**：服务启动时会立即从 IANA 拉取最新 RDAP 服务器列表，之后按此间隔定期刷新；编译进二进制的数据作为拉取失败时的兜底
-- **API 认证**：默认关闭。配置 `auth.keys` 后即启用，未携带有效密钥的请求返回 401（RFC 9457 problem+json）；仅 `/health` 和 `/ready` 豁免，便于存活/就绪探针工作
+- **API 认证**：默认关闭。配置 `auth.keys` 后即启用，未携带有效密钥的请求返回 401（RFC 9457 problem+json）；仅 `/health` 和 `/ready` 豁免，便于存活/就绪探针工作。`/metrics` 里有 `whois_client_requests_total{client}`，任何一个密钥都能看到所有调用方的名称和请求量；把密钥分发给多个下游时，建议设置 `server.metricsAddr`，让 `/metrics` 只在内网地址上提供
 - **key 命名与按 key 限流**：`auth.keys` 的对象形式可为每个 key 设置显示名和速率限制。显示名出现在请求日志的 `client` 字段和 Prometheus 指标 `whois_client_requests_total{client,status_code}` 中，便于区分调用方；速率限制为 token bucket（次/分钟，**允许一次性用完整分钟额度**），超限返回 429 + `Retry-After` 头。批量查询按条数计入额度：一批 N 条消耗 N 个请求额度；`/mcp` 收到的 JSON-RPC 批量请求同样按其中的工具调用数计入
 - **批量查询**：默认关闭。建议与 `auth.keys` 一起开启——开放实例提供批量查询等于放大被滥用打上游注册局的能力
 
@@ -163,7 +165,7 @@ docker run -d --name whois -p 8043:8043 \
 | `GET /health` | 存活检查 - 服务运行即返回 200 |
 | `GET /ready` | 就绪检查 - 检查缓存和并发容量状态 |
 | `GET /info` | 运行时信息 - 版本、运行时间、Go 版本等 |
-| `GET /metrics` | Prometheus 指标 - 请求计数、延迟、缓存命中率、上游查询耗时（指标清单与告警建议见 [docs/metrics.md](docs/metrics.md)） |
+| `GET /metrics` | Prometheus 指标 - 请求计数、延迟、缓存命中率、上游查询耗时（指标清单与告警建议见 [docs/metrics.md](docs/metrics.md)）；设置 `server.metricsAddr` 后改在该地址提供 |
 | `GET /openapi.json` | OpenAPI 3.1 规范 - 全部端点与响应 schema 的机器可读描述 |
 | `POST /mcp` | MCP Streamable HTTP 端点 - 供 AI 助手集成使用 |
 | `POST /batch` | 批量查询 - 一次提交多个域名/IP/ASN（默认关闭，见 `batch.enabled`） |

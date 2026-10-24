@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -287,6 +288,80 @@ func newServer() *http.Server {
 	}
 }
 
+// newMetricsServer returns the server for server.metricsAddr, or nil when it
+// is unset. It serves only /metrics, without API key authentication: the
+// address is meant to be reachable by the Prometheus scraper alone (loopback
+// or an internal interface), and every API key could otherwise read every
+// client's name and request counts from whois_client_requests_total.
+func newMetricsServer() *http.Server {
+	if config.MetricsAddr == "" {
+		return nil
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	return &http.Server{
+		Addr:              config.MetricsAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      20 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    16 << 10, // 16 KiB
+	}
+}
+
+// startMetricsServer binds server.metricsAddr and serves /metrics on it in
+// the background. It returns nil, nil when the setting is unset, and the
+// bind error (address in use, permission) when it fails, so startup can stop.
+// The returned server's Addr is the bound address.
+func startMetricsServer() (*http.Server, error) {
+	srv := newMetricsServer()
+	if srv == nil {
+		return nil, nil
+	}
+	ln, err := net.Listen("tcp", srv.Addr)
+	if err != nil {
+		return nil, err
+	}
+	srv.Addr = ln.Addr().String()
+	slog.Info("metrics server listening", "addr", srv.Addr)
+	go serveMetrics(srv, ln)
+	return srv, nil
+}
+
+// serveMetrics runs the metrics server on ln until it is shut down, logging
+// any other reason it stops (the listener failing).
+func serveMetrics(srv *http.Server, ln net.Listener) {
+	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		slog.Error("metrics server stopped", "err", err)
+	}
+}
+
+// exit is os.Exit, replaced in tests.
+var exit = os.Exit
+
+// mustStartMetricsServer is startMetricsServer for main: a bad or busy
+// server.metricsAddr stops the process.
+func mustStartMetricsServer() *http.Server {
+	srv, err := startMetricsServer()
+	if err != nil {
+		slog.Error("metrics server failed to start", "err", err)
+		exit(1)
+	}
+	return srv
+}
+
+// shutdownMetricsServer stops srv (nil when server.metricsAddr is unset),
+// letting a scrape in progress finish within ctx.
+func shutdownMetricsServer(ctx context.Context, srv *http.Server) {
+	if srv == nil {
+		return
+	}
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("metrics server shutdown error", "err", err)
+	}
+}
+
 // registerRoutes attaches all endpoints to mux.
 func registerRoutes(mux *http.ServeMux) {
 	// Health check endpoints
@@ -294,8 +369,11 @@ func registerRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/ready", handlers.HandleReady)
 	mux.HandleFunc("/info", handlers.HandleInfo)
 
-	// Prometheus metrics endpoint
-	mux.Handle("/metrics", promhttp.Handler())
+	// Prometheus metrics endpoint, unless server.metricsAddr moves it to its
+	// own listener (newMetricsServer).
+	if config.MetricsAddr == "" {
+		mux.Handle("/metrics", promhttp.Handler())
+	}
 
 	// OpenAPI 3.1 service description
 	mux.HandleFunc("/openapi.json", handlers.HandleOpenAPI)
@@ -468,6 +546,10 @@ func main() {
 		serverlist.StartBootstrapRefresh(bootstrapCtx, config.HttpClient, config.BootstrapInterval)
 	}
 
+	// Bind the metrics listener first, so a bad or busy server.metricsAddr
+	// stops startup before the main port accepts any request.
+	metricsSrv := mustStartMetricsServer()
+
 	srv := newServer()
 
 	go func() {
@@ -492,6 +574,7 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("server shutdown error", "err", err)
 	}
+	shutdownMetricsServer(shutdownCtx, metricsSrv)
 
 	// The listener is closed, so no new Wg.Add races this wait; it only
 	// covers requests Shutdown may have given up on, and is bounded so a

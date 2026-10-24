@@ -6,6 +6,12 @@ server:
   # Maximum number of upstream WHOIS/RDAP queries running at once, counting
   # every lookup (single, batch items, MCP). Defaults to rateLimit.
   # upstreamLimit: 60
+  # Serve /metrics on its own address (host:port), without an API key, and
+  # stop serving it on the main port. Keep it on loopback or an internal
+  # interface: with auth.keys set, any key could otherwise read every
+  # client's name and request counts from /metrics. Empty (the default)
+  # keeps /metrics on the main port.
+  # metricsAddr: "127.0.0.1:9100"
 
 log:
   # Minimum log level: debug, info, warn, error.
