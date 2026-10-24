@@ -325,12 +325,41 @@ func startMetricsServer() (*http.Server, error) {
 	}
 	srv.Addr = ln.Addr().String()
 	slog.Info("metrics server listening", "addr", srv.Addr)
-	go func() {
-		if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
-			slog.Error("metrics server stopped", "err", err)
-		}
-	}()
+	go serveMetrics(srv, ln)
 	return srv, nil
+}
+
+// serveMetrics runs the metrics server on ln until it is shut down, logging
+// any other reason it stops (the listener failing).
+func serveMetrics(srv *http.Server, ln net.Listener) {
+	if err := srv.Serve(ln); err != nil && err != http.ErrServerClosed {
+		slog.Error("metrics server stopped", "err", err)
+	}
+}
+
+// exit is os.Exit, replaced in tests.
+var exit = os.Exit
+
+// mustStartMetricsServer is startMetricsServer for main: a bad or busy
+// server.metricsAddr stops the process.
+func mustStartMetricsServer() *http.Server {
+	srv, err := startMetricsServer()
+	if err != nil {
+		slog.Error("metrics server failed to start", "err", err)
+		exit(1)
+	}
+	return srv
+}
+
+// shutdownMetricsServer stops srv (nil when server.metricsAddr is unset),
+// letting a scrape in progress finish within ctx.
+func shutdownMetricsServer(ctx context.Context, srv *http.Server) {
+	if srv == nil {
+		return
+	}
+	if err := srv.Shutdown(ctx); err != nil {
+		slog.Error("metrics server shutdown error", "err", err)
+	}
 }
 
 // registerRoutes attaches all endpoints to mux.
@@ -519,11 +548,7 @@ func main() {
 
 	// Bind the metrics listener first, so a bad or busy server.metricsAddr
 	// stops startup before the main port accepts any request.
-	metricsSrv, err := startMetricsServer()
-	if err != nil {
-		slog.Error("metrics server failed to start", "err", err)
-		os.Exit(1)
-	}
+	metricsSrv := mustStartMetricsServer()
 
 	srv := newServer()
 
@@ -549,12 +574,7 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("server shutdown error", "err", err)
 	}
-	if metricsSrv != nil {
-		// Scrapes are quick; this only lets one in progress finish.
-		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
-			slog.Error("metrics server shutdown error", "err", err)
-		}
-	}
+	shutdownMetricsServer(shutdownCtx, metricsSrv)
 
 	// The listener is closed, so no new Wg.Add races this wait; it only
 	// covers requests Shutdown may have given up on, and is bounded so a

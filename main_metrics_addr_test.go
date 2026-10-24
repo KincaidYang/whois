@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/KincaidYang/whois/internal/config"
 )
@@ -103,4 +104,87 @@ func TestStartMetricsServerBindError(t *testing.T) {
 		_ = srv.Shutdown(context.Background())
 		t.Fatal("expected a bind error for an address in use")
 	}
+}
+
+// TestServeMetricsLogsListenerFailure covers the listener failing under a
+// running metrics server: serveMetrics returns instead of hanging.
+func TestServeMetricsLogsListenerFailure(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = ln.Close()
+	done := make(chan struct{})
+	go func() {
+		serveMetrics(&http.Server{}, ln)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("serveMetrics did not return after its listener failed")
+	}
+}
+
+// TestMustStartMetricsServerExitsOnError verifies a busy address exits the
+// process with status 1.
+func TestMustStartMetricsServerExitsOnError(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	withMetricsAddr(t, ln.Addr().String())
+
+	code := -1
+	oldExit := exit
+	exit = func(c int) { code = c }
+	t.Cleanup(func() { exit = oldExit })
+
+	if srv := mustStartMetricsServer(); srv != nil {
+		_ = srv.Shutdown(context.Background())
+	}
+	if code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+}
+
+func TestMustStartMetricsServer(t *testing.T) {
+	withMetricsAddr(t, "127.0.0.1:0")
+	srv := mustStartMetricsServer()
+	if srv == nil {
+		t.Fatal("expected a running metrics server")
+	}
+	shutdownMetricsServer(context.Background(), srv)
+	if _, err := http.Get("http://" + srv.Addr + "/metrics"); err == nil {
+		t.Error("metrics server still accepting connections after shutdown")
+	}
+	shutdownMetricsServer(context.Background(), nil) // unset: no-op
+}
+
+// TestShutdownMetricsServerTimeout covers a scrape that outlives the
+// shutdown deadline: the error is logged and shutdown still returns.
+func TestShutdownMetricsServerTimeout(t *testing.T) {
+	withMetricsAddr(t, "127.0.0.1:0")
+	srv, err := startMetricsServer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+
+	// A connection with half a request stays active, so Shutdown cannot
+	// finish before its (already expired) deadline.
+	conn, err := net.Dial("tcp", srv.Addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	if _, err := conn.Write([]byte("GET /metrics HTTP/1.1\r\nHost: x\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond) // let the server pick the connection up
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	shutdownMetricsServer(ctx, srv)
 }
