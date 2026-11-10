@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-10
+
 ### Changed
 - Upstream RDAP requests and the IANA bootstrap fetch send
   `User-Agent: whois/<version> (+https://github.com/KincaidYang/whois)`
@@ -28,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `golang.org/x/net` 0.62.0 (was 0.61.0), and indirect dependencies are
   refreshed to their latest releases. `govulncheck` reports no reachable
   advisories before or after.
+- Built-in IANA server lists refreshed (November 2026): `.sc` gained an RDAP
+  server, so its lookups go to RDAP first; `.helsinki` was dropped from both
+  lists, so its lookups answer 404; `.versicherung` and `.网站`
+  (`xn--5tzm5g`) no longer have a WHOIS server — they are still served over
+  RDAP, and `?raw=1` answers 404.
 
 ### Fixed
 - IP addresses and AS numbers no registry answers for — loopback, private,
@@ -685,6 +692,7 @@ See the [release notes](https://github.com/KincaidYang/whois/releases/tag/v0.6.0
 See the [GitHub releases page](https://github.com/KincaidYang/whois/releases)
 for 0.5.x and earlier.
 
+[1.6.0]: https://github.com/KincaidYang/whois/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/KincaidYang/whois/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/KincaidYang/whois/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/KincaidYang/whois/compare/v1.3.0...v1.4.0
