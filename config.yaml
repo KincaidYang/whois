@@ -47,11 +47,13 @@ redis:
 
 proxy:
   # HTTP proxy for RDAP queries to the TLDs listed in suffixes.
-  # Leave server empty to disable proxying.
+  # Leave server empty to disable proxying. WHOIS (port 43) queries and the
+  # IANA bootstrap fetch always connect directly.
   server: ""
   username: ""
   password: ""
-  # TLDs queried through the proxy; the special value "all" proxies every TLD.
+  # TLDs queried through the proxy; the special value "all" proxies every
+  # RDAP query, IP and ASN lookups included.
   suffixes: []
 
 bootstrap:

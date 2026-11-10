@@ -22,7 +22,9 @@ a short time (`cache.negativeExpiration`, default 60s).
 
 The same status is returned when the query is well-formed but this service
 knows no WHOIS or RDAP server for its TLD — the TLD is not in the root zone,
-or its registry publishes neither service.
+or its registry publishes neither service — or for the IP address or AS
+number: loopback, private, reserved and unallocated space (`127.0.0.1`,
+`10.0.0.0/8`, `AS64512`, …) belongs to no registry.
 
 ## query-denied
 

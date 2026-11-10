@@ -68,7 +68,7 @@ proxy:
   server: ""                   # 代理服务器地址，留空表示不使用代理
   username: ""                 # 代理服务器用户名（如需认证）
   password: ""                 # 代理服务器密码（如需认证）
-  suffixes: []                 # 需要使用代理的TLD后缀列表；填 ["all"] 表示全部走代理
+  suffixes: []                 # 需要使用代理的TLD后缀列表；填 ["all"] 表示全部 RDAP 查询（含 IP、ASN）走代理
 
 bootstrap:
   interval: 86400              # RDAP 服务器列表从 IANA 刷新间隔，单位：秒；0 则禁用（推荐：86400）
@@ -115,7 +115,7 @@ mcp:
 | `WHOIS_PROXY_SERVER` | `proxy.server` | 空 | 代理服务器地址，空则不使用代理 |
 | `WHOIS_PROXY_USERNAME` | `proxy.username` | 空 | 代理用户名 |
 | `WHOIS_PROXY_PASSWORD` | `proxy.password` | 空 | 代理密码 |
-| `WHOIS_PROXY_SUFFIXES` | `proxy.suffixes` | 空 | 走代理的 TLD 列表，**逗号分隔**（`all` 表示全部） |
+| `WHOIS_PROXY_SUFFIXES` | `proxy.suffixes` | 空 | 走代理的 TLD 列表，**逗号分隔**（`all` 表示全部 RDAP 查询，含 IP、ASN） |
 | `WHOIS_BOOTSTRAP_INTERVAL` | `bootstrap.interval` | `0`（禁用） | IANA RDAP 列表刷新间隔（秒）；配置文件示例为 86400 |
 | `WHOIS_AUTH_KEYS` | `auth.keys` | 空 | API 密钥，**逗号分隔**（仅纯 key 形式；命名/按 key 限流需配置文件） |
 | `WHOIS_BATCH_ENABLED` | `batch.enabled` | `false` | `true`/`1` 开启批量查询端点 |
@@ -140,7 +140,7 @@ docker run -d --name whois -p 8043:8043 \
 - **内存缓存**：Redis 不可用时的兜底，达到上限后按 LRU（最近最少使用）淘汰
 - **负向缓存**：将“未找到/被拒”的查询结果短时间缓存，避免对不存在的资源反复请求上游；默认 60 秒
 - **并发限制**：控制向上游服务器的请求频率，避免被限流。
-- **代理配置**：某些TLD可能需要代理访问，可配置特定后缀使用代理
+- **代理配置**：某些TLD可能需要代理访问，可配置特定后缀使用代理。代理只作用于 RDAP 查询；WHOIS（43 端口）查询和 IANA 列表拉取始终直连。IP、ASN 查询没有 TLD，只有 `all` 能让它们走代理
 - **日志级别**：`debug` 会输出每次缓存命中和上游查询，流量大时噪声较高；生产环境建议保持 `info`
 - **RDAP 刷新间隔**：服务启动时会立即从 IANA 拉取最新 RDAP 服务器列表，之后按此间隔定期刷新；编译进二进制的数据作为拉取失败时的兜底
 - **API 认证**：默认关闭。配置 `auth.keys` 后即启用，未携带有效密钥的请求返回 401（RFC 9457 problem+json）；仅 `/health` 和 `/ready` 豁免，便于存活/就绪探针工作。`/metrics` 里有 `whois_client_requests_total{client}`，任何一个密钥都能看到所有调用方的名称和请求量；把密钥分发给多个下游时，建议设置 `server.metricsAddr`，让 `/metrics` 只在内网地址上提供

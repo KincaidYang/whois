@@ -11,6 +11,7 @@ import (
 
 	"github.com/KincaidYang/whois/internal/config"
 	"github.com/KincaidYang/whois/internal/handlers"
+	"github.com/KincaidYang/whois/internal/serverlist"
 )
 
 // newTestMux builds the same routing table main() installs, on a private mux.
@@ -219,5 +220,13 @@ func TestCORSHeaderOnResponse(t *testing.T) {
 	}
 	if got := w.Header().Get("Access-Control-Expose-Headers"); !strings.Contains(got, "X-Cache") {
 		t.Errorf("Access-Control-Expose-Headers: got %q", got)
+	}
+}
+
+// TestBootstrapUserAgentWired verifies the bootstrap fetch is given the
+// service's User-Agent.
+func TestBootstrapUserAgentWired(t *testing.T) {
+	if serverlist.UserAgent == nil || serverlist.UserAgent() != config.UserAgent() {
+		t.Fatal("serverlist.UserAgent is not wired to config.UserAgent")
 	}
 }

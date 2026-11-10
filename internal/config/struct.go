@@ -130,14 +130,17 @@ type Config struct {
 		// recommended; only for self-signed certificates in trusted networks).
 		TLSSkipVerify bool `json:"tlsSkipVerify" yaml:"tlsSkipVerify"`
 	} `json:"redis" yaml:"redis"`
-	// Proxy routes RDAP queries for selected TLDs through an HTTP proxy.
+	// Proxy routes RDAP queries through an HTTP proxy: per TLD, or all of
+	// them. WHOIS (port 43) queries and the IANA bootstrap fetch always
+	// connect directly.
 	Proxy struct {
 		// Server is the proxy URL; empty disables proxying.
 		Server   string `json:"server" yaml:"server"`
 		Username string `json:"username" yaml:"username"`
 		Password string `json:"password" yaml:"password"`
 		// Suffixes is the list of TLDs queried through the proxy; the special
-		// value "all" proxies every TLD.
+		// value "all" proxies every RDAP query, IP and ASN lookups included
+		// (those have no TLD, so "all" is the only entry that reaches them).
 		Suffixes []string `json:"suffixes" yaml:"suffixes"`
 	} `json:"proxy" yaml:"proxy"`
 	// Bootstrap controls refreshing RDAP server lists from IANA.

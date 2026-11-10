@@ -78,7 +78,7 @@ proxy:
   server: ""                   # Proxy server address; empty disables proxying
   username: ""                 # Proxy server username (if authentication required)
   password: ""                 # Proxy server password (if authentication required)
-  suffixes: []                 # TLD suffixes that use the proxy; ["all"] routes everything through the proxy
+  suffixes: []                 # TLD suffixes that use the proxy; ["all"] proxies every RDAP query (IP and ASN included)
 
 bootstrap:
   interval: 86400              # RDAP server list refresh interval in seconds; 0 disables fetching (recommended: 86400)
@@ -125,7 +125,7 @@ Every configuration option can be overridden via environment variables (which ta
 | `WHOIS_PROXY_SERVER` | `proxy.server` | empty | Proxy URL; empty disables proxying |
 | `WHOIS_PROXY_USERNAME` | `proxy.username` | empty | Proxy username |
 | `WHOIS_PROXY_PASSWORD` | `proxy.password` | empty | Proxy password |
-| `WHOIS_PROXY_SUFFIXES` | `proxy.suffixes` | empty | TLDs queried through the proxy, **comma-separated** (`all` proxies everything) |
+| `WHOIS_PROXY_SUFFIXES` | `proxy.suffixes` | empty | TLDs queried through the proxy, **comma-separated** (`all` proxies every RDAP query, IP and ASN included) |
 | `WHOIS_BOOTSTRAP_INTERVAL` | `bootstrap.interval` | `0` (disabled) | IANA RDAP list refresh interval in seconds; the sample config ships 86400 |
 | `WHOIS_AUTH_KEYS` | `auth.keys` | empty | API keys, **comma-separated** (bare keys only; naming / per-key limits need the config file) |
 | `WHOIS_BATCH_ENABLED` | `batch.enabled` | `false` | `true`/`1` enables the bulk-query endpoint |
@@ -150,7 +150,7 @@ docker run -d --name whois -p 8043:8043 \
 - **Memory Cache**: Fallback when Redis is unavailable; evicts least-recently-used (LRU) entries once full
 - **Negative Cache**: Briefly caches "not found / denied" results to avoid repeatedly hitting upstream for missing resources; defaults to 60 seconds
 - **Concurrency Limit**: Controls request frequency to upstream servers to avoid rate limiting
-- **Proxy Configuration**: Some TLDs may require proxy access
+- **Proxy Configuration**: Some TLDs may require proxy access. The proxy applies to RDAP queries only; WHOIS (port 43) queries and the IANA list fetch always connect directly. IP and ASN queries have no TLD, so only `all` sends them through the proxy
 - **Log Level**: `debug` logs every cache hit and upstream query dispatch — noisy under load; `info` is recommended for production
 - **Bootstrap Interval**: On startup the service immediately fetches the latest RDAP server list from IANA, then refreshes on this interval; compiled-in data serves as fallback if the fetch fails
 - **API Authentication**: Disabled by default. Configuring `auth.keys` enables it; requests without a valid key get a 401 (RFC 9457 problem+json). Only `/health` and `/ready` are exempt so liveness/readiness probes keep working. `/metrics` carries `whois_client_requests_total{client}`, so any key can read every caller's name and request count; when handing keys to several downstream users, set `server.metricsAddr` so `/metrics` is served on an internal address only

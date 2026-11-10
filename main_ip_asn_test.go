@@ -325,3 +325,48 @@ func TestHandleReadyRequireRedis(t *testing.T) {
 		t.Errorf("body: %s", w.Body.String())
 	}
 }
+
+// TestHandleIPAndASNWithoutRegistry verifies that addresses and AS numbers no
+// registry answers for (loopback, private, reserved) are reported as
+// not-found, like a domain under a TLD with no server, rather than as a
+// failed query.
+func TestHandleIPAndASNWithoutRegistry(t *testing.T) {
+	for _, resource := range []string{"127.0.0.1", "10.0.0.1", "240.0.0.1", "fc00::1", "0.0.0.0/0"} {
+		w := httptest.NewRecorder()
+		handlers.HandleIP(context.Background(), w, resource, handlers.CacheKeyPrefix, false)
+		if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "#not-found") {
+			t.Errorf("IP %s: got %d %s, want 404 not-found", resource, w.Code, w.Body.String())
+		}
+	}
+	for _, resource := range []string{"as0", "as64512", "as4200000000"} {
+		w := httptest.NewRecorder()
+		handlers.HandleASN(context.Background(), w, resource, handlers.CacheKeyPrefix, false)
+		if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "#not-found") {
+			t.Errorf("ASN %s: got %d %s, want 404 not-found", resource, w.Code, w.Body.String())
+		}
+	}
+}
+
+// TestHandleASNUpstreamErrors covers what the handler does with an upstream
+// that answers but not with a usable autnum object: a 404 is not-found, and
+// a response describing another AS number is a failed query, not a result.
+func TestHandleASNUpstreamErrors(t *testing.T) {
+	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/4199999981") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS1","startAutnum":1,"endAutnum":1}`))
+	}, "4199999980-4199999989")
+
+	for path, want := range map[string]int{
+		"/autnum/4199999981": http.StatusNotFound,
+		"/autnum/4199999982": http.StatusInternalServerError,
+	} {
+		w := httptest.NewRecorder()
+		newTestMux().ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		if w.Code != want {
+			t.Errorf("%s: got %d, want %d: %s", path, w.Code, want, w.Body.String())
+		}
+	}
+}

@@ -38,7 +38,13 @@ func HandleASN(ctx context.Context, w http.ResponseWriter, resource string, cach
 	}
 
 	// Find the RDAP server URL via pre-built sorted ASN range index
-	serverURL, _ := serverlist.LookupASNKey(uint32(asnUint))
+	serverURL, ok := serverlist.LookupASNKey(uint32(asnUint))
+	if !ok {
+		// Nothing to query: no registry answers for this number (AS0, private
+		// use, reserved, unallocated). See HandleIP.
+		utils.HandleHTTPError(w, utils.ErrorTypeNotFound, "No RDAP server known for this AS number (reserved, private or unallocated).")
+		return
+	}
 
 	// Query and parse the RDAP information, deduplicating concurrent misses
 	outcome, err := dedupedQuery(ctx, key, refresh, func(qctx context.Context) (queryOutcome, error) {
