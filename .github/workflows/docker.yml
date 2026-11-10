@@ -31,6 +31,9 @@ jobs:
             linux/arm64
           push: true
           no-cache: true
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            COMMIT=${{ github.sha }}
           tags: |
             jinzeyang/whois:${{ env.VERSION }}
             jinzeyang/whois:latest

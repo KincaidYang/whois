@@ -33,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   outright where the proxy is the only way out. WHOIS (port 43) queries and
   the IANA bootstrap fetch still connect directly, and the documentation now
   says so.
+- Docker images report their real version. They are built in `golang:alpine`,
+  which has no git, so Go could not stamp version information into the
+  binary and every image answered `"version": "dev"` on `/info` and as the
+  MCP server version. The Dockerfile now takes `VERSION` and `COMMIT` build
+  arguments, which the Docker Hub, GHCR and CNB builds pass; a plain
+  `docker build .` without them still reports `dev`. Release archives were
+  not affected.
 
 ## [1.5.0] - 2026-10-24
 

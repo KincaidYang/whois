@@ -37,7 +37,7 @@ $:
         - name: docker login
           script: docker login -u ${CNB_TOKEN_USER_NAME} -p "${CNB_TOKEN}" ${CNB_DOCKER_REGISTRY}
         - name: docker build
-          script: docker build -t ${IMAGE_TAG} .
+          script: docker build --build-arg VERSION=${CNB_BRANCH} --build-arg COMMIT=${CNB_COMMIT} -t ${IMAGE_TAG} .
         - name: docker push
           script: docker push ${IMAGE_TAG}
         - name: resolve
@@ -55,7 +55,7 @@ $:
         - name: docker login
           script: docker login -u ${CNB_TOKEN_USER_NAME} -p "${CNB_TOKEN}" ${CNB_DOCKER_REGISTRY}
         - name: docker build
-          script: docker build -t ${IMAGE_TAG} .
+          script: docker build --build-arg VERSION=${CNB_BRANCH} --build-arg COMMIT=${CNB_COMMIT} -t ${IMAGE_TAG} .
         - name: docker push
           script: docker push ${IMAGE_TAG}
         - name: resolve

@@ -838,9 +838,21 @@ func overrideConfigWithEnv(config *Config) error {
 	return nil
 }
 
+// buildVersion and buildCommit are set at link time (-ldflags -X) by builds
+// that cannot stamp VCS information themselves: the Docker image is built in
+// golang:alpine, which has no git, so its build info carries no version and
+// the image would otherwise report "dev". When set they take precedence over
+// the build info.
+var (
+	buildVersion string
+	buildCommit  string
+)
+
 // initVersionInfo reads version information from Go build info
 // This works automatically with `go build` (Go 1.18+)
 func initVersionInfo() {
+	defer applyLinkedVersion()
+
 	Version = "dev"
 	BuildTime = "unknown"
 	GitCommit = "unknown"
@@ -870,6 +882,20 @@ func initVersionInfo() {
 			if setting.Value == "true" {
 				GitCommit += "-dirty"
 			}
+		}
+	}
+}
+
+// applyLinkedVersion overrides the build-info version and commit with the
+// values linked in by the build, when there are any.
+func applyLinkedVersion() {
+	if buildVersion != "" {
+		Version = buildVersion
+	}
+	if buildCommit != "" {
+		GitCommit = buildCommit
+		if len(GitCommit) > 7 {
+			GitCommit = GitCommit[:7] // short commit hash
 		}
 	}
 }
