@@ -346,3 +346,27 @@ func TestHandleIPAndASNWithoutRegistry(t *testing.T) {
 		}
 	}
 }
+
+// TestHandleASNUpstreamErrors covers what the handler does with an upstream
+// that answers but not with a usable autnum object: a 404 is not-found, and
+// a response describing another AS number is a failed query, not a result.
+func TestHandleASNUpstreamErrors(t *testing.T) {
+	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/4199999981") {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(`{"objectClassName":"autnum","handle":"AS1","startAutnum":1,"endAutnum":1}`))
+	}, "4199999980-4199999989")
+
+	for path, want := range map[string]int{
+		"/autnum/4199999981": http.StatusNotFound,
+		"/autnum/4199999982": http.StatusInternalServerError,
+	} {
+		w := httptest.NewRecorder()
+		newTestMux().ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		if w.Code != want {
+			t.Errorf("%s: got %d, want %d: %s", path, w.Code, want, w.Body.String())
+		}
+	}
+}
