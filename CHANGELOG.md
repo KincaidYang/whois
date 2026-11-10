@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nor the operator that the registry was throttling this instance or how
   long to back off. As before, the result is not cached. Clients that treat
   every 5xx alike need no change.
+- `golang.org/x/net` 0.62.0 (was 0.61.0), and indirect dependencies are
+  refreshed to their latest releases. `govulncheck` reports no reachable
+  advisories before or after.
 
 ### Fixed
 - IP addresses and AS numbers no registry answers for — loopback, private,
