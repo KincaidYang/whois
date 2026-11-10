@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `User-Agent: whois/<version> (+https://github.com/KincaidYang/whois)`
   instead of Go's default `Go-http-client/1.1`, so a registry can tell what
   is querying it and where to report a problem.
+- An RDAP registry answering HTTP 429 is reported as 503 with the new problem
+  type `upstream-rate-limited`, and the registry's `Retry-After` is passed on
+  (in seconds, capped at one hour). It used to come back as a generic 500
+  `query-failed` and be logged as an error, which told neither the client
+  nor the operator that the registry was throttling this instance or how
+  long to back off. As before, the result is not cached. Clients that treat
+  every 5xx alike need no change.
 
 ### Fixed
 - IP addresses and AS numbers no registry answers for — loopback, private,

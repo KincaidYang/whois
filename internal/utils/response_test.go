@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHandleHTTPError(t *testing.T) {
@@ -155,5 +157,38 @@ func TestHandleCacheResponse_DefaultContentType(t *testing.T) {
 	HandleCacheResponse(w, "raw whois text", "")
 	if ct := w.Header().Get("Content-Type"); ct != "application/json" {
 		t.Errorf("Content-Type=%q, want application/json for empty contentType", ct)
+	}
+}
+
+// TestHandleQueryErrorUpstreamRateLimited verifies the 503 mapping and that
+// Retry-After is passed on only when the registry gave a delay, rounded up
+// to whole seconds.
+func TestHandleQueryErrorUpstreamRateLimited(t *testing.T) {
+	tests := []struct {
+		name      string
+		err       error
+		wantRetry string
+	}{
+		{"with delay", &UpstreamRateLimitedError{RetryAfter: 1500 * time.Millisecond}, "2"},
+		{"no delay", &UpstreamRateLimitedError{}, ""},
+		{"wrapped", fmt.Errorf("flight: %w", &UpstreamRateLimitedError{RetryAfter: time.Minute}), "60"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			HandleQueryError(context.Background(), w, tt.err)
+			if w.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status = %d, want 503", w.Code)
+			}
+			if !strings.Contains(w.Body.String(), "#upstream-rate-limited") {
+				t.Errorf("body = %s, want problem type upstream-rate-limited", w.Body.String())
+			}
+			if got := w.Header().Get("Retry-After"); got != tt.wantRetry {
+				t.Errorf("Retry-After = %q, want %q", got, tt.wantRetry)
+			}
+			if !errors.Is(tt.err, ErrUpstreamRateLimited) || tt.err.Error() == "" {
+				t.Errorf("%v should match ErrUpstreamRateLimited", tt.err)
+			}
+		})
 	}
 }

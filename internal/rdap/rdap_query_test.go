@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/KincaidYang/whois/internal/config"
 	"github.com/KincaidYang/whois/internal/netguard"
@@ -224,5 +225,49 @@ func TestUpstreamClientRefusesLoopback(t *testing.T) {
 	defer netguard.SetAllowPrivateForTesting(true)
 	if _, err := doRDAPRequest(context.Background(), config.HttpClient, srv.URL+"/domain/example.com"); !errors.Is(err, netguard.ErrBlockedAddress) {
 		t.Errorf("request to a loopback upstream: err = %v, want ErrBlockedAddress", err)
+	}
+}
+
+func TestDoRDAPRequestRateLimited(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "120")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	_, err := doRDAPRequest(context.Background(), config.HttpClient, srv.URL)
+	var limited *utils.UpstreamRateLimitedError
+	if !errors.As(err, &limited) || !errors.Is(err, utils.ErrUpstreamRateLimited) {
+		t.Fatalf("expected UpstreamRateLimitedError, got %v", err)
+	}
+	if limited.RetryAfter != 2*time.Minute {
+		t.Errorf("RetryAfter = %s, want 2m", limited.RetryAfter)
+	}
+}
+
+func TestRetryAfter(t *testing.T) {
+	now := time.Date(2026, 11, 10, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		value string
+		want  time.Duration
+	}{
+		{"", 0},
+		{"30", 30 * time.Second},
+		{" 30 ", 30 * time.Second},
+		{"0", 0},
+		{"-5", 0},
+		{"soon", 0},
+		{"1.5", 0},
+		{"7200", maxRetryAfter},
+		{"99999999999999999999", 0}, // overflows int64: malformed
+		{"9223372036854775807", maxRetryAfter},
+		{"Tue, 10 Nov 2026 12:01:00 GMT", time.Minute},
+		{"Tue, 10 Nov 2026 11:00:00 GMT", 0},             // in the past
+		{"Wed, 11 Nov 2026 12:00:00 GMT", maxRetryAfter}, // a day away
+	}
+	for _, tt := range tests {
+		if got := retryAfter(tt.value, now); got != tt.want {
+			t.Errorf("retryAfter(%q) = %s, want %s", tt.value, got, tt.want)
+		}
 	}
 }

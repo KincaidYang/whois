@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -84,6 +85,28 @@ func getHTTPClient(tld string) *http.Client {
 	return config.HttpClient
 }
 
+// maxRetryAfter caps the delay passed on from a registry's Retry-After, so a
+// misconfigured or hostile server cannot tell clients to stay away for days.
+const maxRetryAfter = time.Hour
+
+// retryAfter parses a Retry-After header value — a number of seconds or an
+// HTTP date (RFC 9110 section 10.2.3) — into a delay from now, capped at
+// maxRetryAfter. It returns 0 when the header is absent, malformed or not in
+// the future.
+func retryAfter(value string, now time.Time) time.Duration {
+	value = strings.TrimSpace(value)
+	var delay time.Duration
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil {
+		if seconds > int64(maxRetryAfter/time.Second) {
+			return maxRetryAfter
+		}
+		delay = time.Duration(seconds) * time.Second
+	} else if at, err := http.ParseTime(value); err == nil {
+		delay = at.Sub(now)
+	}
+	return min(max(delay, 0), maxRetryAfter)
+}
+
 // doRDAPRequest performs the common RDAP HTTP request logic
 func doRDAPRequest(ctx context.Context, client *http.Client, url string) (result string, err error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -115,6 +138,8 @@ func doRDAPRequest(ctx context.Context, client *http.Client, url string) (result
 		return "", utils.ErrResourceNotFound
 	case http.StatusForbidden:
 		return "", utils.ErrQueryDenied
+	case http.StatusTooManyRequests:
+		return "", &utils.UpstreamRateLimitedError{RetryAfter: retryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	default:
 		return "", fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
