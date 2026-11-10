@@ -77,6 +77,9 @@
           },
           "500": {
             "$ref": "#/components/responses/ServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamRateLimited"
           }
         }
       }
@@ -151,6 +154,9 @@
           },
           "500": {
             "$ref": "#/components/responses/ServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamRateLimited"
           }
         }
       }
@@ -216,6 +222,9 @@
           },
           "500": {
             "$ref": "#/components/responses/ServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamRateLimited"
           }
         }
       }
@@ -291,6 +300,9 @@
           },
           "500": {
             "$ref": "#/components/responses/ServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamRateLimited"
           }
         }
       }
@@ -356,6 +368,9 @@
           },
           "500": {
             "$ref": "#/components/responses/ServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/UpstreamRateLimited"
           }
         }
       }
@@ -739,6 +754,24 @@
       },
       "ServerError": {
         "description": "The upstream query failed or an unexpected server-side error occurred.",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "UpstreamRateLimited": {
+        "description": "The upstream registry is rate limiting queries from this instance (problem type `upstream-rate-limited`). Not cached; retry after the delay in Retry-After when present.",
+        "headers": {
+          "Retry-After": {
+            "description": "Seconds the registry asked to wait, capped at one hour. Absent when the registry gave no delay.",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        },
         "content": {
           "application/problem+json": {
             "schema": {

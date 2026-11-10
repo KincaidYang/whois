@@ -70,6 +70,15 @@ rejections carry a `Retry-After` response header with the number of seconds
 until the next request is allowed; the two concurrency rejections do not, and
 a short delay before retrying is enough.
 
+## upstream-rate-limited
+
+**Status: 503.** The upstream registry answered the RDAP query with HTTP 429:
+it is rate limiting queries from this instance's address. The response
+carries the registry's `Retry-After` (in seconds, capped at one hour) when it
+sent one. The result is not cached, so a later request queries the registry
+again. Operators who see this often should lower the query volume towards
+that registry or lengthen `cache.expiration`.
+
 ## query-failed
 
 **Status: 500.** The upstream WHOIS/RDAP query failed (network error, upstream

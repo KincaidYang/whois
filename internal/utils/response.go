@@ -117,6 +117,18 @@ func HandleQueryError(ctx context.Context, w http.ResponseWriter, err error) {
 		writeProblem(w, http.StatusNotFound, "not-found", "Resource not found", "")
 	case errors.Is(err, ErrQueryDenied):
 		writeProblem(w, http.StatusForbidden, "query-denied", "The registry denied the query", "")
+	case errors.Is(err, ErrUpstreamRateLimited):
+		// The registry is throttling this instance. Pass its Retry-After on,
+		// so clients back off for as long as the registry asked instead of
+		// retrying into the same limit.
+		slog.WarnContext(ctx, "upstream registry rate limit", "err", err)
+		var limited *UpstreamRateLimitedError
+		if errors.As(err, &limited) && limited.RetryAfter > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(limited.RetryAfter.Seconds()))))
+		}
+		writeProblem(w, http.StatusServiceUnavailable, "upstream-rate-limited",
+			"The registry is rate limiting queries",
+			"The upstream registry is temporarily refusing queries from this instance. Retry later.")
 	case errors.Is(err, ErrUpstreamBusy):
 		slog.WarnContext(ctx, "upstream limit reached", "err", err)
 		writeProblem(w, http.StatusTooManyRequests, "rate-limited",

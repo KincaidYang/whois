@@ -370,3 +370,29 @@ func TestHandleASNUpstreamErrors(t *testing.T) {
 		}
 	}
 }
+
+// TestHandleIPUpstreamRateLimited verifies that a registry answering 429 is
+// reported as 503 upstream-rate-limited with the registry's Retry-After, and
+// that the result is not cached: the next request queries upstream again.
+func TestHandleIPUpstreamRateLimited(t *testing.T) {
+	var calls atomic.Int32
+	withFakeRDAP(t, func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}, "192.0.2.64/27")
+
+	for i := 1; i <= 2; i++ {
+		w := httptest.NewRecorder()
+		newTestMux().ServeHTTP(w, httptest.NewRequest("GET", "/ip/192.0.2.70", nil))
+		if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "#upstream-rate-limited") {
+			t.Fatalf("request %d: got %d %s, want 503 upstream-rate-limited", i, w.Code, w.Body.String())
+		}
+		if got := w.Header().Get("Retry-After"); got != "30" {
+			t.Errorf("request %d: Retry-After = %q, want 30", i, got)
+		}
+		if got := int(calls.Load()); got != i {
+			t.Errorf("request %d: upstream called %d times; a rate-limited answer must not be cached", i, got)
+		}
+	}
+}
