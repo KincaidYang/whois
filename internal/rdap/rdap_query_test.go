@@ -41,6 +41,42 @@ func TestGetHTTPClientProxySelection(t *testing.T) {
 	}
 }
 
+// TestGetHTTPClientNoTLD covers IP and ASN queries, which have no TLD: only
+// the catch-all "all" entry proxies them, never a TLD entry.
+func TestGetHTTPClientNoTLD(t *testing.T) {
+	if got := getHTTPClient(""); got != config.HttpClient {
+		t.Fatalf("without \"all\", a query with no TLD should get config.HttpClient, got %+v", got)
+	}
+	// An empty entry in proxy.suffixes must not match the empty TLD.
+	proxySuffixSet[""] = struct{}{}
+	if got := getHTTPClient(""); got != config.HttpClient {
+		t.Fatalf("an empty suffix entry must not proxy IP/ASN queries, got %+v", got)
+	}
+	delete(proxySuffixSet, "")
+
+	proxySuffixSet["all"] = struct{}{}
+	defer delete(proxySuffixSet, "all")
+	if got := getHTTPClient(""); got != proxyClient {
+		t.Fatalf("with \"all\", a query with no TLD should get the proxy client, got %+v", got)
+	}
+}
+
+func TestDoRDAPRequestSendsUserAgent(t *testing.T) {
+	var got atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got.Store(r.Header.Get("User-Agent"))
+		_, _ = w.Write([]byte("{}"))
+	}))
+	defer srv.Close()
+
+	if _, err := doRDAPRequest(context.Background(), config.HttpClient, srv.URL); err != nil {
+		t.Fatalf("doRDAPRequest: %v", err)
+	}
+	if ua, _ := got.Load().(string); ua != config.UserAgent() || !strings.HasPrefix(ua, "whois/") {
+		t.Fatalf("User-Agent = %q, want %q", ua, config.UserAgent())
+	}
+}
+
 func TestDoRDAPRequestStatusMapping(t *testing.T) {
 	tests := []struct {
 		name    string

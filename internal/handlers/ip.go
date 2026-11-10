@@ -30,7 +30,14 @@ func HandleIP(ctx context.Context, w http.ResponseWriter, resource string, cache
 		ipStr = before
 	}
 	ip := net.ParseIP(ipStr)
-	serverURL, _ := serverlist.LookupIPKey(ip)
+	serverURL, ok := serverlist.LookupIPKey(ip)
+	if !ok {
+		// Nothing to query: the address is in space no registry answers for
+		// (loopback, private, reserved, unallocated). Like a TLD with no
+		// server, that is an answer about the resource, not a server failure.
+		utils.HandleHTTPError(w, utils.ErrorTypeNotFound, "No RDAP server known for this address (reserved, private or unallocated space).")
+		return
+	}
 
 	// Query and parse the RDAP information, deduplicating concurrent misses
 	outcome, err := dedupedQuery(ctx, key, refresh, func(qctx context.Context) (queryOutcome, error) {

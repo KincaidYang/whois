@@ -543,6 +543,7 @@ func main() {
 	if config.BootstrapInterval > 0 {
 		bootstrapCtx, bootstrapCancel := context.WithCancel(context.Background())
 		defer bootstrapCancel()
+		serverlist.UserAgent = config.UserAgent()
 		serverlist.StartBootstrapRefresh(bootstrapCtx, config.HttpClient, config.BootstrapInterval)
 	}
 

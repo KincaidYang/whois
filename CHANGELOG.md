@@ -13,6 +13,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Upstream RDAP requests and the IANA bootstrap fetch send
+  `User-Agent: whois/<version> (+https://github.com/KincaidYang/whois)`
+  instead of Go's default `Go-http-client/1.1`, so a registry can tell what
+  is querying it and where to report a problem.
+
+### Fixed
+- IP addresses and AS numbers no registry answers for — loopback, private,
+  reserved or unallocated space, such as `127.0.0.1`, `10.0.0.1`, `fc00::1`,
+  `AS0` or `AS64512` — return 404 `not-found` instead of 500 `query-failed`.
+  They used to go all the way into the query path before failing for lack of
+  a server, logging an error and counting as a 5xx each time, so anyone could
+  trip a 5xx alert with `GET /127.0.0.1`. Domains under a TLD with no server
+  have answered 404 since 1.2.0.
+- `proxy.suffixes: ["all"]` now proxies IP and ASN lookups too. It was
+  documented as sending everything through the proxy, but only domain RDAP
+  queries went there; IP and ASN queries connected directly, which fails
+  outright where the proxy is the only way out. WHOIS (port 43) queries and
+  the IANA bootstrap fetch still connect directly, and the documentation now
+  says so.
+
 ## [1.5.0] - 2026-10-24
 
 ### Added

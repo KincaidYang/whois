@@ -185,3 +185,28 @@ func TestStartBootstrapRefreshUpdatesIndex(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// TestFetchBootstrapUserAgent verifies the configured User-Agent is sent,
+// and that leaving it empty keeps Go's default rather than sending none.
+func TestFetchBootstrapUserAgent(t *testing.T) {
+	seen := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen <- r.Header.Get("User-Agent")
+		_, _ = w.Write([]byte(`{"services":[]}`))
+	}))
+	defer srv.Close()
+
+	defer func(old string) { UserAgent = old }(UserAgent)
+	for _, tt := range []struct{ set, wantPrefix string }{
+		{"whois/test (+https://example.test)", "whois/test"},
+		{"", "Go-http-client/"},
+	} {
+		UserAgent = tt.set
+		if _, err := fetchBootstrap(context.Background(), srv.Client(), srv.URL); err != nil {
+			t.Fatalf("fetchBootstrap: %v", err)
+		}
+		if got := <-seen; !strings.HasPrefix(got, tt.wantPrefix) {
+			t.Errorf("UserAgent=%q: server saw %q, want prefix %q", tt.set, got, tt.wantPrefix)
+		}
+	}
+}

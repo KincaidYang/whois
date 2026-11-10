@@ -325,3 +325,24 @@ func TestHandleReadyRequireRedis(t *testing.T) {
 		t.Errorf("body: %s", w.Body.String())
 	}
 }
+
+// TestHandleIPAndASNWithoutRegistry verifies that addresses and AS numbers no
+// registry answers for (loopback, private, reserved) are reported as
+// not-found, like a domain under a TLD with no server, rather than as a
+// failed query.
+func TestHandleIPAndASNWithoutRegistry(t *testing.T) {
+	for _, resource := range []string{"127.0.0.1", "10.0.0.1", "240.0.0.1", "fc00::1", "0.0.0.0/0"} {
+		w := httptest.NewRecorder()
+		handlers.HandleIP(context.Background(), w, resource, handlers.CacheKeyPrefix, false)
+		if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "#not-found") {
+			t.Errorf("IP %s: got %d %s, want 404 not-found", resource, w.Code, w.Body.String())
+		}
+	}
+	for _, resource := range []string{"as0", "as64512", "as4200000000"} {
+		w := httptest.NewRecorder()
+		handlers.HandleASN(context.Background(), w, resource, handlers.CacheKeyPrefix, false)
+		if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "#not-found") {
+			t.Errorf("ASN %s: got %d %s, want 404 not-found", resource, w.Code, w.Body.String())
+		}
+	}
+}

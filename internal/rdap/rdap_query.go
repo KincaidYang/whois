@@ -69,13 +69,15 @@ func initProxy() {
 }
 
 // getHTTPClient returns an HTTP client with appropriate proxy settings.
-// Returns the pre-built proxyClient for proxied TLDs, or config.HttpClient otherwise.
+// Returns the pre-built proxyClient for proxied TLDs, or config.HttpClient
+// otherwise. IP and ASN queries have no TLD and pass "": they are proxied
+// only by the catch-all "all" entry.
 func getHTTPClient(tld string) *http.Client {
 	proxyOnce.Do(initProxy)
 	if proxyClient != nil {
 		_, matchTLD := proxySuffixSet[tld]
 		_, matchAll := proxySuffixSet["all"]
-		if matchTLD || matchAll {
+		if (tld != "" && matchTLD) || matchAll {
 			return proxyClient
 		}
 	}
@@ -89,6 +91,7 @@ func doRDAPRequest(ctx context.Context, client *http.Client, url string) (result
 		return "", err
 	}
 	req.Header.Set("Accept", "application/rdap+json")
+	req.Header.Set("User-Agent", config.UserAgent())
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -154,7 +157,7 @@ func RDAPQueryIP(ctx context.Context, ip, serverURL string) (string, error) {
 	for i := range segments {
 		segments[i] = url.PathEscape(segments[i])
 	}
-	return doRDAPRequest(ctx, config.HttpClient, serverURL+"ip/"+strings.Join(segments, "/"))
+	return doRDAPRequest(ctx, getHTTPClient(""), serverURL+"ip/"+strings.Join(segments, "/"))
 }
 
 // RDAPQueryASN queries the RDAP information for a given ASN.
@@ -168,5 +171,5 @@ func RDAPQueryASN(ctx context.Context, as, serverURL string) (string, error) {
 	defer func() {
 		metrics.UpstreamDuration.WithLabelValues("rdap", "_asn").Observe(time.Since(start).Seconds())
 	}()
-	return doRDAPRequest(ctx, config.HttpClient, serverURL+"autnum/"+url.PathEscape(as))
+	return doRDAPRequest(ctx, getHTTPClient(""), serverURL+"autnum/"+url.PathEscape(as))
 }

@@ -32,12 +32,19 @@ var ianaBootstrapURLs = map[string]string{
 	"asn":  "https://data.iana.org/rdap/asn.json",
 }
 
+// UserAgent is sent with bootstrap fetches when set. The service sets it at
+// startup; left empty (the list generator, tests), Go's default applies.
+var UserAgent string
+
 // fetchBootstrap fetches and parses one IANA bootstrap JSON file.
 // Returns a map of identifier → first RDAP server URL.
 func fetchBootstrap(ctx context.Context, client *http.Client, url string) (map[string]string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
+	}
+	if UserAgent != "" {
+		req.Header.Set("User-Agent", UserAgent)
 	}
 
 	resp, err := client.Do(req)

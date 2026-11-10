@@ -145,6 +145,17 @@ type AuthClient struct {
 	Limiter *rate.Limiter
 }
 
+// UserAgent identifies this service to upstream registries and IANA, so an
+// operator there can tell what is querying them and where to report a
+// problem, instead of seeing Go's anonymous default.
+func UserAgent() string {
+	version := Version
+	if version == "" {
+		version = "dev"
+	}
+	return "whois/" + version + " (+https://github.com/KincaidYang/whois)"
+}
+
 // RequestTimeout bounds how long a single query may take, so a slow upstream
 // WHOIS/RDAP server cannot hold a concurrency slot indefinitely. It must stay
 // below the HTTP server's WriteTimeout (20s) so the handler returns first, and
