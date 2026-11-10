@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/KincaidYang/whois/internal/config"
-	"github.com/KincaidYang/whois/internal/serverlist"
 	"github.com/KincaidYang/whois/internal/handlers"
+	"github.com/KincaidYang/whois/internal/serverlist"
 )
 
 // newTestMux builds the same routing table main() installs, on a private mux.
