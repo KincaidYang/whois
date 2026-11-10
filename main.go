@@ -534,6 +534,14 @@ func serve(w http.ResponseWriter, r *http.Request, resource, want string) {
 	metrics.HTTPRequestDuration.WithLabelValues(resourceType).Observe(elapsed)
 }
 
+// The bootstrap fetch identifies itself like the RDAP queries do. Wired here
+// because serverlist is also used by the list generator, which has no
+// service configuration; the function is called per fetch, after config.Load
+// has set the version.
+func init() {
+	serverlist.UserAgent = config.UserAgent
+}
+
 func main() {
 	// Load configuration and initialize logger, Redis client and cache.
 	config.Load()
@@ -543,7 +551,6 @@ func main() {
 	if config.BootstrapInterval > 0 {
 		bootstrapCtx, bootstrapCancel := context.WithCancel(context.Background())
 		defer bootstrapCancel()
-		serverlist.UserAgent = config.UserAgent()
 		serverlist.StartBootstrapRefresh(bootstrapCtx, config.HttpClient, config.BootstrapInterval)
 	}
 
