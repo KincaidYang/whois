@@ -1,0 +1,8 @@
+# Nothing here is needed to build the image; keeping it out of the build
+# context keeps the repository history out of the builder layer.
+.git
+.github
+.ide
+.claude
+docs
+dist

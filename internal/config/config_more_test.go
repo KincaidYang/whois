@@ -313,3 +313,26 @@ func TestLoadConfig(t *testing.T) {
 		}
 	})
 }
+
+// TestInitVersionInfoLinked verifies that a version and commit linked in at
+// build time (the Docker image, which has no VCS build info) take precedence
+// and that the commit is shortened like a stamped one.
+func TestInitVersionInfoLinked(t *testing.T) {
+	oldVersion, oldBuildTime, oldCommit := Version, BuildTime, GitCommit
+	defer func() {
+		Version, BuildTime, GitCommit = oldVersion, oldBuildTime, oldCommit
+		buildVersion, buildCommit = "", ""
+	}()
+
+	buildVersion, buildCommit = "v9.9.9", "0123456789abcdef0123456789abcdef01234567"
+	initVersionInfo()
+	if Version != "v9.9.9" || GitCommit != "0123456" {
+		t.Fatalf("got version %q commit %q, want v9.9.9 / 0123456", Version, GitCommit)
+	}
+
+	buildVersion, buildCommit = "", "abc"
+	initVersionInfo()
+	if Version == "v9.9.9" || GitCommit != "abc" {
+		t.Fatalf("got version %q commit %q, want the build-info version and commit abc", Version, GitCommit)
+	}
+}

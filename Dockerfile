@@ -9,7 +9,12 @@ RUN go mod download
 
 # 复制源代码并构建可执行文件
 COPY . .
-RUN go build -o whois
+
+# 版本号由构建参数注入：golang:alpine 里没有 git，Go 无法自行写入 VCS 信息，
+# 不传则 /info 与 MCP 的版本号显示为 dev
+ARG VERSION=""
+ARG COMMIT=""
+RUN go build -ldflags "-X github.com/KincaidYang/whois/internal/config.buildVersion=${VERSION} -X github.com/KincaidYang/whois/internal/config.buildCommit=${COMMIT}" -o whois
 
 FROM alpine
 
