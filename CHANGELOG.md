@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-11-20
+
 ### Security
 - Built with Go 1.27.4 (was 1.27.3), which fixes GO-2026-6859: a header race
   in `net/http`'s `MaxBytesReader` could crash an HTTP/1 server. `/batch` and
@@ -704,6 +706,7 @@ See the [release notes](https://github.com/KincaidYang/whois/releases/tag/v0.6.0
 See the [GitHub releases page](https://github.com/KincaidYang/whois/releases)
 for 0.5.x and earlier.
 
+[1.6.1]: https://github.com/KincaidYang/whois/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/KincaidYang/whois/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/KincaidYang/whois/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/KincaidYang/whois/compare/v1.4.0...v1.4.1
