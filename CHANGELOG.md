@@ -13,6 +13,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Built with Go 1.27.4 (was 1.27.3), which fixes GO-2026-6859: a header race
+  in `net/http`'s `MaxBytesReader` could crash an HTTP/1 server. `/batch` and
+  `/mcp` wrap request bodies in `MaxBytesReader`, so the advisory was
+  reachable; `govulncheck` reports it under Go 1.27.3 and nothing under
+  1.27.4.
+
+### Changed
+- `golang.org/x/net` 0.63.0 (was 0.62.0) and `github.com/prometheus/common`
+  0.74.0 (was 0.73.1). The other direct dependencies are already at their
+  latest releases.
+
 ## [1.6.0] - 2026-11-10
 
 ### Changed
